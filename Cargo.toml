@@ -8,7 +8,10 @@ description = "SGF parser, Go board replay engine, compact move-file format, and
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+sha2 = "0.11.0"
 thiserror = "2"
+walkdir = "2.5.0"
 
 [dev-dependencies]
 tempfile = "3"
