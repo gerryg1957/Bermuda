@@ -1,6 +1,6 @@
 use crate::importer::{ImportOutcome, Importer};
 use anyhow::{Context, Result};
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Instant};
 use walkdir::WalkDir;
 
 #[derive(Debug, Default)]
@@ -19,6 +19,7 @@ pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Re
     }
 
     let mut importer = Importer::open(database)?;
+    let started = Instant::now();
     let mut summary = ImportSummary::default();
     let mut error_messages = Vec::new();
 
@@ -37,6 +38,20 @@ pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Re
         }
 
         summary.processed += 1;
+
+        if summary.processed.is_multiple_of(10_000) {
+            let elapsed = started.elapsed().as_secs_f64();
+            let rate = if elapsed > 0.0 {
+                summary.processed as f64 / elapsed
+            } else {
+                0.0
+            };
+
+            println!(
+                "Processed {} games ({rate:.1} games/second)...",
+                summary.processed
+            );
+        }
 
         match importer.import_file(source, version, entry.path()) {
             Ok(ImportOutcome::Imported { .. }) => {
@@ -71,6 +86,14 @@ pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Re
     }
 
     write_error_log(database, &error_messages)?;
+    let elapsed = started.elapsed();
+    let elapsed_seconds = elapsed.as_secs_f64();
+
+    let rate = if elapsed_seconds > 0.0 {
+        summary.processed as f64 / elapsed_seconds
+    } else {
+        0.0
+    };
 
     println!();
     println!("Import complete");
@@ -80,6 +103,8 @@ pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Re
     println!("Duplicates   : {}", summary.duplicates);
     println!("Skipped      : {}", summary.skipped);
     println!("Errors       : {}", summary.errors);
+    println!("Elapsed      : {:.2} seconds", elapsed_seconds);
+    println!("Rate         : {:.1} games/second", rate);
 
     if !error_messages.is_empty() {
         println!(
