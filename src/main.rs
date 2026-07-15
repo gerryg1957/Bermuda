@@ -1,3 +1,5 @@
+mod database;
+
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use moyodb_core::{
@@ -19,6 +21,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Create a new MoyoDB database directory.
+    Init {
+        /// Directory in which to create the database.
+        database: PathBuf,
+    },
+
     /// Convert the first game and its main variation from SGF to a compact move file.
     Import {
         /// Source SGF file.
@@ -47,6 +55,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Init { database } => database::initialise(&database),
         Command::Import { sgf, output } => import_sgf(sgf, output),
         Command::Inspect { input } => inspect_move_file(input),
         Command::Replay { input, move_number } => replay_move_file(input, move_number),
