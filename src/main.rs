@@ -1,5 +1,6 @@
 mod commands;
 mod database;
+mod import_directory;
 mod importer;
 
 use anyhow::Result;
@@ -38,6 +39,20 @@ enum Command {
 
         /// SGF file to import.
         sgf: PathBuf,
+    },
+    /// Import every SGF below a directory.
+    ImportDir {
+        /// MoyoDB database directory.
+        database: PathBuf,
+
+        /// Source collection name, for example GoGoD or go4go.
+        source: String,
+
+        /// Source release or update version.
+        version: String,
+
+        /// Directory containing SGF files.
+        directory: PathBuf,
     },
 
     /// Convert the first game and its main variation from SGF to a compact move file.
@@ -78,6 +93,13 @@ fn main() -> Result<()> {
             version,
             sgf,
         } => import_one(database, source, version, sgf),
+
+        Command::ImportDir {
+            database,
+            source,
+            version,
+            directory,
+        } => import_directory::run(&database, &source, &version, &directory),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
