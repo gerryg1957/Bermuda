@@ -1,0 +1,18 @@
+[package]
+name = "moyodb-core"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "SGF parser, Go board replay engine, compact move-file format, and moyodb CLI"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "moyodb"
+path = "src/main.rs"
