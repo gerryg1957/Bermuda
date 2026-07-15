@@ -147,13 +147,13 @@ fn collect_sequence(
         if let Some(value) = black {
             moves.push(Move {
                 color: Color::Black,
-                point: coordinate(value, size)?,
+                point: move_coordinate(value, size)?,
             });
         }
         if let Some(value) = white {
             moves.push(Move {
                 color: Color::White,
-                point: coordinate(value, size)?,
+                point: move_coordinate(value, size)?,
             });
         }
     }
@@ -182,6 +182,13 @@ pub fn replay(record: &GameRecord) -> Result<Board, GameError> {
         })?;
     }
     Ok(board)
+}
+fn move_coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
+    if value.is_empty() || (size <= 19 && value.eq_ignore_ascii_case("tt")) {
+        return Ok(None);
+    }
+
+    coordinate(value, size)
 }
 
 fn coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
@@ -221,4 +228,27 @@ fn coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
 
 fn owned(value: Option<&str>) -> Option<String> {
     value.map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse_collection;
+
+    #[test]
+    fn accepts_legacy_tt_as_a_pass_on_19x19() {
+        let collection = parse_collection(b"(;FF[4]GM[1]SZ[19];B[pd];W[tt];B[dd])").unwrap();
+
+        let record = extract_main_variation(&collection).unwrap();
+
+        assert_eq!(record.moves.len(), 3);
+        assert_eq!(record.moves[1].point, None);
+    }
+
+    #[test]
+    fn does_not_accept_tt_as_a_setup_point() {
+        let collection = parse_collection(b"(;FF[4]GM[1]SZ[19]AB[tt])").unwrap();
+
+        assert!(extract_main_variation(&collection).is_err());
+    }
 }
