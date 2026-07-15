@@ -95,7 +95,10 @@ impl Parser<'_> {
         }
 
         self.expect(b')')?;
-        Ok(GameTree { sequence, variations })
+        Ok(GameTree {
+            sequence,
+            variations,
+        })
     }
 
     fn parse_node(&mut self) -> Result<Node, SgfError> {
@@ -119,7 +122,10 @@ impl Parser<'_> {
                     offset: self.pos,
                 });
             }
-            node.properties.entry(identifier).or_default().extend(values);
+            node.properties
+                .entry(identifier)
+                .or_default()
+                .extend(values);
         }
 
         Ok(node)

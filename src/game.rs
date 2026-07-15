@@ -1,4 +1,7 @@
-use crate::{board::{Board, BoardError, Color, Move}, sgf::{Collection, GameTree, Node}};
+use crate::{
+    board::{Board, BoardError, Color, Move},
+    sgf::{Collection, GameTree, Node},
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,7 +44,11 @@ pub enum GameError {
     #[error("node contains both B and W moves")]
     TwoMovesInNode,
     #[error("board replay failed at move {move_number}: {source}")]
-    Replay { move_number: usize, #[source] source: BoardError },
+    Replay {
+        move_number: usize,
+        #[source]
+        source: BoardError,
+    },
 }
 
 pub fn extract_main_variation(collection: &Collection) -> Result<GameRecord, GameError> {
@@ -50,7 +57,10 @@ pub fn extract_main_variation(collection: &Collection) -> Result<GameRecord, Gam
 }
 
 fn extract_tree_main_variation(tree: &GameTree) -> Result<GameRecord, GameError> {
-    let root = tree.sequence.first().expect("parser guarantees non-empty sequence");
+    let root = tree
+        .sequence
+        .first()
+        .expect("parser guarantees non-empty sequence");
     if let Some(gm) = root.first("GM")
         && gm != "1"
     {
@@ -58,9 +68,13 @@ fn extract_tree_main_variation(tree: &GameTree) -> Result<GameRecord, GameError>
     }
     let board_size = match root.first("SZ") {
         None => 19,
-        Some(value) => value.parse::<u8>().map_err(|_| GameError::InvalidBoardSize(value.to_owned()))?,
+        Some(value) => value
+            .parse::<u8>()
+            .map_err(|_| GameError::InvalidBoardSize(value.to_owned()))?,
     };
-    if !(1..=19).contains(&board_size) { return Err(GameError::UnsupportedBoardSize(board_size)); }
+    if !(1..=19).contains(&board_size) {
+        return Err(GameError::UnsupportedBoardSize(board_size));
+    }
 
     let metadata = Metadata {
         black_player: owned(root.first("PB")),
@@ -83,42 +97,104 @@ fn extract_tree_main_variation(tree: &GameTree) -> Result<GameRecord, GameError>
         branch = next.variations.first();
     }
 
-    Ok(GameRecord { board_size, metadata, setup, moves })
+    Ok(GameRecord {
+        board_size,
+        metadata,
+        setup,
+        moves,
+    })
 }
 
-fn collect_sequence(nodes: &[Node], size: u8, setup: &mut Vec<SetupStone>, moves: &mut Vec<Move>) -> Result<(), GameError> {
+fn collect_sequence(
+    nodes: &[Node],
+    size: u8,
+    setup: &mut Vec<SetupStone>,
+    moves: &mut Vec<Move>,
+) -> Result<(), GameError> {
     for node in nodes {
-        for value in node.values("AB") { setup.push(SetupStone::Add { color: Color::Black, point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate { value: value.clone(), size })? }); }
-        for value in node.values("AW") { setup.push(SetupStone::Add { color: Color::White, point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate { value: value.clone(), size })? }); }
-        for value in node.values("AE") { setup.push(SetupStone::Remove { point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate { value: value.clone(), size })? }); }
+        for value in node.values("AB") {
+            setup.push(SetupStone::Add {
+                color: Color::Black,
+                point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate {
+                    value: value.clone(),
+                    size,
+                })?,
+            });
+        }
+        for value in node.values("AW") {
+            setup.push(SetupStone::Add {
+                color: Color::White,
+                point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate {
+                    value: value.clone(),
+                    size,
+                })?,
+            });
+        }
+        for value in node.values("AE") {
+            setup.push(SetupStone::Remove {
+                point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate {
+                    value: value.clone(),
+                    size,
+                })?,
+            });
+        }
 
         let black = node.first("B");
         let white = node.first("W");
-        if black.is_some() && white.is_some() { return Err(GameError::TwoMovesInNode); }
-        if let Some(value) = black { moves.push(Move { color: Color::Black, point: coordinate(value, size)? }); }
-        if let Some(value) = white { moves.push(Move { color: Color::White, point: coordinate(value, size)? }); }
+        if black.is_some() && white.is_some() {
+            return Err(GameError::TwoMovesInNode);
+        }
+        if let Some(value) = black {
+            moves.push(Move {
+                color: Color::Black,
+                point: coordinate(value, size)?,
+            });
+        }
+        if let Some(value) = white {
+            moves.push(Move {
+                color: Color::White,
+                point: coordinate(value, size)?,
+            });
+        }
     }
     Ok(())
 }
 
 pub fn replay(record: &GameRecord) -> Result<Board, GameError> {
-    let mut board = Board::new(record.board_size).map_err(|source| GameError::Replay { move_number: 0, source })?;
+    let mut board = Board::new(record.board_size).map_err(|source| GameError::Replay {
+        move_number: 0,
+        source,
+    })?;
     for stone in &record.setup {
         match *stone {
             SetupStone::Add { color, point } => board.set_setup(color, point),
             SetupStone::Remove { point } => board.clear_setup(point),
-        }.map_err(|source| GameError::Replay { move_number: 0, source })?;
+        }
+        .map_err(|source| GameError::Replay {
+            move_number: 0,
+            source,
+        })?;
     }
     for (index, &mv) in record.moves.iter().enumerate() {
-        board.play(mv).map_err(|source| GameError::Replay { move_number: index + 1, source })?;
+        board.play(mv).map_err(|source| GameError::Replay {
+            move_number: index + 1,
+            source,
+        })?;
     }
     Ok(board)
 }
 
 fn coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
-    if value.is_empty() { return Ok(None); }
+    if value.is_empty() {
+        return Ok(None);
+    }
     let bytes = value.as_bytes();
-    if bytes.len() != 2 { return Err(GameError::InvalidCoordinate { value: value.to_owned(), size }); }
+    if bytes.len() != 2 {
+        return Err(GameError::InvalidCoordinate {
+            value: value.to_owned(),
+            size,
+        });
+    }
     let decode = |b: u8| -> Option<u8> {
         match b {
             b'a'..=b'z' => Some(b - b'a'),
@@ -126,10 +202,23 @@ fn coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
             _ => None,
         }
     };
-    let x = decode(bytes[0]).ok_or_else(|| GameError::InvalidCoordinate { value: value.to_owned(), size })?;
-    let y = decode(bytes[1]).ok_or_else(|| GameError::InvalidCoordinate { value: value.to_owned(), size })?;
-    if x >= size || y >= size { return Err(GameError::InvalidCoordinate { value: value.to_owned(), size }); }
+    let x = decode(bytes[0]).ok_or_else(|| GameError::InvalidCoordinate {
+        value: value.to_owned(),
+        size,
+    })?;
+    let y = decode(bytes[1]).ok_or_else(|| GameError::InvalidCoordinate {
+        value: value.to_owned(),
+        size,
+    })?;
+    if x >= size || y >= size {
+        return Err(GameError::InvalidCoordinate {
+            value: value.to_owned(),
+            size,
+        });
+    }
     Ok(Some(u16::from(y) * u16::from(size) + u16::from(x)))
 }
 
-fn owned(value: Option<&str>) -> Option<String> { value.map(ToOwned::to_owned) }
+fn owned(value: Option<&str>) -> Option<String> {
+    value.map(ToOwned::to_owned)
+}

@@ -1,13 +1,17 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use moyodb_core::{
-    Board, Color, GameRecord, SetupStone, extract_main_variation, parse_collection,
-    read_move_file, write_move_file,
+    Board, Color, GameRecord, SetupStone, extract_main_variation, parse_collection, read_move_file,
+    write_move_file,
 };
 use std::{fs, path::PathBuf};
 
 #[derive(Debug, Parser)]
-#[command(name = "moyodb", version, about = "Professional Go game database tools")]
+#[command(
+    name = "moyodb",
+    version,
+    about = "Professional Go game database tools"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -45,10 +49,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Import { sgf, output } => import_sgf(sgf, output),
         Command::Inspect { input } => inspect_move_file(input),
-        Command::Replay {
-            input,
-            move_number,
-        } => replay_move_file(input, move_number),
+        Command::Replay { input, move_number } => replay_move_file(input, move_number),
     }
 }
 
@@ -67,10 +68,13 @@ fn import_sgf(sgf: PathBuf, output: PathBuf) -> Result<()> {
             .with_context(|| format!("creating output directory {}", parent.display()))?;
     }
 
-    write_move_file(&output, &record)
-        .with_context(|| format!("writing {}", output.display()))?;
+    write_move_file(&output, &record).with_context(|| format!("writing {}", output.display()))?;
 
-    println!("Imported: {} vs {}", display_or_unknown(&record.metadata.black_player), display_or_unknown(&record.metadata.white_player));
+    println!(
+        "Imported: {} vs {}",
+        display_or_unknown(&record.metadata.black_player),
+        display_or_unknown(&record.metadata.white_player)
+    );
     println!("Board size: {}x{}", record.board_size, record.board_size);
     println!("Setup edits: {}", record.setup.len());
     println!("Moves: {}", record.moves.len());
@@ -79,8 +83,7 @@ fn import_sgf(sgf: PathBuf, output: PathBuf) -> Result<()> {
 }
 
 fn inspect_move_file(input: PathBuf) -> Result<()> {
-    let record = read_move_file(&input)
-        .with_context(|| format!("reading {}", input.display()))?;
+    let record = read_move_file(&input).with_context(|| format!("reading {}", input.display()))?;
 
     let black_moves = record
         .moves
@@ -92,8 +95,14 @@ fn inspect_move_file(input: PathBuf) -> Result<()> {
 
     println!("File: {}", input.display());
     println!("Board size: {}x{}", record.board_size, record.board_size);
-    println!("Black: {}", display_or_unknown(&record.metadata.black_player));
-    println!("White: {}", display_or_unknown(&record.metadata.white_player));
+    println!(
+        "Black: {}",
+        display_or_unknown(&record.metadata.black_player)
+    );
+    println!(
+        "White: {}",
+        display_or_unknown(&record.metadata.white_player)
+    );
     print_optional("Date", &record.metadata.date);
     print_optional("Event", &record.metadata.event);
     print_optional("Result", &record.metadata.result);
@@ -112,8 +121,7 @@ fn inspect_move_file(input: PathBuf) -> Result<()> {
 }
 
 fn replay_move_file(input: PathBuf, move_number: Option<usize>) -> Result<()> {
-    let record = read_move_file(&input)
-        .with_context(|| format!("reading {}", input.display()))?;
+    let record = read_move_file(&input).with_context(|| format!("reading {}", input.display()))?;
     let requested = move_number.unwrap_or(record.moves.len());
 
     if requested > record.moves.len() {

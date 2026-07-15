@@ -60,23 +60,39 @@ impl Board {
         })
     }
 
-    pub fn size(&self) -> u8 { self.size }
-    pub fn ko_point(&self) -> Option<u16> { self.ko }
-    pub fn black_words(&self) -> &[u64; WORDS] { &self.black }
-    pub fn white_words(&self) -> &[u64; WORDS] { &self.white }
+    pub fn size(&self) -> u8 {
+        self.size
+    }
+    pub fn ko_point(&self) -> Option<u16> {
+        self.ko
+    }
+    pub fn black_words(&self) -> &[u64; WORDS] {
+        &self.black
+    }
+    pub fn white_words(&self) -> &[u64; WORDS] {
+        &self.white
+    }
 
     pub fn point(&self, x: u8, y: u8) -> Result<u16, BoardError> {
         if x >= self.size || y >= self.size {
-            return Err(BoardError::PointOutside(u16::from(y) * u16::from(self.size) + u16::from(x)));
+            return Err(BoardError::PointOutside(
+                u16::from(y) * u16::from(self.size) + u16::from(x),
+            ));
         }
         Ok(u16::from(y) * u16::from(self.size) + u16::from(x))
     }
 
     pub fn color_at(&self, point: u16) -> Option<Color> {
-        if !self.is_valid_point(point) { return None; }
-        if get_bit(&self.black, point) { Some(Color::Black) }
-        else if get_bit(&self.white, point) { Some(Color::White) }
-        else { None }
+        if !self.is_valid_point(point) {
+            return None;
+        }
+        if get_bit(&self.black, point) {
+            Some(Color::Black)
+        } else if get_bit(&self.white, point) {
+            Some(Color::White)
+        } else {
+            None
+        }
     }
 
     pub fn set_setup(&mut self, color: Color, point: u16) -> Result<(), BoardError> {
@@ -100,8 +116,12 @@ impl Board {
             return Ok(Vec::new());
         };
         self.require_point(point)?;
-        if self.color_at(point).is_some() { return Err(BoardError::Occupied(point)); }
-        if self.ko == Some(point) { return Err(BoardError::Ko(point)); }
+        if self.color_at(point).is_some() {
+            return Err(BoardError::Occupied(point));
+        }
+        if self.ko == Some(point) {
+            return Err(BoardError::Ko(point));
+        }
 
         let previous = self.clone();
         self.set(mv.color, point);
@@ -117,7 +137,9 @@ impl Board {
         }
         captured.sort_unstable();
         captured.dedup();
-        for &stone in &captured { self.clear(stone); }
+        for &stone in &captured {
+            self.clear(stone);
+        }
 
         let own_group = self.group(point);
         if self.liberty_count(&own_group) == 0 {
@@ -125,11 +147,12 @@ impl Board {
             return Err(BoardError::Suicide(point));
         }
 
-        self.ko = if captured.len() == 1 && own_group.len() == 1 && self.liberty_count(&own_group) == 1 {
-            Some(captured[0])
-        } else {
-            None
-        };
+        self.ko =
+            if captured.len() == 1 && own_group.len() == 1 && self.liberty_count(&own_group) == 1 {
+                Some(captured[0])
+            } else {
+                None
+            };
         Ok(captured)
     }
 
@@ -137,7 +160,11 @@ impl Board {
         point < u16::from(self.size) * u16::from(self.size)
     }
     fn require_point(&self, point: u16) -> Result<(), BoardError> {
-        if self.is_valid_point(point) { Ok(()) } else { Err(BoardError::PointOutside(point)) }
+        if self.is_valid_point(point) {
+            Ok(())
+        } else {
+            Err(BoardError::PointOutside(point))
+        }
     }
     fn set(&mut self, color: Color, point: u16) {
         self.clear(point);
@@ -155,23 +182,37 @@ impl Board {
         let x = point % size;
         let y = point / size;
         let mut out = Vec::with_capacity(4);
-        if x > 0 { out.push(point - 1); }
-        if x + 1 < size { out.push(point + 1); }
-        if y > 0 { out.push(point - size); }
-        if y + 1 < size { out.push(point + size); }
+        if x > 0 {
+            out.push(point - 1);
+        }
+        if x + 1 < size {
+            out.push(point + 1);
+        }
+        if y > 0 {
+            out.push(point - size);
+        }
+        if y + 1 < size {
+            out.push(point + size);
+        }
         out
     }
     fn group(&self, start: u16) -> Vec<u16> {
-        let Some(color) = self.color_at(start) else { return Vec::new(); };
+        let Some(color) = self.color_at(start) else {
+            return Vec::new();
+        };
         let mut visited = [false; MAX_POINTS];
         let mut stack = vec![start];
         let mut result = Vec::new();
         while let Some(point) = stack.pop() {
-            if visited[usize::from(point)] { continue; }
+            if visited[usize::from(point)] {
+                continue;
+            }
             visited[usize::from(point)] = true;
             result.push(point);
             for neighbour in self.neighbours(point) {
-                if self.color_at(neighbour) == Some(color) { stack.push(neighbour); }
+                if self.color_at(neighbour) == Some(color) {
+                    stack.push(neighbour);
+                }
             }
         }
         result
@@ -180,7 +221,9 @@ impl Board {
         let mut liberties = [false; MAX_POINTS];
         for &point in group {
             for neighbour in self.neighbours(point) {
-                if self.color_at(neighbour).is_none() { liberties[usize::from(neighbour)] = true; }
+                if self.color_at(neighbour).is_none() {
+                    liberties[usize::from(neighbour)] = true;
+                }
             }
         }
         liberties.into_iter().filter(|value| *value).count()

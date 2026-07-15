@@ -1,5 +1,12 @@
-use crate::{board::{Color, Move}, game::{GameRecord, Metadata, SetupStone}};
-use std::{fs::File, io::{self, BufReader, BufWriter, Read, Write}, path::Path};
+use crate::{
+    board::{Color, Move},
+    game::{GameRecord, Metadata, SetupStone},
+};
+use std::{
+    fs::File,
+    io::{self, BufReader, BufWriter, Read, Write},
+    path::Path,
+};
 use thiserror::Error;
 
 const MAGIC: &[u8; 8] = b"MOYOGAME";
@@ -30,8 +37,14 @@ pub fn write_move_file(path: impl AsRef<Path>, record: &GameRecord) -> Result<()
     writer.write_all(MAGIC)?;
     write_u16(&mut writer, VERSION)?;
     writer.write_all(&[record.board_size])?;
-    write_u32(&mut writer, u32::try_from(record.setup.len()).map_err(|_| MoveFileError::CountTooLarge)?)?;
-    write_u32(&mut writer, u32::try_from(record.moves.len()).map_err(|_| MoveFileError::CountTooLarge)?)?;
+    write_u32(
+        &mut writer,
+        u32::try_from(record.setup.len()).map_err(|_| MoveFileError::CountTooLarge)?,
+    )?;
+    write_u32(
+        &mut writer,
+        u32::try_from(record.moves.len()).map_err(|_| MoveFileError::CountTooLarge)?,
+    )?;
 
     write_string(&mut writer, record.metadata.black_player.as_deref())?;
     write_string(&mut writer, record.metadata.white_player.as_deref())?;
@@ -66,9 +79,13 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
     let mut reader = BufReader::new(file);
     let mut magic = [0u8; 8];
     reader.read_exact(&mut magic)?;
-    if &magic != MAGIC { return Err(MoveFileError::BadMagic); }
+    if &magic != MAGIC {
+        return Err(MoveFileError::BadMagic);
+    }
     let version = read_u16(&mut reader)?;
-    if version != VERSION { return Err(MoveFileError::UnsupportedVersion(version)); }
+    if version != VERSION {
+        return Err(MoveFileError::UnsupportedVersion(version));
+    }
     let board_size = read_byte(&mut reader)?;
     let setup_count = read_u32(&mut reader)?;
     let move_count = read_u32(&mut reader)?;
@@ -89,7 +106,10 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
         let color = read_byte(&mut reader)?;
         let point = read_u16(&mut reader)?;
         setup.push(match kind {
-            0 => SetupStone::Add { color: parse_color(color)?, point },
+            0 => SetupStone::Add {
+                color: parse_color(color)?,
+                point,
+            },
             1 => SetupStone::Remove { point },
             _ => return Err(MoveFileError::InvalidColor(kind)),
         });
@@ -98,13 +118,20 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
     for _ in 0..move_count {
         let color = parse_color(read_byte(&mut reader)?)?;
         let point = read_u16(&mut reader)?;
-        moves.push(Move { color, point: (point != PASS).then_some(point) });
+        moves.push(Move {
+            color,
+            point: (point != PASS).then_some(point),
+        });
     }
 
     Ok(GameRecord {
         board_size,
         metadata: Metadata {
-            black_player, white_player, date, event, result,
+            black_player,
+            white_player,
+            date,
+            event,
+            result,
             komi: (!komi_value.is_nan()).then_some(komi_value),
             handicap: (handicap_value != u8::MAX).then_some(handicap_value),
         },
@@ -113,19 +140,49 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
     })
 }
 
-fn color_byte(color: Color) -> u8 { match color { Color::Black => 0, Color::White => 1 } }
-fn parse_color(byte: u8) -> Result<Color, MoveFileError> { match byte { 0 => Ok(Color::Black), 1 => Ok(Color::White), other => Err(MoveFileError::InvalidColor(other)) } }
-fn write_u16(writer: &mut impl Write, value: u16) -> io::Result<()> { writer.write_all(&value.to_le_bytes()) }
-fn write_u32(writer: &mut impl Write, value: u32) -> io::Result<()> { writer.write_all(&value.to_le_bytes()) }
-fn read_u16(reader: &mut impl Read) -> io::Result<u16> { let mut b=[0;2]; reader.read_exact(&mut b)?; Ok(u16::from_le_bytes(b)) }
-fn read_u32(reader: &mut impl Read) -> io::Result<u32> { let mut b=[0;4]; reader.read_exact(&mut b)?; Ok(u32::from_le_bytes(b)) }
-fn read_byte(reader: &mut impl Read) -> io::Result<u8> { let mut b=[0;1]; reader.read_exact(&mut b)?; Ok(b[0]) }
+fn color_byte(color: Color) -> u8 {
+    match color {
+        Color::Black => 0,
+        Color::White => 1,
+    }
+}
+fn parse_color(byte: u8) -> Result<Color, MoveFileError> {
+    match byte {
+        0 => Ok(Color::Black),
+        1 => Ok(Color::White),
+        other => Err(MoveFileError::InvalidColor(other)),
+    }
+}
+fn write_u16(writer: &mut impl Write, value: u16) -> io::Result<()> {
+    writer.write_all(&value.to_le_bytes())
+}
+fn write_u32(writer: &mut impl Write, value: u32) -> io::Result<()> {
+    writer.write_all(&value.to_le_bytes())
+}
+fn read_u16(reader: &mut impl Read) -> io::Result<u16> {
+    let mut b = [0; 2];
+    reader.read_exact(&mut b)?;
+    Ok(u16::from_le_bytes(b))
+}
+fn read_u32(reader: &mut impl Read) -> io::Result<u32> {
+    let mut b = [0; 4];
+    reader.read_exact(&mut b)?;
+    Ok(u32::from_le_bytes(b))
+}
+fn read_byte(reader: &mut impl Read) -> io::Result<u8> {
+    let mut b = [0; 1];
+    reader.read_exact(&mut b)?;
+    Ok(b[0])
+}
 fn write_string(writer: &mut impl Write, value: Option<&str>) -> Result<(), MoveFileError> {
     match value {
         None => write_u32(writer, u32::MAX)?,
         Some(value) => {
             let bytes = value.as_bytes();
-            write_u32(writer, u32::try_from(bytes.len()).map_err(|_| MoveFileError::MetadataTooLarge)?)?;
+            write_u32(
+                writer,
+                u32::try_from(bytes.len()).map_err(|_| MoveFileError::MetadataTooLarge)?,
+            )?;
             writer.write_all(bytes)?;
         }
     }
@@ -133,8 +190,12 @@ fn write_string(writer: &mut impl Write, value: Option<&str>) -> Result<(), Move
 }
 fn read_string(reader: &mut impl Read) -> Result<Option<String>, MoveFileError> {
     let len = read_u32(reader)?;
-    if len == u32::MAX { return Ok(None); }
+    if len == u32::MAX {
+        return Ok(None);
+    }
     let mut bytes = vec![0u8; len as usize];
     reader.read_exact(&mut bytes)?;
-    String::from_utf8(bytes).map(Some).map_err(|_| MoveFileError::InvalidUtf8)
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| MoveFileError::InvalidUtf8)
 }
