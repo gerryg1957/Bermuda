@@ -69,8 +69,7 @@ impl Importer {
             .to_string_lossy()
             .into_owned();
 
-        let games_directory = self.database_root.join("games");
-        let relative_move_file = PathBuf::from("games").join(format!("{canonical_hex}.moves"));
+        let relative_move_file = move_file_path(&canonical_hex);
         let absolute_move_file = self.database_root.join(&relative_move_file);
 
         let transaction = self
@@ -93,10 +92,10 @@ impl Importer {
         let (game_id, is_new_game) = match existing_game_id {
             Some(game_id) => (game_id, false),
             None => {
-                fs::create_dir_all(&games_directory).with_context(|| {
-                    format!("creating game directory {}", games_directory.display())
-                })?;
-
+                if let Some(parent) = absolute_move_file.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("creating game directory {}", parent.display()))?;
+                }
                 write_move_file(&absolute_move_file, &record)
                     .with_context(|| format!("writing {}", absolute_move_file.display()))?;
 
@@ -124,6 +123,15 @@ impl Importer {
             Ok(ImportOutcome::AddedSource { game_id })
         }
     }
+}
+
+fn move_file_path(canonical_hex: &str) -> PathBuf {
+    debug_assert!(canonical_hex.len() >= 4);
+
+    PathBuf::from("games")
+        .join(&canonical_hex[0..2])
+        .join(&canonical_hex[2..4])
+        .join(format!("{canonical_hex}.moves"))
 }
 
 fn find_or_create_source(transaction: &Transaction<'_>, name: &str, version: &str) -> Result<i64> {
@@ -277,4 +285,22 @@ fn insert_metadata(
         .context("inserting source-specific game metadata")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn move_files_use_hash_subdirectories() {
+        let hash = "bf2f065bd025ad7d31e76249b4cb0d63ec92dc6bd76709661a8454fef743fa80";
+
+        assert_eq!(
+            move_file_path(hash),
+            PathBuf::from("games")
+                .join("bf")
+                .join("2f")
+                .join(format!("{hash}.moves"))
+        );
+    }
 }
