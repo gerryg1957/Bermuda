@@ -1,1 +1,0 @@
-/home/gerry/moyodb-core/target/debug/libmoyodb_core.rlib: /home/gerry/moyodb-core/src/board.rs /home/gerry/moyodb-core/src/game.rs /home/gerry/moyodb-core/src/lib.rs /home/gerry/moyodb-core/src/move_file.rs /home/gerry/moyodb-core/src/sgf.rs
