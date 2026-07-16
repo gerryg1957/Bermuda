@@ -55,6 +55,17 @@ enum Command {
         /// Directory containing SGF files.
         directory: PathBuf,
     },
+    /// Explore an indexed position from a game and move number.
+    ExplorePosition {
+        /// MoyoDB database directory.
+        database: PathBuf,
+
+        /// Database game ID.
+        game_id: i64,
+
+        /// Position after this move number.
+        move_number: usize,
+    },
     /// Build or resume the exact-position index.
     BuildPositionIndex {
         /// MoyoDB database directory.
@@ -118,10 +129,17 @@ fn main() -> Result<()> {
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
         Command::Inspect { input } => commands::inspect_move_file(input),
+
         Command::FindPosition {
             database,
             fingerprint,
         } => find_position(database, fingerprint),
+
+        Command::ExplorePosition {
+            database,
+            game_id,
+            move_number,
+        } => explore_position(database, game_id, move_number),
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { database } => build_position_index(database),
@@ -253,6 +271,35 @@ fn find_position(database: PathBuf, fingerprint: String) -> Result<()> {
 
         if let Some(ko_point) = position_match.ko_point {
             println!("  Ko point: {ko_point}");
+        }
+    }
+
+    Ok(())
+}
+
+fn explore_position(database: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
+    let indexer = indexer::PositionIndexer::open(&database)?;
+
+    let matches = indexer.find_matches_from_game(game_id, move_number)?;
+
+    println!("Game {} move {}", game_id, move_number);
+
+    println!("Matches: {}", matches.len());
+    println!();
+
+    for m in matches {
+        let side = match m.side_to_move {
+            moyodb_core::Color::Black => "Black",
+            moyodb_core::Color::White => "White",
+        };
+
+        println!(
+            "Game {:>6}   Move {:>5}   {} to move",
+            m.game_id, m.move_number, side,
+        );
+
+        if let Some(ko) = m.ko_point {
+            println!("           Ko point: {}", ko);
         }
     }
 
