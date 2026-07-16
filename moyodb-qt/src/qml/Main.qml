@@ -14,48 +14,42 @@ Kirigami.ApplicationWindow {
     width: Kirigami.Units.gridUnit * 48
     height: Kirigami.Units.gridUnit * 36
 
-    pageStack.initialPage: mainPage
+    pageStack.initialPage: Kirigami.Page {
+        title: "MoyoDB"
 
-    Component {
-        id: mainPage
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: Kirigami.Units.largeSpacing
 
-        Kirigami.Page {
-            title: "MoyoDB"
+            Kirigami.Heading {
+                text: "MoyoDB"
+                level: 1
+                Layout.alignment: Qt.AlignHCenter
+            }
 
-            ColumnLayout {
-                anchors.centerIn: parent
-                spacing: Kirigami.Units.largeSpacing
+            Controls.Label {
+                text: "Professional Go game database"
+                Layout.alignment: Qt.AlignHCenter
+            }
 
-                Kirigami.Heading {
-                    text: "MoyoDB"
-                    level: 1
-                    Layout.alignment: Qt.AlignHCenter
-                }
+            GoBoard {
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 28
+                Layout.preferredHeight: Layout.preferredWidth
+                Layout.alignment: Qt.AlignHCenter
 
-                Controls.Label {
-                    text: "Professional Go game database"
-                    Layout.alignment: Qt.AlignHCenter
-                }
+                boardSize: 19
 
-                Rectangle {
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 20
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 20
-                    Layout.alignment: Qt.AlignHCenter
+                stones: [
+                    { "x": 3, "y": 3, "color": "black" },
+                    { "x": 15, "y": 15, "color": "white" },
+                    { "x": 15, "y": 3, "color": "black" },
+                    { "x": 3, "y": 15, "color": "white" }
+                ]
+            }
 
-                    color: "#d8a45b"
-                    border.width: 1
-                    border.color: Kirigami.Theme.textColor
-
-                    Controls.Label {
-                        anchors.centerIn: parent
-                        text: "19 × 19 board"
-                    }
-                }
-
-                Controls.Label {
-                    text: "Rust core connected"
-                    Layout.alignment: Qt.AlignHCenter
-                }
+            Controls.Label {
+                text: "Rust core connected"
+                Layout.alignment: Qt.AlignHCenter
             }
         }
     }
