@@ -45,12 +45,15 @@ Kirigami.ApplicationWindow {
                     { "x": 15, "y": 3, "color": "black" },
                     { "x": 3, "y": 15, "color": "white" }
                 ]
+                onPointClicked: (x, y) => {
+                    statusLabel.text = "Clicked intersection: " + x + ", " + y
+                }
             }
-
-            Controls.Label {
-                text: "Rust core connected"
-                Layout.alignment: Qt.AlignHCenter
-            }
+Controls.Label {
+    id: statusLabel
+    text: "Move the pointer over the board"
+    Layout.alignment: Qt.AlignHCenter
+}
         }
     }
 }
