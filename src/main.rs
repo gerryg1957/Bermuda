@@ -2,6 +2,7 @@ mod commands;
 mod database;
 mod import_directory;
 mod importer;
+mod indexer;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
