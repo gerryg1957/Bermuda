@@ -5,8 +5,19 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
     id: root
-
+    
+    
     title: "MoyoDB"
+   
+    Shortcut {
+        sequence: StandardKey.Quit
+        onActivated: Qt.quit()
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        onActivated: Qt.quit()
+    }
 
     minimumWidth: Kirigami.Units.gridUnit * 36
     minimumHeight: Kirigami.Units.gridUnit * 28
