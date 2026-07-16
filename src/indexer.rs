@@ -147,6 +147,25 @@ impl PositionIndexer {
         self.replay_game(&game)
     }
 
+    pub fn position_from_game(
+        &self,
+        game_id: i64,
+        move_number: usize,
+    ) -> Result<PositionOccurrence> {
+        let stream = self.replay_game_by_id(game_id)?;
+
+        stream
+            .occurrences
+            .get(move_number)
+            .cloned()
+            .with_context(|| {
+                format!(
+                    "requested move {move_number}, but game {game_id} contains only {} moves",
+                    stream.occurrences.len().saturating_sub(1)
+                )
+            })
+    }
+
     fn game_by_id(&self, game_id: i64) -> Result<Option<GameToIndex>> {
         use rusqlite::OptionalExtension;
 
@@ -469,6 +488,62 @@ mod tests {
         assert_eq!(indexer.count_games_to_index(2).unwrap(), 1);
     }
 
+    #[test]
+    fn selects_position_from_game_by_move_number() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/test-one.moves");
+
+        write_test_move_file(
+            &root,
+            "games/aa/test-one.moves",
+            vec![
+                Move {
+                    color: Color::Black,
+                    point: Some(3 * 19 + 3),
+                },
+                Move {
+                    color: Color::White,
+                    point: Some(15 * 19 + 15),
+                },
+            ],
+        );
+
+        drop(connection);
+
+        let indexer = PositionIndexer::open(&root).expect("open indexer");
+        let occurrence = indexer.position_from_game(1, 1).expect("select position");
+
+        assert_eq!(occurrence.move_number, 1);
+        assert_eq!(occurrence.side_to_move, Color::White);
+    }
+
+    #[test]
+    fn rejects_out_of_range_position_number() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/test-one.moves");
+
+        write_test_move_file(
+            &root,
+            "games/aa/test-one.moves",
+            vec![Move {
+                color: Color::Black,
+                point: Some(3 * 19 + 3),
+            }],
+        );
+
+        drop(connection);
+
+        let indexer = PositionIndexer::open(&root).expect("open indexer");
+        let error = indexer
+            .position_from_game(1, 2)
+            .expect_err("move number should be out of range");
+
+        assert!(error.to_string().contains("contains only 1 moves"));
+    }
     #[test]
     fn indexes_one_game_transactionally() {
         let (_temporary, root) = create_test_database();
