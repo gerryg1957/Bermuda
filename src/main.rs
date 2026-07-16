@@ -60,6 +60,14 @@ enum Command {
         /// MoyoDB database directory.
         database: PathBuf,
     },
+    /// Find occurrences of an exact position fingerprint.
+    FindPosition {
+        /// MoyoDB database directory.
+        database: PathBuf,
+
+        /// SHA-256 exact-position fingerprint in hexadecimal.
+        fingerprint: String,
+    },
 
     /// Convert the first game and its main variation from SGF to a compact move file.
     Import {
@@ -110,6 +118,10 @@ fn main() -> Result<()> {
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
         Command::Inspect { input } => commands::inspect_move_file(input),
+        Command::FindPosition {
+            database,
+            fingerprint,
+        } => find_position(database, fingerprint),
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { database } => build_position_index(database),
@@ -218,6 +230,31 @@ fn build_position_index(database: PathBuf) -> Result<()> {
     println!("Errors        : {errors}");
     println!("Elapsed       : {elapsed_seconds:.2} seconds");
     println!("Rate          : {rate:.1} games/second");
+
+    Ok(())
+}
+
+fn find_position(database: PathBuf, fingerprint: String) -> Result<()> {
+    let indexer = indexer::PositionIndexer::open(&database)?;
+    let matches = indexer.find_exact_position(&fingerprint)?;
+
+    println!("Matches: {}", matches.len());
+
+    for position_match in matches {
+        let side = match position_match.side_to_move {
+            moyodb_core::Color::Black => "Black",
+            moyodb_core::Color::White => "White",
+        };
+
+        println!(
+            "Game {} — move {} — {} to move",
+            position_match.game_id, position_match.move_number, side
+        );
+
+        if let Some(ko_point) = position_match.ko_point {
+            println!("  Ko point: {ko_point}");
+        }
+    }
 
     Ok(())
 }

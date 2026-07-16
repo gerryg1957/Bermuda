@@ -18,6 +18,14 @@ pub struct IndexedPositionStream {
     pub occurrences: Vec<PositionOccurrence>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExactPositionMatch {
+    pub game_id: i64,
+    pub move_number: usize,
+    pub side_to_move: moyodb_core::Color,
+    pub ko_point: Option<u16>,
+}
+
 pub struct PositionIndexer {
     database_root: PathBuf,
     connection: Connection,
@@ -220,12 +228,96 @@ impl PositionIndexer {
 
         u64::try_from(count).context("negative game count returned by SQLite")
     }
+
+    pub fn find_exact_position(&self, fingerprint_hex: &str) -> Result<Vec<ExactPositionMatch>> {
+        let fingerprint = decode_fingerprint_hex(fingerprint_hex)?;
+
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+            SELECT
+                game_id,
+                move_number,
+                side_to_move,
+                ko_point
+            FROM exact_positions
+            WHERE position_hash = ?1
+            ORDER BY game_id, move_number
+            "#,
+            )
+            .context("preparing exact-position lookup")?;
+
+        let rows = statement
+            .query_map([fingerprint.as_slice()], |row| {
+                let move_number: i64 = row.get(1)?;
+                let side_to_move: i64 = row.get(2)?;
+                let ko_point: Option<i64> = row.get(3)?;
+
+                Ok((row.get::<_, i64>(0)?, move_number, side_to_move, ko_point))
+            })
+            .context("querying exact-position index")?;
+
+        let mut matches = Vec::new();
+
+        for row in rows {
+            let (game_id, move_number, side_to_move, ko_point) =
+                row.context("reading exact-position match")?;
+
+            matches.push(ExactPositionMatch {
+                game_id,
+                move_number: usize::try_from(move_number)
+                    .context("negative or oversized move number in database")?,
+                side_to_move: color_from_value(side_to_move)?,
+                ko_point: ko_point
+                    .map(u16::try_from)
+                    .transpose()
+                    .context("invalid ko point in database")?,
+            });
+        }
+
+        Ok(matches)
+    }
 }
 
 fn color_value(color: moyodb_core::Color) -> i64 {
     match color {
         moyodb_core::Color::Black => 1,
         moyodb_core::Color::White => 2,
+    }
+}
+
+fn color_from_value(value: i64) -> Result<moyodb_core::Color> {
+    match value {
+        1 => Ok(moyodb_core::Color::Black),
+        2 => Ok(moyodb_core::Color::White),
+        _ => bail!("invalid side-to-move value {value} in database"),
+    }
+}
+
+fn decode_fingerprint_hex(value: &str) -> Result<[u8; 32]> {
+    if value.len() != 64 {
+        bail!("position fingerprint must contain exactly 64 hexadecimal characters");
+    }
+
+    let mut output = [0u8; 32];
+    let bytes = value.as_bytes();
+
+    for index in 0..32 {
+        let high = decode_hex_digit(bytes[index * 2])?;
+        let low = decode_hex_digit(bytes[index * 2 + 1])?;
+        output[index] = (high << 4) | low;
+    }
+
+    Ok(output)
+}
+
+fn decode_hex_digit(value: u8) -> Result<u8> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => bail!("position fingerprint contains a non-hexadecimal character"),
     }
 }
 
