@@ -189,3 +189,21 @@ A complete professional Go database system suitable for long-term maintenance.
 * Original implementations based on published specifications.
 * Clear separation between core library, importer, search engine, and GUI.
 * Open architecture suitable for long-term maintenance.
+
+## Project Milestones
+
+### Completed
+
+* Public Git repository established on GitHub
+* GPL v3 licensed
+* Source code under version control
+* Documentation published
+* Development roadmap published
+
+Future project management improvements
+
+* GitHub Issues
+* GitHub Releases
+* Continuous Integration (GitHub Actions)
+* Contributor guidelines
+* Code of Conduct
