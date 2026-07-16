@@ -2,7 +2,7 @@
 name = "moyodb-core"
 version = "0.2.0"
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-or-later"
 description = "SGF parser, Go board replay engine, compact move-file format, and moyodb CLI"
 
 [dependencies]
@@ -13,9 +13,14 @@ sha2 = "0.11.0"
 thiserror = "2"
 walkdir = "2.5.0"
 
+
 [dev-dependencies]
 tempfile = "3"
 
 [[bin]]
 name = "moyodb"
 path = "src/main.rs"
+
+[workspace]
+members = [".", "moyodb-qt"]
+resolver = "2"
