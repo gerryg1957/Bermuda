@@ -1,8 +1,10 @@
 use crate::database;
 use anyhow::{Context, Result, bail};
 use moyodb_core::{PositionOccurrence, position_stream, read_move_file};
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
+
+pub const POSITION_INDEX_VERSION: i64 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameToIndex {
@@ -57,6 +59,75 @@ impl PositionIndexer {
             game_id: game.game_id,
             occurrences,
         })
+    }
+
+    pub fn index_game(&mut self, game: &GameToIndex, index_version: i64) -> Result<usize> {
+        if index_version <= 0 {
+            bail!("index version must be positive");
+        }
+
+        let stream = self.replay_game(game)?;
+        let occurrence_count = stream.occurrences.len();
+
+        let tx = self.connection.transaction()?;
+
+        tx.execute(
+            "DELETE FROM exact_positions WHERE game_id = ?1",
+            [game.game_id],
+        )?;
+
+        {
+            let mut stmt = tx.prepare(
+                r#"
+            INSERT INTO exact_positions(
+                position_hash,
+                game_id,
+                move_number,
+                side_to_move,
+                ko_point
+            )
+            VALUES(?1, ?2, ?3, ?4, ?5)
+            "#,
+            )?;
+
+            for occurrence in &stream.occurrences {
+                stmt.execute(params![
+                    occurrence.fingerprint.as_slice(),
+                    game.game_id,
+                    occurrence.move_number as i64,
+                    color_value(occurrence.side_to_move),
+                    occurrence.ko_point.map(i64::from),
+                ])?;
+            }
+        }
+
+        tx.execute(
+            r#"
+        INSERT INTO indexed_games(
+            game_id,
+            index_version,
+            occurrence_count
+        )
+        VALUES(?1, ?2, ?3)
+        ON CONFLICT(game_id) DO UPDATE SET
+            index_version = excluded.index_version,
+            occurrence_count = excluded.occurrence_count,
+            indexed_at = CURRENT_TIMESTAMP
+        "#,
+            params![game.game_id, index_version, occurrence_count as i64,],
+        )?;
+
+        tx.commit()?;
+
+        Ok(occurrence_count)
+    }
+
+    pub fn index_game_by_id(&mut self, game_id: i64, index_version: i64) -> Result<usize> {
+        let game = self
+            .game_by_id(game_id)?
+            .with_context(|| format!("game {game_id} does not exist"))?;
+
+        self.index_game(&game, index_version)
     }
 
     /// Reads and replays a game directly by database ID.
@@ -148,6 +219,13 @@ impl PositionIndexer {
             .context("counting games awaiting position indexing")?;
 
         u64::try_from(count).context("negative game count returned by SQLite")
+    }
+}
+
+fn color_value(color: moyodb_core::Color) -> i64 {
+    match color {
+        moyodb_core::Color::Black => 1,
+        moyodb_core::Color::White => 2,
     }
 }
 
@@ -297,6 +375,130 @@ mod tests {
 
         assert_eq!(indexer.count_games_to_index(1).unwrap(), 0);
         assert_eq!(indexer.count_games_to_index(2).unwrap(), 1);
+    }
+
+    #[test]
+    fn indexes_one_game_transactionally() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/test-one.moves");
+
+        write_test_move_file(
+            &root,
+            "games/aa/test-one.moves",
+            vec![
+                Move {
+                    color: Color::Black,
+                    point: Some(3 * 19 + 3),
+                },
+                Move {
+                    color: Color::White,
+                    point: Some(15 * 19 + 15),
+                },
+            ],
+        );
+
+        drop(connection);
+
+        let mut indexer = PositionIndexer::open(&root).expect("open indexer");
+
+        let count = indexer
+            .index_game_by_id(1, POSITION_INDEX_VERSION)
+            .expect("index game");
+
+        assert_eq!(count, 3);
+
+        let connection = database::open(&root).expect("reopen database");
+
+        let stored_positions: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM exact_positions WHERE game_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(stored_positions, 3);
+
+        let indexed: (i64, i64) = connection
+            .query_row(
+                r#"
+            SELECT index_version, occurrence_count
+            FROM indexed_games
+            WHERE game_id = 1
+            "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(indexed, (POSITION_INDEX_VERSION, 3));
+    }
+
+    #[test]
+    fn reindexing_replaces_existing_position_rows() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/test-one.moves");
+
+        write_test_move_file(
+            &root,
+            "games/aa/test-one.moves",
+            vec![Move {
+                color: Color::Black,
+                point: Some(3 * 19 + 3),
+            }],
+        );
+
+        drop(connection);
+
+        let mut indexer = PositionIndexer::open(&root).expect("open indexer");
+
+        assert_eq!(indexer.index_game_by_id(1, 1).unwrap(), 2);
+        assert_eq!(indexer.index_game_by_id(1, 2).unwrap(), 2);
+
+        let connection = database::open(&root).expect("reopen database");
+
+        let position_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM exact_positions WHERE game_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(position_count, 2);
+
+        let stored_version: i64 = connection
+            .query_row(
+                "SELECT index_version FROM indexed_games WHERE game_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(stored_version, 2);
+    }
+
+    #[test]
+    fn rejects_non_positive_index_version() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/test-one.moves");
+        write_test_move_file(&root, "games/aa/test-one.moves", Vec::new());
+
+        drop(connection);
+
+        let mut indexer = PositionIndexer::open(&root).expect("open indexer");
+
+        let error = indexer
+            .index_game_by_id(1, 0)
+            .expect_err("zero index version should fail");
+
+        assert!(error.to_string().contains("must be positive"));
     }
 
     #[test]
