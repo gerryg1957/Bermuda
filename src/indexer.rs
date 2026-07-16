@@ -166,6 +166,22 @@ impl PositionIndexer {
             })
     }
 
+    pub fn find_matches_from_game(
+        &self,
+        game_id: i64,
+        move_number: usize,
+    ) -> Result<Vec<ExactPositionMatch>> {
+        let occurrence = self.position_from_game(game_id, move_number)?;
+
+        let fingerprint = occurrence
+            .fingerprint
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        self.find_exact_position(&fingerprint)
+    }
+
     fn game_by_id(&self, game_id: i64) -> Result<Option<GameToIndex>> {
         use rusqlite::OptionalExtension;
 
@@ -706,6 +722,55 @@ mod tests {
 
         assert_eq!(stream.occurrences[2].move_number, 2);
         assert_eq!(stream.occurrences[2].side_to_move, Color::Black);
+    }
+    #[test]
+    fn finds_matches_from_game_position() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/test-one.moves");
+
+        write_test_move_file(
+            &root,
+            "games/aa/test-one.moves",
+            vec![
+                Move {
+                    color: Color::Black,
+                    point: Some(3 * 19 + 3),
+                },
+                Move {
+                    color: Color::White,
+                    point: Some(15 * 19 + 15),
+                },
+            ],
+        );
+
+        drop(connection);
+
+        let mut indexer = PositionIndexer::open(&root).expect("open indexer");
+
+        indexer
+            .index_game_by_id(1, POSITION_INDEX_VERSION)
+            .expect("index game");
+
+        let matches = indexer.find_matches_from_game(1, 1).expect("find matches");
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].game_id, 1);
+        assert_eq!(matches[0].move_number, 1);
+        assert_eq!(matches[0].side_to_move, Color::White);
+    }
+
+    #[test]
+    fn find_matches_from_unknown_game_reports_error() {
+        let (_temporary, root) = create_test_database();
+        let indexer = PositionIndexer::open(&root).expect("open indexer");
+
+        let error = indexer
+            .find_matches_from_game(999, 0)
+            .expect_err("unknown game should fail");
+
+        assert!(error.to_string().contains("game 999 does not exist"));
     }
 
     #[test]
