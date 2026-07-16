@@ -1,3 +1,8 @@
+## License
+
+MoyoDB is licensed under the GNU General Public License v3.0.
+See the LICENSE file for details.
+
 # MoyoDB core and command-line tool
 
 This Rust project implements the first working MoyoDB pipeline:
