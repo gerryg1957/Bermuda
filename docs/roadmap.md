@@ -64,6 +64,9 @@ Planned work
 * Position indexing
 * Position statistics
 * Fast position lookup
+* Incremental position indexing
+* Position fingerprints
+* Index rebuild command
 
 Deliverable
 
@@ -77,6 +80,7 @@ Goal: provide fast pattern searching across the complete database.
 
 Planned work
 
+* Whole-board exact position search
 * Corner patterns
 * Side patterns
 * Centre patterns
@@ -111,19 +115,50 @@ Daily-use desktop application.
 
 ---
 
-# Version 0.7 — Analysis
+# Version 0.7 — Fuseki Explorer
 
-Goal: support Go research.
+Goal: explore professional opening play interactively.
 
-Possible features
+Planned work
 
-* Fuseki statistics
-* Joseki statistics
+* Opening tree built from indexed positions
+* Move frequency statistics
+* Win/loss percentages
+* Symmetry-aware opening merging
+* Opening filters
+
+  * Player
+  * Date range
+  * Event
+  * Source database
+* Jump directly from opening positions to matching games
+* Export opening sequences as SGF
+
+Deliverable
+
+A professional opening explorer capable of analysing the first 30–50 moves of hundreds of thousands of games.
+
+---
+
+# Version 0.8 — Analysis
+
+Goal: support advanced Go research.
+
+Planned work
+
+* Joseki explorer
+* Corner statistics
 * Player reports
 * Tournament reports
 * Date-range filtering
-* Opening frequency graphs
+* Opening popularity graphs
 * Position frequency analysis
+* Pattern statistics
+* AI integration hooks
+
+Deliverable
+
+A comprehensive professional Go analysis environment.
 
 ---
 
