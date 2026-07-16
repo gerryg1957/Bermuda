@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 pub fn initialise(root: &Path) -> Result<()> {
     if root.exists() && !root.is_dir() {
@@ -83,6 +83,34 @@ pub fn initialise(root: &Path) -> Result<()> {
                     REFERENCES game_sources(id)
                     ON DELETE CASCADE
             );
+        CREATE TABLE IF NOT EXISTS indexed_games (
+    game_id           INTEGER PRIMARY KEY,
+    index_version     INTEGER NOT NULL,
+    indexed_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    occurrence_count  INTEGER NOT NULL,
+
+    FOREIGN KEY(game_id)
+        REFERENCES games(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS exact_positions (
+    position_hash     BLOB NOT NULL,
+    game_id           INTEGER NOT NULL,
+    move_number       INTEGER NOT NULL,
+    side_to_move      INTEGER NOT NULL,
+    ko_point          INTEGER,
+
+    FOREIGN KEY(game_id)
+        REFERENCES games(id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS exact_positions_hash
+    ON exact_positions(position_hash);
+
+CREATE INDEX IF NOT EXISTS exact_positions_game
+    ON exact_positions(game_id);
 
             CREATE INDEX IF NOT EXISTS game_sources_game_id
                 ON game_sources(game_id);
