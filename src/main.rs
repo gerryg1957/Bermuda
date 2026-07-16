@@ -4,9 +4,9 @@ mod import_directory;
 mod importer;
 mod indexer;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -54,6 +54,11 @@ enum Command {
 
         /// Directory containing SGF files.
         directory: PathBuf,
+    },
+    /// Build or resume the exact-position index.
+    BuildPositionIndex {
+        /// MoyoDB database directory.
+        database: PathBuf,
     },
 
     /// Convert the first game and its main variation from SGF to a compact move file.
@@ -107,6 +112,7 @@ fn main() -> Result<()> {
         Command::Inspect { input } => commands::inspect_move_file(input),
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
+        Command::BuildPositionIndex { database } => build_position_index(database),
     }
 }
 
@@ -132,6 +138,86 @@ fn import_one(database: PathBuf, source: String, version: String, sgf: PathBuf) 
             println!("Skipped: unsupported professional board size {board_size}x{board_size}");
         }
     }
+
+    Ok(())
+}
+
+fn build_position_index(database: PathBuf) -> Result<()> {
+    let started = Instant::now();
+
+    let mut indexer = indexer::PositionIndexer::open(&database)?;
+    let games = indexer.games_to_index(indexer::POSITION_INDEX_VERSION)?;
+
+    let total_games = games.len();
+
+    println!(
+        "Position index version: {}",
+        indexer::POSITION_INDEX_VERSION
+    );
+    println!("Games awaiting indexing: {total_games}");
+
+    if total_games == 0 {
+        println!("Position index is already up to date.");
+        return Ok(());
+    }
+
+    let mut indexed_games = 0usize;
+    let mut indexed_positions = 0u64;
+    let mut errors = 0usize;
+
+    for game in &games {
+        match indexer.index_game(game, indexer::POSITION_INDEX_VERSION) {
+            Ok(occurrence_count) => {
+                indexed_games += 1;
+
+                indexed_positions += u64::try_from(occurrence_count)
+                    .context("position count does not fit in u64")?;
+            }
+
+            Err(error) => {
+                errors += 1;
+
+                eprintln!(
+                    "Failed to index game {} from {}: {error:#}",
+                    game.game_id,
+                    game.move_file.display()
+                );
+            }
+        }
+
+        let processed = indexed_games + errors;
+
+        if processed.is_multiple_of(1_000) || processed == total_games {
+            let elapsed_seconds = started.elapsed().as_secs_f64();
+
+            let rate = if elapsed_seconds > 0.0 {
+                processed as f64 / elapsed_seconds
+            } else {
+                0.0
+            };
+
+            println!(
+                "Processed {processed}/{total_games} games \
+                 ({rate:.1} games/second)..."
+            );
+        }
+    }
+
+    let elapsed_seconds = started.elapsed().as_secs_f64();
+
+    let rate = if elapsed_seconds > 0.0 {
+        indexed_games as f64 / elapsed_seconds
+    } else {
+        0.0
+    };
+
+    println!();
+    println!("Position indexing complete");
+    println!("Games indexed : {indexed_games}");
+    println!("Positions     : {indexed_positions}");
+    println!("Errors        : {errors}");
+    println!("Elapsed       : {elapsed_seconds:.2} seconds");
+    println!("Rate          : {rate:.1} games/second");
 
     Ok(())
 }
