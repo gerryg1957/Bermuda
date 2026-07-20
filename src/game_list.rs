@@ -1,3 +1,6 @@
+use anyhow::{Context, Result};
+use rusqlite::Connection;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameColumn {
     BlackPlayer,
@@ -10,11 +13,11 @@ pub enum GameColumn {
 impl GameColumn {
     pub const fn sql_expression(self) -> &'static str {
         match self {
-            Self::BlackPlayer => "metadata.black_player",
-            Self::WhitePlayer => "metadata.white_player",
-            Self::Date => "metadata.game_date",
-            Self::Result => "metadata.result",
-            Self::Event => "metadata.event",
+            Self::BlackPlayer => "selected_metadata.black_player",
+            Self::WhitePlayer => "selected_metadata.white_player",
+            Self::Date => "selected_metadata.played_date",
+            Self::Result => "selected_metadata.result",
+            Self::Event => "selected_metadata.event",
         }
     }
 }
@@ -118,6 +121,117 @@ impl Default for GameListQuery {
     }
 }
 
+pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<GameListRow>> {
+    let order_by = order_by_clause(query);
+
+    let sql = format!(
+        r#"
+        WITH ranked_metadata AS (
+            SELECT
+                game_sources.game_id,
+                game_metadata.black_player,
+                game_metadata.white_player,
+                game_metadata.played_date,
+                game_metadata.result,
+                game_metadata.event,
+
+                ROW_NUMBER() OVER (
+                    PARTITION BY game_sources.game_id
+                    ORDER BY
+                        (
+                            (game_metadata.black_player IS NOT NULL) +
+                            (game_metadata.white_player IS NOT NULL) +
+                            (game_metadata.played_date IS NOT NULL) +
+                            (game_metadata.result IS NOT NULL) +
+                            (game_metadata.event IS NOT NULL)
+                        ) DESC,
+                        game_sources.id ASC
+                ) AS metadata_rank
+
+            FROM game_sources
+
+            LEFT JOIN game_metadata
+                ON game_metadata.game_source_id = game_sources.id
+        ),
+
+        selected_metadata AS (
+            SELECT
+                game_id,
+                black_player,
+                white_player,
+                played_date,
+                result,
+                event
+
+            FROM ranked_metadata
+
+            WHERE metadata_rank = 1
+        )
+
+        SELECT
+            games.id,
+            selected_metadata.black_player,
+            selected_metadata.white_player,
+            selected_metadata.played_date,
+            selected_metadata.result,
+            selected_metadata.event
+
+        FROM games
+
+        LEFT JOIN selected_metadata
+            ON selected_metadata.game_id = games.id
+
+        ORDER BY {order_by}
+
+        LIMIT ?1
+        OFFSET ?2
+        "#
+    );
+
+    let mut statement = connection
+        .prepare(&sql)
+        .context("preparing game-list query")?;
+
+    let rows = statement
+        .query_map([i64::from(query.limit), i64::from(query.offset)], |row| {
+            Ok(GameListRow {
+                game_id: row.get(0)?,
+                black_player: row.get(1)?,
+                white_player: row.get(2)?,
+                game_date: row.get(3)?,
+                result: row.get(4)?,
+                event: row.get(5)?,
+                matched_move: None,
+                match_count: None,
+            })
+        })
+        .context("querying game list")?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("reading game-list rows")
+}
+
+fn order_by_clause(query: &GameListQuery) -> String {
+    let mut fields: Vec<String> = query
+        .sort_fields
+        .iter()
+        .map(|field| {
+            format!(
+                "{} {}",
+                field.column.sql_expression(),
+                field.direction.sql_keyword()
+            )
+        })
+        .collect();
+
+    // Ensure stable ordering when several games have identical metadata.
+    fields.push("games.id ASC".to_owned());
+
+    fields.join(", ")
+}
+
+// Test section
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,15 +258,41 @@ mod tests {
     fn columns_map_to_fixed_sql_expressions() {
         assert_eq!(
             GameColumn::BlackPlayer.sql_expression(),
-            "metadata.black_player"
+            "selected_metadata.black_player"
         );
-        assert_eq!(GameColumn::Date.sql_expression(), "metadata.game_date");
-        assert_eq!(GameColumn::Result.sql_expression(), "metadata.result");
+        assert_eq!(
+            GameColumn::Date.sql_expression(),
+            "selected_metadata.played_date"
+        );
+        assert_eq!(
+            GameColumn::Result.sql_expression(),
+            "selected_metadata.result"
+        );
     }
 
     #[test]
     fn directions_map_to_sql_keywords() {
         assert_eq!(SortDirection::Ascending.sql_keyword(), "ASC");
         assert_eq!(SortDirection::Descending.sql_keyword(), "DESC");
+    }
+
+    #[test]
+    fn creates_multi_column_ordering_with_stable_tie_breaker() {
+        let query = GameListQuery {
+            sort_fields: vec![
+                SortField::descending(GameColumn::Date),
+                SortField::ascending(GameColumn::BlackPlayer),
+            ],
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            order_by_clause(&query),
+            concat!(
+                "selected_metadata.played_date DESC, ",
+                "selected_metadata.black_player ASC, ",
+                "games.id ASC"
+            )
+        );
     }
 }
