@@ -295,4 +295,159 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn lists_one_row_per_canonical_game_and_uses_best_metadata() -> Result<()> {
+        let connection = Connection::open_in_memory().context("opening in-memory test database")?;
+
+        connection.execute_batch(
+            r#"
+        CREATE TABLE games (
+            id              INTEGER PRIMARY KEY,
+            canonical_hash  BLOB NOT NULL UNIQUE,
+            board_size      INTEGER NOT NULL,
+            move_count      INTEGER NOT NULL,
+            move_file       TEXT NOT NULL UNIQUE,
+            created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE sources (
+            id              INTEGER PRIMARY KEY,
+            name            TEXT NOT NULL,
+            version         TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+            UNIQUE(name, version)
+        );
+
+        CREATE TABLE game_sources (
+            id              INTEGER PRIMARY KEY,
+            game_id         INTEGER NOT NULL,
+            source_id       INTEGER NOT NULL,
+            original_path   TEXT NOT NULL,
+            imported_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY(game_id) REFERENCES games(id),
+            FOREIGN KEY(source_id) REFERENCES sources(id),
+
+            UNIQUE(source_id, original_path)
+        );
+
+        CREATE TABLE game_metadata (
+            game_source_id  INTEGER PRIMARY KEY,
+            black_player    TEXT,
+            white_player    TEXT,
+            played_date     TEXT,
+            event           TEXT,
+            result          TEXT,
+            komi            REAL,
+            handicap        INTEGER,
+
+            FOREIGN KEY(game_source_id)
+                REFERENCES game_sources(id)
+                ON DELETE CASCADE
+        );
+
+        INSERT INTO games (
+            id,
+            canonical_hash,
+            board_size,
+            move_count,
+            move_file
+        )
+        VALUES
+            (1, X'01', 19, 120, 'games/01.moves'),
+            (2, X'02', 19, 210, 'games/02.moves');
+
+        INSERT INTO sources (id, name, version)
+        VALUES
+            (1, 'GoGoD', '2026'),
+            (2, 'go4go', '2026');
+
+        INSERT INTO game_sources (
+            id,
+            game_id,
+            source_id,
+            original_path
+        )
+        VALUES
+            (1, 1, 1, 'gogod/game-one.sgf'),
+            (2, 1, 2, 'go4go/game-one.sgf'),
+            (3, 2, 1, 'gogod/game-two.sgf');
+
+        -- The first source for game 1 has incomplete metadata.
+        INSERT INTO game_metadata (
+            game_source_id,
+            black_player,
+            white_player
+        )
+        VALUES (
+            1,
+            'Alpha',
+            'Beta'
+        );
+
+        -- The second source describes the same canonical game more fully.
+        INSERT INTO game_metadata (
+            game_source_id,
+            black_player,
+            white_player,
+            played_date,
+            event,
+            result
+        )
+        VALUES (
+            2,
+            'Alpha',
+            'Beta',
+            '2026-04-15',
+            'Spring Tournament',
+            'B+R'
+        );
+
+        INSERT INTO game_metadata (
+            game_source_id,
+            black_player,
+            white_player,
+            played_date,
+            event,
+            result
+        )
+        VALUES (
+            3,
+            'Gamma',
+            'Delta',
+            '2025-11-03',
+            'Autumn Tournament',
+            'W+2.5'
+        );
+        "#,
+        )?;
+
+        let query = GameListQuery::default();
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(games.len(), 2);
+
+        let first_game = games
+            .iter()
+            .find(|game| game.game_id == 1)
+            .expect("canonical game 1 should be returned");
+
+        assert_eq!(first_game.black_player.as_deref(), Some("Alpha"));
+        assert_eq!(first_game.white_player.as_deref(), Some("Beta"));
+        assert_eq!(first_game.game_date.as_deref(), Some("2026-04-15"));
+        assert_eq!(first_game.event.as_deref(), Some("Spring Tournament"));
+        assert_eq!(first_game.result.as_deref(), Some("B+R"));
+
+        let second_game = games
+            .iter()
+            .find(|game| game.game_id == 2)
+            .expect("canonical game 2 should be returned");
+
+        assert_eq!(second_game.black_player.as_deref(), Some("Gamma"));
+        assert_eq!(second_game.white_player.as_deref(), Some("Delta"));
+
+        Ok(())
+    }
 }
