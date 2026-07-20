@@ -1,5 +1,6 @@
 pub mod board;
 pub mod canonical;
+pub mod database;
 pub mod game;
 pub mod game_list;
 pub mod move_file;

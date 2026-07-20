@@ -1,70 +1,121 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Controls as Controls
-import org.kde.kirigami as Kirigami
+import org.moyodb.app
 
-Kirigami.ApplicationWindow {
+ApplicationWindow {
     id: root
-    
-    
-    title: "MoyoDB"
-   
-    Shortcut {
-        sequence: StandardKey.Quit
-        onActivated: Qt.quit()
-    }
 
-    Shortcut {
-        sequence: "Escape"
-        onActivated: Qt.quit()
-    }
+    visible: true
+    title: qsTr("MoyoDB")
 
-    minimumWidth: Kirigami.Units.gridUnit * 36
-    minimumHeight: Kirigami.Units.gridUnit * 28
+    // Initial size only. The user can resize or maximize normally.
+    width: 1280
+    height: 850
 
-    width: Kirigami.Units.gridUnit * 48
-    height: Kirigami.Units.gridUnit * 36
+    minimumWidth: 900
+    minimumHeight: 600
 
-    pageStack.initialPage: Kirigami.Page {
-        title: "MoyoDB"
+    property string databasePath: Qt.application.arguments.length > 1
+        ? Qt.application.arguments[1]
+        : ""
 
-        ColumnLayout {
-            anchors.centerIn: parent
-            spacing: Kirigami.Units.largeSpacing
+    header: ToolBar {
+        implicitHeight: 52
 
-            Kirigami.Heading {
-                text: "MoyoDB"
-                level: 1
-                Layout.alignment: Qt.AlignHCenter
+        Label {
+            anchors {
+                left: parent.left
+                leftMargin: 18
+                verticalCenter: parent.verticalCenter
             }
 
-            Controls.Label {
-                text: "Professional Go game database"
-                Layout.alignment: Qt.AlignHCenter
-            }
+            text: qsTr("Game Database")
+            font.pixelSize: 24
+        }
+    }
 
-            GoBoard {
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 28
-                Layout.preferredHeight: Layout.preferredWidth
-                Layout.alignment: Qt.AlignHCenter
+    SplitView {
+        id: mainSplitView
 
-                boardSize: 19
+        anchors {
+            fill: parent
+            margins: 6
+        }
 
-                stones: [
-                    { "x": 3, "y": 3, "color": "black" },
-                    { "x": 15, "y": 15, "color": "white" },
-                    { "x": 15, "y": 3, "color": "black" },
-                    { "x": 3, "y": 15, "color": "white" }
-                ]
-                onPointClicked: (x, y) => {
-                    statusLabel.text = "Clicked intersection: " + x + ", " + y
+        orientation: Qt.Horizontal
+
+        // Database browser pane
+        GameList {
+            id: gameList
+
+            databasePath: root.databasePath
+
+            SplitView.minimumWidth: 420
+            SplitView.preferredWidth: 720
+            SplitView.fillWidth: true
+        }
+
+        // Board and game-details pane
+        Pane {
+            id: boardPane
+
+            padding: 0
+
+            SplitView.minimumWidth: 420
+            SplitView.preferredWidth: 660
+            SplitView.fillWidth: true
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 6
+
+                Frame {
+                    id: boardFrame
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    padding: 4
+
+                    GoBoard {
+                        id: goBoard
+                        anchors.fill: parent
+                    }
+                }
+
+                Frame {
+                    id: gameDetailsFrame
+
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: 74
+                    Layout.preferredHeight: 82
+                    Layout.maximumHeight: 130
+
+                    padding: 8
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 4
+
+                        Label {
+                            Layout.fillWidth: true
+
+                            text: qsTr("No game selected")
+                            font.pixelSize: 20
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+
+                            text: qsTr("Select a game from the database")
+                            color: palette.mid
+                            font.pixelSize: 16
+                            elide: Text.ElideRight
+                        }
+                    }
                 }
             }
-Controls.Label {
-    id: statusLabel
-    text: "Move the pointer over the board"
-    Layout.alignment: Qt.AlignHCenter
-}
         }
     }
 }

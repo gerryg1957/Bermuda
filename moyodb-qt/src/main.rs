@@ -1,4 +1,5 @@
 mod app;
+mod game_list_model;
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QString, QUrl};
 use cxx_qt_lib_extras::QApplication;
 use moyodb_core::Board;

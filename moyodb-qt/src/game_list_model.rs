@@ -1,0 +1,245 @@
+use std::fmt::Display;
+use std::{
+    path::Path,
+    pin::Pin,
+};
+use cxx_qt::CxxQtType;
+
+use cxx_qt_lib::{
+    QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant,
+};
+
+use moyodb_core::{
+    database,
+    game_list::{self, GameListQuery},
+};
+
+type QHash_i32_QByteArray = QHash<QHashPair_i32_QByteArray>;
+
+const GAME_ID_ROLE: i32 = 0x0100;
+const BLACK_PLAYER_ROLE: i32 = GAME_ID_ROLE + 1;
+const WHITE_PLAYER_ROLE: i32 = GAME_ID_ROLE + 2;
+const BLACK_RANK_ROLE: i32 = GAME_ID_ROLE + 3;
+const WHITE_RANK_ROLE: i32 = GAME_ID_ROLE + 4;
+const PLAYED_DATE_ROLE: i32 = GAME_ID_ROLE + 5;
+const RESULT_ROLE: i32 = GAME_ID_ROLE + 6;
+const EVENT_ROLE: i32 = GAME_ID_ROLE + 7;
+const KOMI_ROLE: i32 = GAME_ID_ROLE + 8;
+const HANDICAP_ROLE: i32 = GAME_ID_ROLE + 9;
+
+#[derive(Clone, Debug, Default)]
+struct GameListRow {
+    game_id: i64,
+    black_player: QString,
+    white_player: QString,
+    black_rank: QString,
+    white_rank: QString,
+    played_date: QString,
+    result: QString,
+    event: QString,
+    komi: QString,
+    handicap: QString,
+}
+
+#[derive(Default)]
+pub struct GameListModelRust {
+    rows: Vec<GameListRow>,
+    error_message: QString,
+}
+
+#[cxx_qt::bridge]
+mod ffi {
+    unsafe extern "C++Qt" {
+        include!(<QtCore/QAbstractListModel>);
+
+        #[qobject]
+        type QAbstractListModel;
+    }
+
+    unsafe extern "C++" {
+        include!("cxx-qt-lib/qbytearray.h");
+        include!("cxx-qt-lib/qhash.h");
+        include!("cxx-qt-lib/qmodelindex.h");
+        include!("cxx-qt-lib/qstring.h");
+        include!("cxx-qt-lib/qvariant.h");
+
+        type QByteArray = cxx_qt_lib::QByteArray;
+        type QHash_i32_QByteArray = super::QHash_i32_QByteArray;
+        type QModelIndex = cxx_qt_lib::QModelIndex;
+        type QString = cxx_qt_lib::QString;
+        type QVariant = cxx_qt_lib::QVariant;
+    }
+
+    unsafe extern "RustQt" {
+        #[qobject]
+        #[qml_element]
+        #[base = QAbstractListModel]
+        #[qproperty(QString, error_message)]
+        type GameListModel = super::GameListModelRust;
+
+        #[qinvokable]
+        fn load_database(
+            self: Pin<&mut GameListModel>,
+            database_path: &QString,
+        );
+
+        #[cxx_override]
+        #[cxx_name = "rowCount"]
+        fn row_count(
+            self: &GameListModel,
+            parent: &QModelIndex,
+        ) -> i32;
+
+        #[cxx_override]
+        fn data(
+            self: &GameListModel,
+            index: &QModelIndex,
+            role: i32,
+        ) -> QVariant;
+
+        #[cxx_override]
+        #[cxx_name = "roleNames"]
+        fn role_names(
+            self: &GameListModel,
+        ) -> QHash_i32_QByteArray;
+        
+        #[inherit]
+        #[rust_name = "begin_reset_model"]
+           fn beginResetModel(self: Pin<&mut GameListModel>);
+
+        #[inherit]
+        #[rust_name = "end_reset_model"]
+           fn endResetModel(self: Pin<&mut GameListModel>);
+        
+    }
+}
+
+
+
+impl ffi::GameListModel {
+   
+
+    fn row_count(&self, parent: &QModelIndex) -> i32 {
+        if parent.is_valid() {
+            return 0;
+        }
+
+        i32::try_from(self.rust().rows.len()).unwrap_or(i32::MAX)
+    }
+
+    fn data(&self, index: &QModelIndex, role: i32) -> QVariant {
+        if !index.is_valid() {
+            return QVariant::default();
+        }
+
+        let row_number = index.row();
+
+        if row_number < 0 {
+            return QVariant::default();
+        }
+
+        let Some(row) = self.rust().rows.get(row_number as usize) else {
+            return QVariant::default();
+        };
+
+        match role {
+            GAME_ID_ROLE => QVariant::from(&row.game_id),
+            BLACK_PLAYER_ROLE => QVariant::from(&row.black_player),
+            WHITE_PLAYER_ROLE => QVariant::from(&row.white_player),
+            BLACK_RANK_ROLE => QVariant::from(&row.black_rank),
+            WHITE_RANK_ROLE => QVariant::from(&row.white_rank),
+            PLAYED_DATE_ROLE => QVariant::from(&row.played_date),
+            RESULT_ROLE => QVariant::from(&row.result),
+            EVENT_ROLE => QVariant::from(&row.event),
+            KOMI_ROLE => QVariant::from(&row.komi),
+            HANDICAP_ROLE => QVariant::from(&row.handicap),
+            _ => QVariant::default(),
+        }
+    }
+
+    fn role_names(&self) -> QHash_i32_QByteArray {
+        let mut roles = QHash_i32_QByteArray::default();
+
+        roles.insert(GAME_ID_ROLE, QByteArray::from("gameId"));
+        roles.insert(BLACK_PLAYER_ROLE, QByteArray::from("blackPlayer"));
+        roles.insert(WHITE_PLAYER_ROLE, QByteArray::from("whitePlayer"));
+        roles.insert(BLACK_RANK_ROLE, QByteArray::from("blackRank"));
+        roles.insert(WHITE_RANK_ROLE, QByteArray::from("whiteRank"));
+        roles.insert(PLAYED_DATE_ROLE, QByteArray::from("playedDate"));
+        roles.insert(RESULT_ROLE, QByteArray::from("result"));
+        roles.insert(EVENT_ROLE, QByteArray::from("event"));
+        roles.insert(KOMI_ROLE, QByteArray::from("komi"));
+        roles.insert(HANDICAP_ROLE, QByteArray::from("handicap"));
+
+        roles
+    }
+
+ fn load_database(
+    mut self: Pin<&mut Self>,
+    database_path: &QString,
+) {
+    self.as_mut().begin_reset_model();
+
+    {
+        let mut rust = self.as_mut().rust_mut();
+        rust.rows.clear();
+        rust.error_message = QString::default();
+    }
+
+    let path = database_path.to_string();
+
+    if path.trim().is_empty() {
+        self.as_mut().end_reset_model();
+        return;
+    }
+
+       let result = database::open(Path::new(&path)).and_then(|connection| {
+    game_list::list_games(&connection, &GameListQuery::default())
+});
+
+        match result {
+            Ok(games) => {
+                let rows = games
+                    .into_iter()
+                   .map(|game| GameListRow {
+    game_id: game.game_id,
+    black_player: optional_text(&game.black_player),
+    white_player: optional_text(&game.white_player),
+    black_rank: QString::default(),
+    white_rank: QString::default(),
+    played_date: optional_text(&game.game_date),
+    result: optional_text(&game.result),
+    event: optional_text(&game.event),
+    komi: QString::default(),
+    handicap: QString::default(),                  
+                        
+})
+                    .collect();
+
+                let mut rust = self.as_mut().rust_mut();
+                rust.rows = rows;
+            }
+
+            Err(error) => {
+                let mut rust = self.as_mut().rust_mut();
+                rust.error_message = QString::from(error.to_string());
+            }
+        }
+
+       self.as_mut().end_reset_model(); 
+    }
+}
+
+fn optional_text(value: &Option<String>) -> QString {
+    QString::from(value.as_deref().unwrap_or(""))
+}
+
+fn optional_number<T>(value: &Option<T>) -> QString
+where
+    T: Display,
+{
+    match value {
+        Some(value) => QString::from(value.to_string()),
+        None => QString::default(),
+    }
+}

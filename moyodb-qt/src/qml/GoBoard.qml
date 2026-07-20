@@ -7,8 +7,13 @@ Item {
     signal pointClicked(int x, int y)
 
     property int boardSize: 19
-    property var stones: []
-
+    property var stones: [
+    { "x": 3,  "y": 3,  "color": "black" },
+    { "x": 15, "y": 15, "color": "black" },
+    { "x": 15, "y": 3,  "color": "white" },
+    { "x": 3,  "y": 15, "color": "white" },
+    { "x": 9,  "y": 9,  "color": "black" }
+]
     property int hoverX: -1
     property int hoverY: -1
     property bool hoverValid: false

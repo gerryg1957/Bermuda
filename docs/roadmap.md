@@ -181,6 +181,44 @@ A complete professional Go database system suitable for long-term maintenance.
 
 ---
 
+## Current Focus
+
+Building the first complete GUI vertical slice.
+
+Current objectives
+
+* Expose database queries through Rust models.
+* Replace prototype QML models with live database data.
+* Connect game selection to board display.
+* Establish the GUI architecture that future search and analysis tools will reuse.
+
+---
+
+## Current Architecture
+
+The application is organised into distinct layers.
+
+```text
+Kirigami / QML
+        │
+Rust Qt models
+        │
+moyodb-core
+        │
+SQLite metadata + move files
+```
+
+Architecture principles
+
+* Canonical games are the primary database objects.
+* A canonical game may have multiple source records.
+* The GUI never accesses SQLite directly.
+* Rust owns querying, sorting, filtering and search.
+* QML is responsible only for presentation.
+* The same backend APIs will support browsing, filtering and pattern-search results.
+
+---
+
 # Design Principles
 
 * Correctness before optimisation.
@@ -190,7 +228,9 @@ A complete professional Go database system suitable for long-term maintenance.
 * Clear separation between core library, importer, search engine, and GUI.
 * Open architecture suitable for long-term maintenance.
 
-## Project Milestones
+---
+
+## Development Progress
 
 ### Completed
 
@@ -199,8 +239,19 @@ A complete professional Go database system suitable for long-term maintenance.
 * Source code under version control
 * Documentation published
 * Development roadmap published
+* SGF parsing and canonical game identity
+* Compact move-file storage
+* SQLite database and source provenance
+* Position indexing and exact-position lookup
+* Kirigami application shell
+* Reusable Go board component
+* Prototype game-browser layout
+* Game-list query and sorting types
+* Database-backed `list_games()`
+* Deduplication to one row per canonical game
+* Representative metadata selection
 
-Future project management improvements
+### Future project management improvements
 
 * GitHub Issues
 * GitHub Releases

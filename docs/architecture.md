@@ -155,7 +155,7 @@ If GoGoD and go4go disagree, both versions are preserved.
 
 Example:
 
-```
+```text
 Game 47291
 
 GoGoD
@@ -167,9 +167,13 @@ go4go
 Event = Honinbo
 ```
 
-The user interface may later choose which source to display by default.
+The database preserves every imported source record exactly as supplied.
 
-No information is discarded during import.
+When browsing the database, the application presents a single row for each canonical game rather than one row per source. A representative metadata record is selected for display in the game list to provide a concise overview.
+
+All source-specific metadata remains available through the game details view, allowing users to inspect every imported version of a game without introducing duplicate entries into the main browser.
+
+No imported information is discarded or merged automatically.
 
 ---
 
@@ -285,7 +289,67 @@ All searching is performed using the indexed game representation.
 
 ---
 
-# 13. Future Extensions
+# 13. Application Architecture
+
+The desktop application is organised into four distinct layers.
+
+```text
+Kirigami / QML
+        │
+Rust Qt Models
+        │
+moyodb-core
+        │
+SQLite metadata database + move files
+```
+
+Each layer has a clearly defined responsibility.
+
+## Kirigami / QML
+
+Responsible for presentation only.
+
+* Displays the game browser.
+* Displays the Go board.
+* Presents dialogs and user interaction.
+* Never accesses SQLite directly.
+
+## Rust Qt Models
+
+Provide the bridge between the user interface and the core library.
+
+* Expose game lists to QML.
+* Notify the interface when data changes.
+* Translate user actions into library operations.
+* Reuse the same models for browsing, filtering and future pattern-search results.
+
+## moyodb-core
+
+Implements the application logic.
+
+* Owns all database access.
+* Maintains canonical game identity.
+* Performs sorting, filtering and searching.
+* Selects representative metadata for game browsing.
+* Returns canonical game records to the user interface.
+
+## SQLite Database and Move Files
+
+Provide persistent storage.
+
+* Store canonical game records.
+* Preserve source provenance.
+* Store per-source metadata.
+* Store compact move files.
+* Maintain position indexes for fast searching.
+
+This separation keeps the user interface independent of the storage layer while ensuring that all applications built on MoyoDB share the same tested core library and database implementation.
+
+
+
+---
+
+# 14. Future Extensions
 
 The design allows future additions without changing the core model.
 
@@ -303,7 +367,7 @@ All future tables reference the stable internal Game ID.
 
 ---
 
-# 14. Non-Goals
+# 15. Non-Goals
 
 MoyoDB is not intended to:
 
@@ -315,7 +379,7 @@ MoyoDB is not intended to:
 
 ---
 
-# 15. Guiding Principle
+# 16. Guiding Principle
 
 When in doubt, prefer designs that improve:
 
