@@ -1,6 +1,6 @@
 use crate::database;
 use anyhow::{Context, Result, bail};
-use moyodb_core::{PositionOccurrence, position_stream, read_move_file};
+use moyodb::{PositionOccurrence, position_stream, read_move_file};
 use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
 
@@ -22,7 +22,7 @@ pub struct IndexedPositionStream {
 pub struct ExactPositionMatch {
     pub game_id: i64,
     pub move_number: usize,
-    pub side_to_move: moyodb_core::Color,
+    pub side_to_move: moyodb::Color,
     pub ko_point: Option<u16>,
 }
 
@@ -315,17 +315,17 @@ impl PositionIndexer {
     }
 }
 
-fn color_value(color: moyodb_core::Color) -> i64 {
+fn color_value(color: moyodb::Color) -> i64 {
     match color {
-        moyodb_core::Color::Black => 1,
-        moyodb_core::Color::White => 2,
+        moyodb::Color::Black => 1,
+        moyodb::Color::White => 2,
     }
 }
 
-fn color_from_value(value: i64) -> Result<moyodb_core::Color> {
+fn color_from_value(value: i64) -> Result<moyodb::Color> {
     match value {
-        1 => Ok(moyodb_core::Color::Black),
-        2 => Ok(moyodb_core::Color::White),
+        1 => Ok(moyodb::Color::Black),
+        2 => Ok(moyodb::Color::White),
         _ => bail!("invalid side-to-move value {value} in database"),
     }
 }
@@ -359,7 +359,7 @@ fn decode_hex_digit(value: u8) -> Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moyodb_core::{Color, GameRecord, Metadata, Move, write_move_file};
+    use moyodb::{Color, GameRecord, Metadata, Move, write_move_file};
     use rusqlite::params;
     use tempfile::TempDir;
 

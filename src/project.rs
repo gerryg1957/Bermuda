@@ -1,0 +1,80 @@
+use std::path::{Path, PathBuf};
+
+const CONFIG_FILENAME: &str = "moyodb-project.toml";
+const DATABASE_FILENAME: &str = "database.sqlite3";
+const INDEXES_DIRECTORY: &str = "indexes";
+const CACHE_DIRECTORY: &str = "cache";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Project {
+    name: String,
+    root: PathBuf,
+}
+
+impl Project {
+    pub fn new(name: impl Into<String>, root: impl Into<PathBuf>) -> Self {
+        Self {
+            name: name.into(),
+            root: root.into(),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn config_path(&self) -> PathBuf {
+        self.root.join(CONFIG_FILENAME)
+    }
+
+    pub fn database_path(&self) -> PathBuf {
+        self.root.join(DATABASE_FILENAME)
+    }
+
+    pub fn indexes_path(&self) -> PathBuf {
+        self.root.join(INDEXES_DIRECTORY)
+    }
+
+    pub fn cache_path(&self) -> PathBuf {
+        self.root.join(CACHE_DIRECTORY)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creates_paths_relative_to_project_root() {
+        let project = Project::new(
+            "Professional Games",
+            "/home/gerry/MoyoDB/Professional Games",
+        );
+
+        assert_eq!(project.name(), "Professional Games");
+        assert_eq!(
+            project.root(),
+            Path::new("/home/gerry/MoyoDB/Professional Games")
+        );
+        assert_eq!(
+            project.config_path(),
+            PathBuf::from("/home/gerry/MoyoDB/Professional Games/moyodb-project.toml")
+        );
+        assert_eq!(
+            project.database_path(),
+            PathBuf::from("/home/gerry/MoyoDB/Professional Games/database.sqlite3")
+        );
+        assert_eq!(
+            project.indexes_path(),
+            PathBuf::from("/home/gerry/MoyoDB/Professional Games/indexes")
+        );
+        assert_eq!(
+            project.cache_path(),
+            PathBuf::from("/home/gerry/MoyoDB/Professional Games/cache")
+        );
+    }
+}

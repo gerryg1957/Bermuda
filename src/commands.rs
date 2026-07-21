@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use moyodb_core::{
+use moyodb::{
     Board, Color, GameRecord, SetupStone, extract_main_variation, parse_collection, read_move_file,
     write_move_file,
 };
@@ -10,7 +10,7 @@ pub fn import_sgf(sgf: PathBuf, output: PathBuf) -> Result<()> {
     let collection = parse_collection(&bytes).context("parsing SGF collection")?;
     let record = extract_main_variation(&collection).context("extracting main variation")?;
 
-    moyodb_core::game::replay(&record).context("validating game by replaying it")?;
+    moyodb::game::replay(&record).context("validating game by replaying it")?;
 
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()

@@ -6,6 +6,8 @@ pub mod game_list;
 pub mod move_file;
 pub mod position;
 pub mod position_stream;
+pub mod project;
+pub mod project_manager;
 pub mod sgf;
 
 pub use board::{Board, Color, Move};

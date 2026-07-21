@@ -9,7 +9,7 @@ Kirigami.AbstractCard {
 
     signal gameSelected(var game)
 
-    property string databasePath: ""
+    property string projectPath: ""
     property int selectedRow: -1
     property bool databaseLoaded: false
 
@@ -18,15 +18,17 @@ Kirigami.AbstractCard {
     function loadDatabase() {
         selectedRow = -1
 
-        if (databasePath.length === 0) {
+       
+       if (projectPath.length === 0) {
             databaseLoaded = false
             return
         }
 
-        databaseLoaded = gameModel.loadDatabase(databasePath)
+        databaseLoaded = gameModel.loadDatabase(projectPath)
+
     }
 
-    onDatabasePathChanged: loadDatabase()
+    onProjectPathChanged: loadDatabase()
 
     Component.onCompleted: loadDatabase()
 
@@ -191,7 +193,7 @@ Kirigami.AbstractCard {
                 visible: gameView.count === 0
 
                 text: {
-                    if (root.databasePath.length === 0) {
+                    if (root.projectPath.length === 0) {
                         return qsTr("No database selected")
                     }
 

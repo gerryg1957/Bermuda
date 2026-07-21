@@ -16,7 +16,7 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 600
 
-    property string databasePath: Qt.application.arguments.length > 1
+    property string projectPath: Qt.application.arguments.length > 1
         ? Qt.application.arguments[1]
         : ""
 
@@ -49,7 +49,7 @@ ApplicationWindow {
         GameList {
             id: gameList
 
-            databasePath: root.databasePath
+            projectPath: root.projectPath
 
             SplitView.minimumWidth: 420
             SplitView.preferredWidth: 720

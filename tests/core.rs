@@ -1,4 +1,4 @@
-use moyodb_core::{
+use moyodb::{
     board::{BoardError, Color, Move},
     extract_main_variation,
     game::replay,
@@ -28,7 +28,7 @@ fn extracts_first_variation_and_pass() {
 
 #[test]
 fn captures_a_stone() {
-    let mut board = moyodb_core::Board::new(5).unwrap();
+    let mut board = moyodb::Board::new(5).unwrap();
     let p = |x: u8, y: u8| u16::from(y) * 5 + u16::from(x);
     board
         .play(Move {
@@ -66,7 +66,7 @@ fn captures_a_stone() {
 
 #[test]
 fn enforces_simple_ko_and_pass_clears_it() {
-    let mut board = moyodb_core::Board::new(5).unwrap();
+    let mut board = moyodb::Board::new(5).unwrap();
     let p = |x: u8, y: u8| u16::from(y) * 5 + u16::from(x);
     for &(c, x, y) in &[
         (Color::Black, 0, 1),

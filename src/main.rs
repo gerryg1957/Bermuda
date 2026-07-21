@@ -260,8 +260,8 @@ fn find_position(database: PathBuf, fingerprint: String) -> Result<()> {
 
     for position_match in matches {
         let side = match position_match.side_to_move {
-            moyodb_core::Color::Black => "Black",
-            moyodb_core::Color::White => "White",
+            moyodb::Color::Black => "Black",
+            moyodb::Color::White => "White",
         };
 
         println!(
@@ -289,8 +289,8 @@ fn explore_position(database: PathBuf, game_id: i64, move_number: usize) -> Resu
 
     for m in matches {
         let side = match m.side_to_move {
-            moyodb_core::Color::Black => "Black",
-            moyodb_core::Color::White => "White",
+            moyodb::Color::Black => "Black",
+            moyodb::Color::White => "White",
         };
 
         println!(

@@ -1,6 +1,6 @@
 use crate::database;
 use anyhow::{Context, Result, bail};
-use moyodb_core::{
+use moyodb::{
     GameRecord, canonical_hash, canonical_hash_hex, extract_main_variation, parse_collection,
     write_move_file,
 };
@@ -50,7 +50,7 @@ impl Importer {
         let record = extract_main_variation(&collection)
             .with_context(|| format!("extracting main variation from {}", sgf_path.display()))?;
 
-        moyodb_core::game::replay(&record)
+        moyodb::game::replay(&record)
             .with_context(|| format!("validating {}", sgf_path.display()))?;
 
         if record.board_size != PROFESSIONAL_BOARD_SIZE {

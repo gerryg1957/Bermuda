@@ -1,15 +1,10 @@
-use std::fmt::Display;
-use std::{
-    path::Path,
-    pin::Pin,
-};
 use cxx_qt::CxxQtType;
+use std::fmt::Display;
+use std::{path::Path, pin::Pin};
 
-use cxx_qt_lib::{
-    QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant,
-};
+use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
-use moyodb_core::{
+use moyodb::{
     database,
     game_list::{self, GameListQuery},
 };
@@ -78,47 +73,31 @@ mod ffi {
         type GameListModel = super::GameListModelRust;
 
         #[qinvokable]
-        fn load_database(
-            self: Pin<&mut GameListModel>,
-            database_path: &QString,
-        );
+        fn load_database(self: Pin<&mut GameListModel>, database_path: &QString);
 
         #[cxx_override]
         #[cxx_name = "rowCount"]
-        fn row_count(
-            self: &GameListModel,
-            parent: &QModelIndex,
-        ) -> i32;
+        fn row_count(self: &GameListModel, parent: &QModelIndex) -> i32;
 
         #[cxx_override]
-        fn data(
-            self: &GameListModel,
-            index: &QModelIndex,
-            role: i32,
-        ) -> QVariant;
+        fn data(self: &GameListModel, index: &QModelIndex, role: i32) -> QVariant;
 
         #[cxx_override]
         #[cxx_name = "roleNames"]
-        fn role_names(
-            self: &GameListModel,
-        ) -> QHash_i32_QByteArray;
-        
+        fn role_names(self: &GameListModel) -> QHash_i32_QByteArray;
+
         #[inherit]
         #[rust_name = "begin_reset_model"]
-           fn beginResetModel(self: Pin<&mut GameListModel>);
+        fn beginResetModel(self: Pin<&mut GameListModel>);
 
         #[inherit]
         #[rust_name = "end_reset_model"]
-           fn endResetModel(self: Pin<&mut GameListModel>);
-        
+        fn endResetModel(self: Pin<&mut GameListModel>);
+
     }
 }
 
-
-
 impl ffi::GameListModel {
-   
-
     fn row_count(&self, parent: &QModelIndex) -> i32 {
         if parent.is_valid() {
             return 0;
@@ -174,46 +153,41 @@ impl ffi::GameListModel {
         roles
     }
 
- fn load_database(
-    mut self: Pin<&mut Self>,
-    database_path: &QString,
-) {
-    self.as_mut().begin_reset_model();
+    fn load_database(mut self: Pin<&mut Self>, database_path: &QString) {
+        self.as_mut().begin_reset_model();
 
-    {
-        let mut rust = self.as_mut().rust_mut();
-        rust.rows.clear();
-        rust.error_message = QString::default();
-    }
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.rows.clear();
+            rust.error_message = QString::default();
+        }
 
-    let path = database_path.to_string();
+        let path = database_path.to_string();
 
-    if path.trim().is_empty() {
-        self.as_mut().end_reset_model();
-        return;
-    }
+        if path.trim().is_empty() {
+            self.as_mut().end_reset_model();
+            return;
+        }
 
-       let result = database::open(Path::new(&path)).and_then(|connection| {
-    game_list::list_games(&connection, &GameListQuery::default())
-});
+        let result = database::open(Path::new(&path))
+            .and_then(|connection| game_list::list_games(&connection, &GameListQuery::default()));
 
         match result {
             Ok(games) => {
                 let rows = games
                     .into_iter()
-                   .map(|game| GameListRow {
-    game_id: game.game_id,
-    black_player: optional_text(&game.black_player),
-    white_player: optional_text(&game.white_player),
-    black_rank: QString::default(),
-    white_rank: QString::default(),
-    played_date: optional_text(&game.game_date),
-    result: optional_text(&game.result),
-    event: optional_text(&game.event),
-    komi: QString::default(),
-    handicap: QString::default(),                  
-                        
-})
+                    .map(|game| GameListRow {
+                        game_id: game.game_id,
+                        black_player: optional_text(&game.black_player),
+                        white_player: optional_text(&game.white_player),
+                        black_rank: QString::default(),
+                        white_rank: QString::default(),
+                        played_date: optional_text(&game.game_date),
+                        result: optional_text(&game.result),
+                        event: optional_text(&game.event),
+                        komi: QString::default(),
+                        handicap: QString::default(),
+                    })
                     .collect();
 
                 let mut rust = self.as_mut().rust_mut();
@@ -226,7 +200,7 @@ impl ffi::GameListModel {
             }
         }
 
-       self.as_mut().end_reset_model(); 
+        self.as_mut().end_reset_model();
     }
 }
 
