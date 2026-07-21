@@ -1,2 +1,4 @@
 target/
 *.moves
+
+moyodb-qt/.qmlls.ini
