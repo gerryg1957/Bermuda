@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILENAME: &str = "moyodb-project.toml";
-const DATABASE_FILENAME: &str = "database.sqlite3";
+const DATABASE_DIRECTORY: &str = "database";
 const INDEXES_DIRECTORY: &str = "indexes";
 const CACHE_DIRECTORY: &str = "cache";
 
@@ -31,8 +31,8 @@ impl Project {
         self.root.join(CONFIG_FILENAME)
     }
 
-    pub fn database_path(&self) -> PathBuf {
-        self.root.join(DATABASE_FILENAME)
+    pub fn database_root(&self) -> PathBuf {
+        self.root.join(DATABASE_DIRECTORY)
     }
 
     pub fn indexes_path(&self) -> PathBuf {
@@ -65,8 +65,8 @@ mod tests {
             PathBuf::from("/home/gerry/MoyoDB/Professional Games/moyodb-project.toml")
         );
         assert_eq!(
-            project.database_path(),
-            PathBuf::from("/home/gerry/MoyoDB/Professional Games/database.sqlite3")
+            project.database_root(),
+            PathBuf::from("/home/gerry/MoyoDB/Professional Games/database")
         );
         assert_eq!(
             project.indexes_path(),
