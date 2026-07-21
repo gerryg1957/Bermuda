@@ -2,12 +2,7 @@ mod commands;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use moyodb::{
-    import_directory,
-    importer::ImportOutcome,
-    indexer,
-    project_manager::ProjectManager,
-};
+use moyodb::{import_directory, importer::ImportOutcome, indexer, project_manager::ProjectManager};
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Parser)]
@@ -24,18 +19,18 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Create a new MoyoDB project.
-Init {
-    /// Name of the project.
-    name: String,
+    Init {
+        /// Name of the project.
+        name: String,
 
-    /// Directory in which to create the project.
-    project: PathBuf,
-},
+        /// Directory in which to create the project.
+        project: PathBuf,
+    },
 
     /// Import one SGF into an existing MoyoDB project.
     ImportOne {
-        /// MoyoDB database directory.
-        database: PathBuf,
+        /// MoyoDB project directory.
+        project: PathBuf,
 
         /// Source collection name, for example GoGoD or go4go.
         source: String,
@@ -46,10 +41,10 @@ Init {
         /// SGF file to import.
         sgf: PathBuf,
     },
-    /// Import every SGF below a directory.
+    /// Import every SGF below a directory into a MoyoDB project.
     ImportDir {
-        /// MoyoDB database directory.
-        database: PathBuf,
+        /// MoyoDB project directory.
+        project: PathBuf,
 
         /// Source collection name, for example GoGoD or go4go.
         source: String,
@@ -62,8 +57,8 @@ Init {
     },
     /// Explore an indexed position from a game and move number.
     ExplorePosition {
-        /// MoyoDB database directory.
-        database: PathBuf,
+        /// MoyoDB project directory.
+        project: PathBuf,
 
         /// Database game ID.
         game_id: i64,
@@ -73,13 +68,13 @@ Init {
     },
     /// Build or resume the exact-position index.
     BuildPositionIndex {
-        /// MoyoDB database directory.
-        database: PathBuf,
+        /// MoyoDB project directory.
+        project: PathBuf,
     },
     /// Find occurrences of an exact position fingerprint.
     FindPosition {
-        /// MoyoDB database directory.
-        database: PathBuf,
+        /// MoyoDB project directory.
+        project: PathBuf,
 
         /// SHA-256 exact-position fingerprint in hexadecimal.
         fingerprint: String,
@@ -116,41 +111,41 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Init { name, project } => {
-    let manager = ProjectManager::new();
-    manager.create(name, project)?;
-    Ok(())
-}
+            let manager = ProjectManager::new();
+            manager.create(name, project)?;
+            Ok(())
+        }
         Command::ImportOne {
-            database,
+            project,
             source,
             version,
             sgf,
-        } => import_one(database, source, version, sgf),
+        } => import_one(project, source, version, sgf),
 
         Command::ImportDir {
-            database,
+            project,
             source,
             version,
             directory,
-        } => import_sgf_directory(database, source, version, directory),
+        } => import_sgf_directory(project, source, version, directory),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
         Command::Inspect { input } => commands::inspect_move_file(input),
 
         Command::FindPosition {
-            database,
+            project,
             fingerprint,
-        } => find_position(database, fingerprint),
+        } => find_position(project, fingerprint),
 
         Command::ExplorePosition {
-            database,
+            project,
             game_id,
             move_number,
-        } => explore_position(database, game_id, move_number),
+        } => explore_position(project, game_id, move_number),
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
-        Command::BuildPositionIndex { database } => build_position_index(database),
+        Command::BuildPositionIndex { project } => build_position_index(project),
     }
 }
 
