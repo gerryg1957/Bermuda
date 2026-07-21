@@ -203,7 +203,7 @@ Kirigami / QML
         │
 Rust Qt models
         │
-moyodb-core
+moyodb
         │
 SQLite metadata + move files
 ```

@@ -6,7 +6,7 @@ use moyodb::Board;
 use std::env;
 
 fn main() {
-    // Confirm that the GUI crate is connected to moyodb-core.
+    // Confirm that the GUI crate is connected to moyodb.
     Board::new(19).expect("create 19x19 board");
 
     let mut app = QApplication::new();

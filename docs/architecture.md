@@ -298,7 +298,7 @@ Kirigami / QML
         │
 Rust Qt Models
         │
-moyodb-core
+moyodb
         │
 SQLite metadata database + move files
 ```
@@ -323,7 +323,7 @@ Provide the bridge between the user interface and the core library.
 * Translate user actions into library operations.
 * Reuse the same models for browsing, filtering and future pattern-search results.
 
-## moyodb-core
+## moyodb
 
 Implements the application logic.
 
