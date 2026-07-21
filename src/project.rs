@@ -1,4 +1,7 @@
+use anyhow::Result;
 use std::path::{Path, PathBuf};
+
+use crate::{importer::Importer, indexer::PositionIndexer};
 
 const CONFIG_FILENAME: &str = "moyodb-project.toml";
 const DATABASE_DIRECTORY: &str = "database";
@@ -41,6 +44,14 @@ impl Project {
 
     pub fn cache_path(&self) -> PathBuf {
         self.root.join(CACHE_DIRECTORY)
+    }
+
+    pub fn importer(&self) -> Result<Importer> {
+        Importer::open_project(self)
+    }
+
+    pub fn position_indexer(&self) -> Result<PositionIndexer> {
+        PositionIndexer::open_project(self)
     }
 }
 

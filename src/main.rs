@@ -1,13 +1,9 @@
 mod commands;
-mod database;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use moyodb::{
-    import_directory,
-    importer::{ImportOutcome, Importer},
-    indexer,
-    project_manager::ProjectManager,
+    database, import_directory, importer::ImportOutcome, indexer, project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -153,7 +149,7 @@ fn import_one(project_path: PathBuf, source: String, version: String, sgf: PathB
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let mut importer = Importer::open_project(&project)?;
+    let mut importer = project.importer()?;
 
     match importer.import_file(&source, &version, &sgf)? {
         ImportOutcome::Imported { game_id, move_file } => {
@@ -184,7 +180,7 @@ fn build_position_index(project_path: PathBuf) -> Result<()> {
 
     let started = Instant::now();
 
-    let mut indexer = indexer::PositionIndexer::open_project(&project)?;
+    let mut indexer = project.position_indexer()?;
     let games = indexer.games_to_index(indexer::POSITION_INDEX_VERSION)?;
 
     let total_games = games.len();
@@ -265,7 +261,7 @@ fn find_position(project_path: PathBuf, fingerprint: String) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let indexer = indexer::PositionIndexer::open_project(&project)?;
+    let indexer = project.position_indexer()?;
     let matches = indexer.find_exact_position(&fingerprint)?;
 
     println!("Matches: {}", matches.len());
@@ -293,7 +289,7 @@ fn explore_position(project_path: PathBuf, game_id: i64, move_number: usize) -> 
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let indexer = indexer::PositionIndexer::open_project(&project)?;
+    let indexer = project.position_indexer()?;
 
     let matches = indexer.find_matches_from_game(game_id, move_number)?;
 
