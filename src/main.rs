@@ -1,12 +1,12 @@
 mod commands;
 mod database;
-mod indexer;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use moyodb::{
     import_directory,
     importer::{ImportOutcome, Importer},
+    indexer,
     project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
