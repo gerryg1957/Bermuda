@@ -1,24 +1,49 @@
-use anyhow::{Context, Result};
-use moyodb::importer::{ImportOutcome, Importer};
-use std::{fs, path::Path, time::Instant};
+use anyhow::{Context, Result, bail};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 use walkdir::WalkDir;
 
+use crate::{
+    importer::{ImportOutcome, Importer},
+    project::Project,
+};
+
 #[derive(Debug, Default)]
-struct ImportSummary {
-    processed: usize,
-    imported: usize,
-    added_sources: usize,
-    duplicates: usize,
-    skipped: usize,
-    errors: usize,
+pub struct ImportSummary {
+    pub processed: usize,
+    pub imported: usize,
+    pub added_sources: usize,
+    pub duplicates: usize,
+    pub skipped: usize,
+    pub errors: usize,
+    pub elapsed_seconds: f64,
+    pub error_log: Option<PathBuf>,
 }
 
-pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Result<()> {
+impl ImportSummary {
+    pub fn rate(&self) -> f64 {
+        if self.elapsed_seconds > 0.0 {
+            self.processed as f64 / self.elapsed_seconds
+        } else {
+            0.0
+        }
+    }
+}
+
+pub fn run(
+    project: &Project,
+    source: &str,
+    version: &str,
+    directory: &Path,
+) -> Result<ImportSummary> {
     if !directory.is_dir() {
-        anyhow::bail!("SGF source is not a directory: {}", directory.display());
+        bail!("SGF source is not a directory: {}", directory.display());
     }
 
-    let mut importer = Importer::open(database)?;
+    let mut importer = Importer::open_project(project)?;
     let started = Instant::now();
     let mut summary = ImportSummary::default();
     let mut error_messages = Vec::new();
@@ -39,20 +64,6 @@ pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Re
 
         summary.processed += 1;
 
-        if summary.processed.is_multiple_of(10_000) {
-            let elapsed = started.elapsed().as_secs_f64();
-            let rate = if elapsed > 0.0 {
-                summary.processed as f64 / elapsed
-            } else {
-                0.0
-            };
-
-            println!(
-                "Processed {} games ({rate:.1} games/second)...",
-                summary.processed
-            );
-        }
-
         match importer.import_file(source, version, entry.path()) {
             Ok(ImportOutcome::Imported { .. }) => {
                 summary.imported += 1;
@@ -66,54 +77,21 @@ pub fn run(database: &Path, source: &str, version: &str, directory: &Path) -> Re
                 summary.duplicates += 1;
             }
 
-            Ok(ImportOutcome::SkippedBoardSize { board_size }) => {
+            Ok(ImportOutcome::SkippedBoardSize { .. }) => {
                 summary.skipped += 1;
-
-                println!(
-                    "Skipped {}: unsupported board size {}x{}",
-                    entry.path().display(),
-                    board_size,
-                    board_size
-                );
             }
 
             Err(error) => {
                 summary.errors += 1;
-
                 error_messages.push(format!("{}: {error:#}", entry.path().display()));
             }
         }
     }
 
-    write_error_log(database, &error_messages)?;
-    let elapsed = started.elapsed();
-    let elapsed_seconds = elapsed.as_secs_f64();
+    summary.elapsed_seconds = started.elapsed().as_secs_f64();
+    summary.error_log = write_error_log(&project.database_root(), &error_messages)?;
 
-    let rate = if elapsed_seconds > 0.0 {
-        summary.processed as f64 / elapsed_seconds
-    } else {
-        0.0
-    };
-
-    println!();
-    println!("Import complete");
-    println!("Processed    : {}", summary.processed);
-    println!("Imported     : {}", summary.imported);
-    println!("Added sources: {}", summary.added_sources);
-    println!("Duplicates   : {}", summary.duplicates);
-    println!("Skipped      : {}", summary.skipped);
-    println!("Errors       : {}", summary.errors);
-    println!("Elapsed      : {:.2} seconds", elapsed_seconds);
-    println!("Rate         : {:.1} games/second", rate);
-
-    if !error_messages.is_empty() {
-        println!(
-            "Error log    : {}",
-            database.join("import-errors.txt").display()
-        );
-    }
-
-    Ok(())
+    Ok(summary)
 }
 
 fn is_sgf(path: &Path) -> bool {
@@ -122,7 +100,7 @@ fn is_sgf(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("sgf"))
 }
 
-fn write_error_log(database: &Path, errors: &[String]) -> Result<()> {
+fn write_error_log(database: &Path, errors: &[String]) -> Result<Option<PathBuf>> {
     let log_path = database.join("import-errors.txt");
 
     if errors.is_empty() {
@@ -131,7 +109,7 @@ fn write_error_log(database: &Path, errors: &[String]) -> Result<()> {
                 .with_context(|| format!("removing old error log {}", log_path.display()))?;
         }
 
-        return Ok(());
+        return Ok(None);
     }
 
     let mut contents = errors.join("\n");
@@ -140,5 +118,31 @@ fn write_error_log(database: &Path, errors: &[String]) -> Result<()> {
     fs::write(&log_path, contents)
         .with_context(|| format!("writing error log {}", log_path.display()))?;
 
-    Ok(())
+    Ok(Some(log_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognises_sgf_extension_case_insensitively() {
+        assert!(is_sgf(Path::new("game.sgf")));
+        assert!(is_sgf(Path::new("game.SGF")));
+        assert!(is_sgf(Path::new("game.SgF")));
+
+        assert!(!is_sgf(Path::new("game.txt")));
+        assert!(!is_sgf(Path::new("game")));
+    }
+
+    #[test]
+    fn calculates_import_rate() {
+        let summary = ImportSummary {
+            processed: 200,
+            elapsed_seconds: 4.0,
+            ..ImportSummary::default()
+        };
+
+        assert_eq!(summary.rate(), 50.0);
+    }
 }

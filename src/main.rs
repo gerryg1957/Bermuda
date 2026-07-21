@@ -1,11 +1,14 @@
 mod commands;
 mod database;
-mod import_directory;
 mod indexer;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use moyodb::importer::{ImportOutcome, Importer};
+use moyodb::{
+    import_directory,
+    importer::{ImportOutcome, Importer},
+    project_manager::ProjectManager,
+};
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Parser)]
@@ -124,7 +127,7 @@ fn main() -> Result<()> {
             source,
             version,
             directory,
-        } => import_directory::run(&database, &source, &version, &directory),
+        } => import_sgf_directory(database, source, version, directory),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
@@ -301,6 +304,35 @@ fn explore_position(database: PathBuf, game_id: i64, move_number: usize) -> Resu
         if let Some(ko) = m.ko_point {
             println!("           Ko point: {}", ko);
         }
+    }
+
+    Ok(())
+}
+
+fn import_sgf_directory(
+    project_path: PathBuf,
+    source: String,
+    version: String,
+    directory: PathBuf,
+) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let summary = import_directory::run(&project, &source, &version, &directory)?;
+
+    println!();
+    println!("Import complete");
+    println!("Processed    : {}", summary.processed);
+    println!("Imported     : {}", summary.imported);
+    println!("Added sources: {}", summary.added_sources);
+    println!("Duplicates   : {}", summary.duplicates);
+    println!("Skipped      : {}", summary.skipped);
+    println!("Errors       : {}", summary.errors);
+    println!("Elapsed      : {:.2} seconds", summary.elapsed_seconds);
+    println!("Rate         : {:.1} games/second", summary.rate());
+
+    if let Some(error_log) = summary.error_log {
+        println!("Error log    : {}", error_log.display());
     }
 
     Ok(())
