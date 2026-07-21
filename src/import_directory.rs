@@ -1,5 +1,5 @@
-use crate::importer::{ImportOutcome, Importer};
 use anyhow::{Context, Result};
+use moyodb::importer::{ImportOutcome, Importer};
 use std::{fs, path::Path, time::Instant};
 use walkdir::WalkDir;
 

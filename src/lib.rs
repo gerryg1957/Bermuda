@@ -3,6 +3,7 @@ pub mod canonical;
 pub mod database;
 pub mod game;
 pub mod game_list;
+pub mod importer;
 pub mod move_file;
 pub mod position;
 pub mod position_stream;

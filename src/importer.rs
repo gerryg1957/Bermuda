@@ -1,9 +1,10 @@
-use crate::database;
 use anyhow::{Context, Result, bail};
-use moyodb::{
-    GameRecord, canonical_hash, canonical_hash_hex, extract_main_variation, parse_collection,
-    write_move_file,
+
+use crate::{
+    GameRecord, canonical_hash, canonical_hash_hex, database, extract_main_variation, game,
+    parse_collection, project::Project, write_move_file,
 };
+
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{
     fs,
@@ -35,6 +36,10 @@ impl Importer {
         })
     }
 
+    pub fn open_project(project: &Project) -> Result<Self> {
+        Self::open(&project.database_root())
+    }
+
     pub fn import_file(
         &mut self,
         source_name: &str,
@@ -50,8 +55,7 @@ impl Importer {
         let record = extract_main_variation(&collection)
             .with_context(|| format!("extracting main variation from {}", sgf_path.display()))?;
 
-        moyodb::game::replay(&record)
-            .with_context(|| format!("validating {}", sgf_path.display()))?;
+        game::replay(&record).with_context(|| format!("validating {}", sgf_path.display()))?;
 
         if record.board_size != PROFESSIONAL_BOARD_SIZE {
             return Ok(ImportOutcome::SkippedBoardSize {

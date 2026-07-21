@@ -1,11 +1,11 @@
 mod commands;
 mod database;
 mod import_directory;
-mod importer;
 mod indexer;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use moyodb::importer::{ImportOutcome, Importer};
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Parser)]
@@ -147,24 +147,24 @@ fn main() -> Result<()> {
 }
 
 fn import_one(database: PathBuf, source: String, version: String, sgf: PathBuf) -> Result<()> {
-    let mut importer = importer::Importer::open(&database)?;
+    let mut importer = Importer::open(&database)?;
 
     match importer.import_file(&source, &version, &sgf)? {
-        importer::ImportOutcome::Imported { game_id, move_file } => {
+        ImportOutcome::Imported { game_id, move_file } => {
             println!("Imported new game: {game_id}");
             println!("Move file: {}", move_file.display());
         }
 
-        importer::ImportOutcome::AddedSource { game_id } => {
+        ImportOutcome::AddedSource { game_id } => {
             println!("Game already existed: {game_id}");
             println!("Added source metadata: {source} {version}");
         }
 
-        importer::ImportOutcome::AlreadyImported { game_id } => {
+        ImportOutcome::AlreadyImported { game_id } => {
             println!("Already imported from this source and path: game {game_id}");
         }
 
-        importer::ImportOutcome::SkippedBoardSize { board_size } => {
+        ImportOutcome::SkippedBoardSize { board_size } => {
             println!("Skipped: unsupported professional board size {board_size}x{board_size}");
         }
     }
