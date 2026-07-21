@@ -1,4 +1,5 @@
 use crate::database;
+use crate::project::Project;
 use crate::{Color, PositionOccurrence, position_stream, read_move_file};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, params};
@@ -40,6 +41,9 @@ impl PositionIndexer {
             database_root: database_root.to_path_buf(),
             connection,
         })
+    }
+    pub fn open_project(project: &Project) -> Result<Self> {
+        Self::open(&project.database_root())
     }
 
     /// Reads and replays one compact move file.

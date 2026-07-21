@@ -184,7 +184,7 @@ fn build_position_index(project_path: PathBuf) -> Result<()> {
 
     let started = Instant::now();
 
-    let mut indexer = indexer::PositionIndexer::open(&project.database_root())?;
+    let mut indexer = indexer::PositionIndexer::open_project(&project)?;
     let games = indexer.games_to_index(indexer::POSITION_INDEX_VERSION)?;
 
     let total_games = games.len();
@@ -265,7 +265,7 @@ fn find_position(project_path: PathBuf, fingerprint: String) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let indexer = indexer::PositionIndexer::open(&project.database_root())?;
+    let indexer = indexer::PositionIndexer::open_project(&project)?;
     let matches = indexer.find_exact_position(&fingerprint)?;
 
     println!("Matches: {}", matches.len());
@@ -293,7 +293,7 @@ fn explore_position(project_path: PathBuf, game_id: i64, move_number: usize) -> 
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let indexer = indexer::PositionIndexer::open(&project.database_root())?;
+    let indexer = indexer::PositionIndexer::open_project(&project)?;
 
     let matches = indexer.find_matches_from_game(game_id, move_number)?;
 
