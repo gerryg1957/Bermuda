@@ -3,7 +3,10 @@ mod commands;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use moyodb::{
-    database, import_directory, importer::ImportOutcome, indexer, project_manager::ProjectManager,
+    import_directory,
+    importer::ImportOutcome,
+    indexer,
+    project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -20,13 +23,16 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Create a new MoyoDB database directory.
-    Init {
-        /// Directory in which to create the database.
-        database: PathBuf,
-    },
+    /// Create a new MoyoDB project.
+Init {
+    /// Name of the project.
+    name: String,
 
-    /// Import one SGF into an initialised MoyoDB database.
+    /// Directory in which to create the project.
+    project: PathBuf,
+},
+
+    /// Import one SGF into an existing MoyoDB project.
     ImportOne {
         /// MoyoDB database directory.
         database: PathBuf,
@@ -109,8 +115,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Init { database } => database::initialise(&database),
-
+        Command::Init { name, project } => {
+    let manager = ProjectManager::new();
+    manager.create(name, project)?;
+    Ok(())
+}
         Command::ImportOne {
             database,
             source,
