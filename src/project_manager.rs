@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::{fs, path::Path};
 
 use crate::{database, project::Project};
@@ -11,11 +11,7 @@ impl ProjectManager {
         Self
     }
 
-    pub fn create(
-        &self,
-        name: impl Into<String>,
-        root: impl AsRef<Path>,
-    ) -> Result<Project> {
+    pub fn create(&self, name: impl Into<String>, root: impl AsRef<Path>) -> Result<Project> {
         let project = Project::new(name, root.as_ref());
 
         if project.root().exists() {
@@ -40,6 +36,63 @@ impl ProjectManager {
 
         Ok(project)
     }
+
+    pub fn open(&self, root: impl AsRef<Path>) -> Result<Project> {
+        let root = root.as_ref();
+
+        if !root.is_dir() {
+            bail!("project directory does not exist: {}", root.display());
+        }
+
+        let config_path = root.join("moyodb-project.toml");
+
+        let config = fs::read_to_string(&config_path)
+            .with_context(|| format!("reading {}", config_path.display()))?;
+
+        let name = parse_project_name(&config)
+            .with_context(|| format!("parsing {}", config_path.display()))?;
+
+        let project = Project::new(name, root);
+
+        if !project.database_root().is_dir() {
+            bail!(
+                "project database directory does not exist: {}",
+                project.database_root().display()
+            );
+        }
+
+        let metadata_path = project.database_root().join("metadata.sqlite3");
+
+        if !metadata_path.is_file() {
+            bail!(
+                "project metadata database does not exist: {}",
+                metadata_path.display()
+            );
+        }
+
+        Ok(project)
+    }
+}
+
+fn parse_project_name(config: &str) -> Result<String> {
+    for line in config.lines() {
+        let line = line.trim();
+
+        if let Some(value) = line.strip_prefix("name = ") {
+            let name = value
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .context("project name must be a quoted string")?;
+
+            if name.is_empty() {
+                bail!("project name must not be empty");
+            }
+
+            return Ok(name.to_owned());
+        }
+    }
+
+    bail!("project configuration does not contain a name")
 }
 
 #[cfg(test)]
@@ -70,12 +123,10 @@ mod tests {
 
         assert!(project.root().is_dir());
         assert!(project.config_path().is_file());
+
         let config = fs::read_to_string(project.config_path())?;
 
-        assert_eq!(
-        config,
-        "version = 1\nname = \"Test Project\"\n"
-        );
+        assert_eq!(config, "version = 1\nname = \"Test Project\"\n");
 
         assert!(project.database_root().is_dir());
         assert!(project.database_root().join("metadata.sqlite3").is_file());
@@ -89,25 +140,43 @@ mod tests {
 
         Ok(())
     }
+
     #[test]
     fn refuses_to_overwrite_existing_path() -> anyhow::Result<()> {
-    let root = temporary_project_root("existing");
+        let root = temporary_project_root("existing");
 
-    fs::create_dir_all(&root)?;
-    fs::write(root.join("keep-me.txt"), "existing content")?;
+        fs::create_dir_all(&root)?;
+        fs::write(root.join("keep-me.txt"), "existing content")?;
 
-    let manager = ProjectManager::new();
-    let result = manager.create("Test Project", &root);
+        let manager = ProjectManager::new();
+        let result = manager.create("Test Project", &root);
 
-    assert!(result.is_err());
-    assert_eq!(
-        fs::read_to_string(root.join("keep-me.txt"))?,
-        "existing content"
-    );
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(root.join("keep-me.txt"))?,
+            "existing content"
+        );
 
-    fs::remove_dir_all(&root)?;
+        fs::remove_dir_all(&root)?;
 
-    Ok(())
-}
+        Ok(())
+    }
 
+    #[test]
+    fn opens_existing_project() -> anyhow::Result<()> {
+        let root = temporary_project_root("open");
+
+        let manager = ProjectManager::new();
+        manager.create("Test Project", &root)?;
+
+        let project = manager.open(&root)?;
+
+        assert_eq!(project.name(), "Test Project");
+        assert_eq!(project.root(), root.as_path());
+        assert!(project.database_root().is_dir());
+
+        fs::remove_dir_all(&root)?;
+
+        Ok(())
+    }
 }
