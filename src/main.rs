@@ -149,8 +149,11 @@ fn main() -> Result<()> {
     }
 }
 
-fn import_one(database: PathBuf, source: String, version: String, sgf: PathBuf) -> Result<()> {
-    let mut importer = Importer::open(&database)?;
+fn import_one(project_path: PathBuf, source: String, version: String, sgf: PathBuf) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let mut importer = Importer::open_project(&project)?;
 
     match importer.import_file(&source, &version, &sgf)? {
         ImportOutcome::Imported { game_id, move_file } => {
@@ -175,10 +178,13 @@ fn import_one(database: PathBuf, source: String, version: String, sgf: PathBuf) 
     Ok(())
 }
 
-fn build_position_index(database: PathBuf) -> Result<()> {
+fn build_position_index(project_path: PathBuf) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
     let started = Instant::now();
 
-    let mut indexer = indexer::PositionIndexer::open(&database)?;
+    let mut indexer = indexer::PositionIndexer::open(&project.database_root())?;
     let games = indexer.games_to_index(indexer::POSITION_INDEX_VERSION)?;
 
     let total_games = games.len();
@@ -255,8 +261,11 @@ fn build_position_index(database: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn find_position(database: PathBuf, fingerprint: String) -> Result<()> {
-    let indexer = indexer::PositionIndexer::open(&database)?;
+fn find_position(project_path: PathBuf, fingerprint: String) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let indexer = indexer::PositionIndexer::open(&project.database_root())?;
     let matches = indexer.find_exact_position(&fingerprint)?;
 
     println!("Matches: {}", matches.len());
@@ -280,8 +289,11 @@ fn find_position(database: PathBuf, fingerprint: String) -> Result<()> {
     Ok(())
 }
 
-fn explore_position(database: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
-    let indexer = indexer::PositionIndexer::open(&database)?;
+fn explore_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let indexer = indexer::PositionIndexer::open(&project.database_root())?;
 
     let matches = indexer.find_matches_from_game(game_id, move_number)?;
 
