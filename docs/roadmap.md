@@ -103,61 +103,98 @@ moyodb find-position PROJECT GAME MOVE
 
 ---
 
-# Phase 4 — Position exploration (current)
+## 4. Position Search and Exploration
 
-## Goal
+### 4.1 Exact Position Indexing ✅ COMPLETE
 
-Make search results understandable to humans.
+Implemented:
 
-The first priority is to display positions.
+- Deterministic exact-position fingerprints.
+- Position stream generation during game replay.
+- SQLite position index.
+- Incremental position indexing.
+- Schema migration support.
+- Search by game and move number.
+- Duplicate position detection across the database.
 
-Tasks:
+Current scale tested:
 
-## 4.1 Show a board position
+- Database: go4go
+- Games imported: 116,684
+- Positions indexed: 25,085,473
+- Indexing errors: 0
 
-Add:
+The index can now answer:
 
-
-moyodb show-position PROJECT GAME MOVE
-
-
-Requirements:
-
-- Replay game to requested move
-- Display board
-- Show side to move
-- Show ko point
-- Support setup positions
-
-This becomes the foundation for all later search features.
+- "Where does this exact position occur?"
+- "Which games contain this position?"
+- "At what move number does it occur?"
 
 ---
 
-## 4.2 Improve search results
+### 4.2 Position Reconstruction and Display Foundation ✅ COMPLETE
 
-Current:
+Implemented:
+
+- Replay of a game into a sequence of complete board states.
+- Position state objects combining:
+  - board position;
+  - side to move;
+  - ko information;
+  - position fingerprint.
+- Basic ASCII board rendering.
+
+This provides the foundation for moving from a database result to an actual Go position view.
+
+---
+
+### 4.3 Connect Search Results to Board Display 🔄 NEXT
+
+Goal:
+
+Turn position search into a usable player-facing tool.
+
+Implement:
+
+1. `find-position` returns matching game and move information.
+2. Load the associated move file.
+3. Replay the game to the requested position.
+4. Display the resulting board.
+5. Show:
+   - game metadata;
+   - move number;
+   - player to move;
+   - board diagram.
+
+Example target:
+
+Game: 12345
+Move: 50
+Black: Player A
+White: Player B
+
+A B C D E F G ...
+19 . . . X . . . ...
+18 . O X . . . . ...
+...
+
+Black to move
 
 
-Game 123 Move 50 Black to move
+---
+
+### 4.4 Pattern Search Layer
+
+After position exploration is usable:
+
+- support searching for board patterns;
+- allow local board regions rather than whole-board equality;
+- support rotations and reflections where appropriate;
+- rank results by game metadata.
+
+This becomes the foundation for a modern replacement for MoyoGo Studio pattern search.
 
 
-Target:
-
-
-Game 123
-
-Black:
-White:
-Event:
-Date:
-Result:
-
-Position after move 50
-
-[board]
-
-
-Use existing metadata database.
 
 ---
 
