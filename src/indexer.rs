@@ -29,6 +29,20 @@ pub struct ExactPositionMatch {
     pub ko_point: Option<u16>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionSearchResult {
+    pub game_id: i64,
+    pub move_number: usize,
+    pub side_to_move: Color,
+    pub ko_point: Option<u16>,
+
+    pub black_player: Option<String>,
+    pub white_player: Option<String>,
+    pub date: Option<String>,
+    pub event: Option<String>,
+    pub result: Option<String>,
+}
+
 pub struct PositionIndexer {
     database_root: PathBuf,
     connection: Connection,
@@ -337,6 +351,82 @@ impl PositionIndexer {
         }
 
         Ok(matches)
+    }
+
+    pub fn find_exact_position_with_metadata(
+        &self,
+        fingerprint_hex: &str,
+    ) -> Result<Vec<PositionSearchResult>> {
+        let fingerprint = decode_fingerprint_hex(fingerprint_hex)?;
+
+        let mut statement = self.connection.prepare(
+            r#"
+        SELECT
+            ep.game_id,
+            ep.move_number,
+            ep.side_to_move,
+            ep.ko_point,
+            gm.black_player,
+            gm.white_player,
+            gm.played_date,
+            gm.event,
+            gm.result
+        FROM exact_positions ep
+        LEFT JOIN game_sources gs
+            ON gs.game_id = ep.game_id
+        LEFT JOIN game_metadata gm
+            ON gm.game_source_id = gs.id
+        WHERE ep.position_hash = ?1
+        ORDER BY ep.game_id, ep.move_number
+        "#,
+        )?;
+
+        let rows = statement.query_map([fingerprint.as_slice()], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+            ))
+        })?;
+
+        let mut results = Vec::new();
+
+        for row in rows {
+            let (
+                game_id,
+                move_number,
+                side_to_move,
+                ko_point,
+                black_player,
+                white_player,
+                date,
+                event,
+                result,
+            ) = row.context("reading position search result")?;
+
+            results.push(PositionSearchResult {
+                game_id,
+                move_number: usize::try_from(move_number).context("invalid move number")?,
+                side_to_move: color_from_value(side_to_move)?,
+                ko_point: ko_point
+                    .map(u16::try_from)
+                    .transpose()
+                    .context("invalid ko point")?,
+                black_player,
+                white_player,
+                date,
+                event,
+                result,
+            });
+        }
+
+        Ok(results)
     }
 }
 

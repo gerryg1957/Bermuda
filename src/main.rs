@@ -298,7 +298,15 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
 
     let indexer = project.position_indexer()?;
 
-    let matches = indexer.find_matches_from_game(game_id, move_number)?;
+    let occurrence = indexer.position_from_game(game_id, move_number)?;
+
+    let fingerprint = occurrence
+        .fingerprint
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    let matches = indexer.find_exact_position_with_metadata(&fingerprint)?;
 
     println!("Game {} move {}", game_id, move_number);
 
@@ -311,14 +319,35 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
             moyodb::Color::White => "White",
         };
 
-        println!(
-            "Game {:>6}   Move {:>5}   {} to move",
-            m.game_id, m.move_number, side,
-        );
+        println!("Game {}", m.game_id);
+        println!("Move {}", m.move_number);
+        println!("{side} to move");
+
+        if let Some(player) = m.black_player {
+            println!("Black: {player}");
+        }
+
+        if let Some(player) = m.white_player {
+            println!("White: {player}");
+        }
+
+        if let Some(event) = m.event {
+            println!("Event: {event}");
+        }
+
+        if let Some(date) = m.date {
+            println!("Date: {date}");
+        }
+
+        if let Some(result) = m.result {
+            println!("Result: {result}");
+        }
 
         if let Some(ko) = m.ko_point {
-            println!("           Ko point: {}", ko);
+            println!("Ko point: {ko}");
         }
+
+        println!();
     }
 
     let state = indexer.replay_board_position(game_id, move_number)?;
