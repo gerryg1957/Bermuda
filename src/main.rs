@@ -388,11 +388,32 @@ fn show_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     let project = project_manager.open(&project_path)?;
 
     let indexer = project.position_indexer()?;
-
+    let record = indexer.read_game_by_id(game_id)?;
     let state = indexer.replay_board_position(game_id, move_number)?;
 
     println!("Game {}", game_id);
     println!("Move {}", move_number);
+
+    if let Some(player) = record.metadata.black_player {
+        println!("Black: {player}");
+    }
+
+    if let Some(player) = record.metadata.white_player {
+        println!("White: {player}");
+    }
+
+    if let Some(event) = record.metadata.event {
+        println!("Event: {event}");
+    }
+
+    if let Some(date) = record.metadata.date {
+        println!("Date: {date}");
+    }
+
+    if let Some(result) = record.metadata.result {
+        println!("Result: {result}");
+    }
+
     println!();
 
     let side = match state.occurrence.side_to_move {
