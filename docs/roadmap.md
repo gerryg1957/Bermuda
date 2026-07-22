@@ -2,27 +2,23 @@
 
 ## Project Goal
 
-MoyoDB is a professional Go game database designed as a modern replacement for Moyo Go Studio.
+MoyoDB is a professional Go game database designed as a modern native replacement for Moyo Go Studio.
 
-The primary goals are:
+The goals are:
 
-- native Linux support;
 - large-scale SGF storage;
 - fast exact position search;
 - professional game browsing and analysis;
-- support for historical and modern Go collections.
+- Linux-native operation;
+- long-term maintainable architecture.
 
-The design prioritises:
-- correctness;
-- deterministic storage;
-- incremental indexing;
-- long-term maintainability.
+The initial focus is 19x19 professional and historical games.
 
 ---
 
 # Completed
 
-## 1. Core Go Game Engine
+## 1. Go Game Engine
 
 Completed:
 
@@ -36,7 +32,7 @@ Completed:
 - Setup stones (AB/AW/AE)
 - Game replay
 
-The engine correctly reconstructs positions from SGF records.
+The engine can reconstruct valid game states from SGF records.
 
 ---
 
@@ -44,41 +40,40 @@ The engine correctly reconstructs positions from SGF records.
 
 Completed:
 
-- Compact move-file format
-- SGF import conversion
+- SGF to compact move-file conversion
+- Compact move-file reader/writer
 - Canonical game hashing
-- Duplicate game detection support
+- Duplicate game identity support
 
 Canonical game identity includes:
 
 - board size;
-- setup position;
-- complete move sequence.
+- setup stones;
+- move sequence.
 
-Metadata is deliberately excluded.
+Metadata is excluded from the canonical identity.
 
 ---
 
-## 3. Database Project Structure
+## 3. Database Architecture
 
 Completed:
 
-- MoyoDB project creation
+- MoyoDB project structure
 - SQLite metadata database
-- Game file storage layout
-- Incremental import support
-- Source tracking
+- Game file storage
+- Source collection tracking
+- Incremental import framework
+- Incremental indexing support
 
-Supported workflow:
+Database layout:
 
-SGF collection
-|
-v
 MoyoDB project
-|
-+-- metadata.sqlite3
-|
-+-- games/
+
+metadata.sqlite3
+
+games/
+compact game files
 
 
 ---
@@ -87,20 +82,19 @@ MoyoDB project
 
 ## Completed
 
-The exact-position search engine is now operational.
+The exact position search engine is operational.
 
 Implemented:
 
-- deterministic board position fingerprints;
+- deterministic position fingerprints;
 - position stream generation;
-- SQLite position index;
+- SQLite exact-position index;
 - incremental position indexing;
-- exact position lookup;
-- game/move position selection;
+- search by game and move;
 - metadata-enriched search results;
-- board reconstruction from indexed positions.
+- board reconstruction.
 
-The database can now answer:
+The database can answer:
 
 > "Where has this exact board position occurred, and what was the context of the game?"
 
@@ -116,89 +110,118 @@ Search results include:
 - date;
 - result.
 
-Example:
-
-Game 1
-Move 50
-Black to move
-
-Black: Ando Takeo
-White: Tozawa Akinobu
-Event: 17th Japanese Prime Minister's Cup
-Date: 1972-12-27
-Result: W+R
-
+Validated against a real go4go database.
 
 ---
 
-# 5. Search and Analysis Workflow
+# 5. Analysis Workflow
 
-## Current priority
+## 5.1 Board Display
 
-Improve usability of position search.
+Completed:
 
-Planned:
+- command-line board rendering;
+- Go coordinate labels;
+- correct skipping of the letter I.
 
-### 5.1 Better board display
+Current output supports readable 19x19 board display.
+
+Future improvements:
+
+- bottom coordinate labels;
+- hoshi/star points;
+- improved spacing;
+- last-move marker.
+
+---
+
+## 5.2 Position Viewing
+
+## Next priority
+
+Separate position display from position searching.
 
 Add:
 
-- coordinate labels;
-- standard Go board notation;
-- last move marker;
-- move number display;
-- improved readability for 19x19 games.
-
----
-
-### 5.2 Position viewing commands
-
-Add dedicated commands:
-
-moyodb show-position <game> <move>
+moyodb show-position <project> <game> <move>
 
 
 Capabilities:
 
 - display board;
-- show metadata;
+- show game metadata;
 - show side to move;
-- show move context.
+- show ko state;
+- display selected position without performing a search.
+
+Reason:
+
+Searching and viewing are separate operations and should have separate commands.
 
 ---
 
-### 5.3 Local game context
+## 5.3 Game Replay Workflow
 
-Add:
+Planned:
 
-- previous moves;
-- following moves;
-- replay from selected position;
-- variation browsing.
+Add improved replay support.
+
+Features:
+
+- replay a complete game;
+- step forward/backward;
+- show move numbers;
+- show captured stones;
+- jump to selected positions.
 
 ---
 
 # 6. Pattern Search
 
-Future major feature.
+Major future feature.
 
-Goals:
+Goal:
 
-- search for board patterns rather than exact positions;
-- support professional joseki/fuseki research;
-- allow transformations where appropriate;
-- provide frequency information.
+Search for board patterns rather than only exact positions.
+
+Examples:
+
+- corner joseki searches;
+- fuseki patterns;
+- local fighting positions;
+- opening statistics.
 
 Possible features:
 
-- corner pattern search;
-- local board-region search;
-- occurrence counts;
-- move statistics.
+- rectangular pattern matching;
+- board transformations;
+- frequency analysis;
+- professional game statistics.
 
 ---
 
-# 7. User Interface
+# 7. Game Browsing
+
+Future phase.
+
+Features:
+
+- list games;
+- filter by player;
+- filter by event;
+- filter by date;
+- show game information;
+- open game directly.
+
+Possible commands:
+
+moyodb list-games
+moyodb show-game <id>
+
+
+---
+
+# 8. User Interface
 
 Future phase.
 
@@ -206,21 +229,25 @@ Possible implementations:
 
 - Qt desktop application;
 - web interface;
-- integrated analysis board.
+- integrated Go board viewer.
 
-The GUI should build on the existing command-line engine rather than duplicate functionality.
+Principle:
+
+The GUI should use the existing MoyoDB engine rather than duplicate database logic.
 
 ---
 
-# 8. Large Database Support
+# 9. Large Database Support
 
 Future improvements:
 
-- efficient import of GoGoD and go4go collections;
+- import full GoGoD collections;
+- import full go4go collections;
 - background indexing;
-- faster bulk operations;
+- indexing progress display;
 - database statistics;
-- duplicate reporting.
+- duplicate reporting;
+- faster bulk operations.
 
 ---
 
@@ -230,7 +257,7 @@ Future improvements:
 
 The database must always reproduce the exact game state.
 
-## Incremental development
+## Small verified changes
 
 Each feature should:
 
@@ -240,6 +267,10 @@ Each feature should:
 
 ## Professional focus
 
-The initial target is 19x19 professional games.
+Initial priority:
 
-Smaller boards may be supported, but are not the primary focus.
+- 19x19 games;
+- historical and professional collections;
+- accurate replay and search.
+
+Smaller boards may be supported but are not the primary target.
