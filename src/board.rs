@@ -82,6 +82,22 @@ impl Board {
         Ok(u16::from(y) * u16::from(self.size) + u16::from(x))
     }
 
+    pub fn point_name(&self, point: u16) -> Result<String, BoardError> {
+        self.require_point(point)?;
+
+        let size = u16::from(self.size);
+        let x = point % size;
+        let y = point / size;
+
+        let letter_index = usize::from(x);
+        let letter = match letter_index {
+            0..=7 => (b'A' + letter_index as u8) as char,
+            _ => (b'A' + letter_index as u8 + 1) as char,
+        };
+
+        Ok(format!("{}{}", letter, y + 1))
+    }
+
     pub fn color_at(&self, point: u16) -> Option<Color> {
         if !self.is_valid_point(point) {
             return None;

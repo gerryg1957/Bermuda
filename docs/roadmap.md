@@ -137,26 +137,14 @@ Future improvements:
 
 ## 5.2 Position Viewing
 
-## Next priority
-
-Separate position display from position searching.
-
-Add:
-
-moyodb show-position <project> <game> <move>
 
 
-Capabilities:
+Completed:
 
-- display board;
-- show game metadata;
-- show side to move;
-- show ko state;
-- display selected position without performing a search.
-
-Reason:
-
-Searching and viewing are separate operations and should have separate commands.
+- show-position command
+- board reconstruction
+- metadata display
+- side-to-move display
 
 ---
 

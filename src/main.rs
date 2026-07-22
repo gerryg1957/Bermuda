@@ -424,6 +424,25 @@ fn show_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     println!("{side} to move");
     println!();
 
+    if let Some(last_move) = state.last_move {
+        let colour = match last_move.color {
+            moyodb::Color::Black => "Black",
+            moyodb::Color::White => "White",
+        };
+
+        match last_move.point {
+            Some(point) => {
+                let coordinate = state.board.point_name(point)?;
+                println!("Last move: {colour} {coordinate}");
+            }
+            None => {
+                println!("Last move: {colour} pass");
+            }
+        }
+
+        println!();
+    }
+
     println!("{}", board_display::render(&state.board));
 
     Ok(())

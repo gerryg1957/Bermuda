@@ -1,10 +1,15 @@
-use crate::{Board, Color, GameRecord, PositionOccurrence, SetupStone, position_fingerprint};
+use crate::{Board, Color, GameRecord, Move, PositionOccurrence, SetupStone, position_fingerprint};
 use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
 pub struct PositionState {
     pub board: Board,
     pub occurrence: PositionOccurrence,
+
+    /// The move that produced this position.
+    ///
+    /// This is `None` for position zero.
+    pub last_move: Option<Move>,
 }
 
 pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
@@ -20,7 +25,7 @@ pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
         .map(|mv| mv.color)
         .unwrap_or(Color::Black);
 
-    states.push(make_state(&board, 0, initial_side));
+    states.push(make_state(&board, 0, initial_side, None));
 
     for (index, &mv) in record.moves.iter().enumerate() {
         board
@@ -33,7 +38,7 @@ pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
             .map(|next| next.color)
             .unwrap_or_else(|| mv.color.opponent());
 
-        states.push(make_state(&board, index + 1, side_to_move));
+        states.push(make_state(&board, index + 1, side_to_move, Some(mv)));
     }
 
     Ok(states)
@@ -54,7 +59,12 @@ fn apply_setup(board: &mut Board, record: &GameRecord) -> Result<()> {
     Ok(())
 }
 
-fn make_state(board: &Board, move_number: usize, side_to_move: Color) -> PositionState {
+fn make_state(
+    board: &Board,
+    move_number: usize,
+    side_to_move: Color,
+    last_move: Option<Move>,
+) -> PositionState {
     PositionState {
         board: board.clone(),
         occurrence: PositionOccurrence {
@@ -63,5 +73,6 @@ fn make_state(board: &Board, move_number: usize, side_to_move: Color) -> Positio
             ko_point: board.ko_point(),
             fingerprint: position_fingerprint(board, side_to_move),
         },
+        last_move,
     }
 }
