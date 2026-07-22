@@ -1,306 +1,245 @@
 # MoyoDB Roadmap
 
-MoyoDB is a professional Go game database designed to replace legacy tools such as MoyoGo Studio and provide a modern foundation for searching, analysing, and exploring large SGF collections.
+## Project Goal
 
-The project is organised around a core database engine with command-line tools and a future graphical interface.
+MoyoDB is a professional Go game database designed as a modern replacement for Moyo Go Studio.
+
+The primary goals are:
+
+- native Linux support;
+- large-scale SGF storage;
+- fast exact position search;
+- professional game browsing and analysis;
+- support for historical and modern Go collections.
+
+The design prioritises:
+- correctness;
+- deterministic storage;
+- incremental indexing;
+- long-term maintainability.
 
 ---
 
-# Phase 1 — Core game representation ✅ Complete
+# Completed
 
-## Goals
+## 1. Core Go Game Engine
 
-Create a reliable internal representation of Go games.
-
-Implemented:
+Completed:
 
 - SGF parser
 - Main variation extraction
-- Setup stones
+- Board representation
+- Stone placement
 - Captures
+- Simple ko
 - Pass moves
-- Simple ko handling
-- Compact move file format
+- Setup stones (AB/AW/AE)
+- Game replay
 
-Result:
-
-SGF files can be converted into a compact internal representation suitable for database storage and replay.
+The engine correctly reconstructs positions from SGF records.
 
 ---
 
-# Phase 2 — Game identity and database foundation ✅ Complete
+## 2. Compact Game Storage
 
-## Goals
+Completed:
 
-Create a database architecture suitable for professional Go collections.
-
-Implemented:
-
-- MoyoDB project structure
-- SQLite metadata database
+- Compact move-file format
+- SGF import conversion
 - Canonical game hashing
-- Duplicate game detection
+- Duplicate game detection support
+
+Canonical game identity includes:
+
+- board size;
+- setup position;
+- complete move sequence.
+
+Metadata is deliberately excluded.
+
+---
+
+## 3. Database Project Structure
+
+Completed:
+
+- MoyoDB project creation
+- SQLite metadata database
+- Game file storage layout
+- Incremental import support
 - Source tracking
-- Import from individual SGF files
-- Import from SGF directories
 
-Project layout:
+Supported workflow:
 
+SGF collection
+|
+v
 MoyoDB project
 |
-├── moyodb-project.toml
-├── database/
-│ ├── metadata.sqlite3
-│ └── games/
-├── indexes/
-└── cache/
++-- metadata.sqlite3
+|
++-- games/
 
-
-Validated with:
-
-- GoGoD test collections
-- go4go collection
-- 116,684 games imported
 
 ---
 
-# Phase 3 — Exact position search engine ✅ Complete
+# 4. Exact Position Search
 
-## Goals
+## Completed
 
-Allow MoyoDB to answer:
-
-"Has this exact board position occurred before?"
+The exact-position search engine is now operational.
 
 Implemented:
 
-- Position fingerprints
-- Position stream generation
-- Incremental indexing
-- SQLite position index
-- Schema migration system
-- Exact position lookup
+- deterministic board position fingerprints;
+- position stream generation;
+- SQLite position index;
+- incremental position indexing;
+- exact position lookup;
+- game/move position selection;
+- metadata-enriched search results;
+- board reconstruction from indexed positions.
 
-Database tables:
+The database can now answer:
 
-indexed_games
+> "Where has this exact board position occurred, and what was the context of the game?"
 
-exact_positions
+Search results include:
 
-Validation: 
+- game ID;
+- move number;
+- side to move;
+- ko state;
+- Black player;
+- White player;
+- event;
+- date;
+- result.
 
-Games indexed : 116684
-Positions : 25085473
-Errors : 0
+Example:
 
-
-Command examples:
-
-
-moyodb build-position-index PROJECT
-
-moyodb find-position PROJECT GAME MOVE
-
----
-
-## 4. Position Search and Exploration
-
-### 4.1 Exact Position Indexing ✅ COMPLETE
-
-Implemented:
-
-- Deterministic exact-position fingerprints.
-- Position stream generation during game replay.
-- SQLite position index.
-- Incremental position indexing.
-- Schema migration support.
-- Search by game and move number.
-- Duplicate position detection across the database.
-
-Current scale tested:
-
-- Database: go4go
-- Games imported: 116,684
-- Positions indexed: 25,085,473
-- Indexing errors: 0
-
-The index can now answer:
-
-- "Where does this exact position occur?"
-- "Which games contain this position?"
-- "At what move number does it occur?"
-
----
-
-### 4.2 Position Reconstruction and Display Foundation ✅ COMPLETE
-
-Implemented:
-
-- Replay of a game into a sequence of complete board states.
-- Position state objects combining:
-  - board position;
-  - side to move;
-  - ko information;
-  - position fingerprint.
-- Basic ASCII board rendering.
-
-This provides the foundation for moving from a database result to an actual Go position view.
-
----
-
-### 4.3 Connect Search Results to Board Display 🔄 NEXT
-
-Goal:
-
-Turn position search into a usable player-facing tool.
-
-Implement:
-
-1. `find-position` returns matching game and move information.
-2. Load the associated move file.
-3. Replay the game to the requested position.
-4. Display the resulting board.
-5. Show:
-   - game metadata;
-   - move number;
-   - player to move;
-   - board diagram.
-
-Example target:
-
-Game: 12345
-Move: 50
-Black: Player A
-White: Player B
-
-A B C D E F G ...
-19 . . . X . . . ...
-18 . O X . . . . ...
-...
-
+Game 1
+Move 50
 Black to move
 
-
----
-
-### 4.4 Pattern Search Layer
-
-After position exploration is usable:
-
-- support searching for board patterns;
-- allow local board regions rather than whole-board equality;
-- support rotations and reflections where appropriate;
-- rank results by game metadata.
-
-This becomes the foundation for a modern replacement for MoyoGo Studio pattern search.
-
+Black: Ando Takeo
+White: Tozawa Akinobu
+Event: 17th Japanese Prime Minister's Cup
+Date: 1972-12-27
+Result: W+R
 
 
 ---
 
-# Phase 5 — Pattern search engine
+# 5. Search and Analysis Workflow
 
-## Goal
+## Current priority
 
-Provide the feature that made tools like Kombilo valuable.
+Improve usability of position search.
 
-Answer:
+Planned:
 
-"Where has this shape appeared before?"
+### 5.1 Better board display
 
-Initial implementation:
+Add:
 
-- Corner pattern search
-- 5x5 patterns
-- 7x7 patterns
-
-Possible schema:
-
-pattern_positions
-
-pattern_hash
-game_id
-move_number
-x
-y
-width
-height
-
-
-Later:
-
-- arbitrary board regions
-- pattern similarity
-- professional joseki search
+- coordinate labels;
+- standard Go board notation;
+- last move marker;
+- move number display;
+- improved readability for 19x19 games.
 
 ---
 
-# Phase 6 — Graphical interface
+### 5.2 Position viewing commands
 
-## Goal
+Add dedicated commands:
 
-Provide a modern replacement for MoyoGo Studio.
+moyodb show-position <game> <move>
 
-The GUI should use the existing MoyoDB engine.
 
-Architecture:
+Capabilities:
 
-Qt interface
-
- |
- v
-
-MoyoDB library
-
- |
- +-- database
- +-- importer
- +-- position search
- +-- pattern search
-
-Features:
-
-- Game browser
-- Go board display
-- SGF viewer
-- Position search
-- Pattern search
-- Metadata search
+- display board;
+- show metadata;
+- show side to move;
+- show move context.
 
 ---
 
-# Phase 7 — Large collection optimisation
+### 5.3 Local game context
 
-## Goal
+Add:
 
-Support professional-scale databases.
-
-Tasks:
-
-- Faster indexing
-- Parallel import
-- Better caching
-- Incremental updates
-- Collection statistics
-
-Target collections:
-
-- GoGoD
-- go4go
-- personal SGF archives
+- previous moves;
+- following moves;
+- replay from selected position;
+- variation browsing.
 
 ---
 
-# Development principle
+# 6. Pattern Search
 
-Each phase should produce a working, testable system.
+Future major feature.
 
-Priority order:
+Goals:
 
-1. Correctness
-2. Database integrity
-3. Search capability
-4. User interface
-5. Performance optimisation
+- search for board patterns rather than exact positions;
+- support professional joseki/fuseki research;
+- allow transformations where appropriate;
+- provide frequency information.
 
-The database engine comes first; the GUI is built on top of it.
+Possible features:
+
+- corner pattern search;
+- local board-region search;
+- occurrence counts;
+- move statistics.
+
+---
+
+# 7. User Interface
+
+Future phase.
+
+Possible implementations:
+
+- Qt desktop application;
+- web interface;
+- integrated analysis board.
+
+The GUI should build on the existing command-line engine rather than duplicate functionality.
+
+---
+
+# 8. Large Database Support
+
+Future improvements:
+
+- efficient import of GoGoD and go4go collections;
+- background indexing;
+- faster bulk operations;
+- database statistics;
+- duplicate reporting.
+
+---
+
+# Development Principles
+
+## Correctness first
+
+The database must always reproduce the exact game state.
+
+## Incremental development
+
+Each feature should:
+
+- have tests;
+- preserve existing behaviour;
+- be committed separately.
+
+## Professional focus
+
+The initial target is 19x19 professional games.
+
+Smaller boards may be supported, but are not the primary focus.
