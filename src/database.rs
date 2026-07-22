@@ -143,6 +143,63 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
     Ok(())
 }
 
+fn migrate(connection: &Connection, from_version: i64) -> Result<()> {
+    let mut version = from_version;
+
+    while version < SCHEMA_VERSION {
+        match version {
+            2 => migrate_2_to_3(connection)?,
+            _ => bail!("no migration available from schema version {version}"),
+        }
+
+        version += 1;
+    }
+
+    connection.execute(
+        "UPDATE schema_info SET schema_version = ?1",
+        [SCHEMA_VERSION],
+    )?;
+
+    Ok(())
+}
+
+fn migrate_2_to_3(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS indexed_games (
+            game_id INTEGER PRIMARY KEY,
+            index_version INTEGER NOT NULL,
+            indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            occurrence_count INTEGER NOT NULL,
+
+            FOREIGN KEY(game_id)
+                REFERENCES games(id)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS exact_positions (
+            position_hash BLOB NOT NULL,
+            game_id INTEGER NOT NULL,
+            move_number INTEGER NOT NULL,
+            side_to_move INTEGER NOT NULL,
+            ko_point INTEGER,
+
+            FOREIGN KEY(game_id)
+                REFERENCES games(id)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS exact_positions_hash
+            ON exact_positions(position_hash);
+
+        CREATE INDEX IF NOT EXISTS exact_positions_game
+            ON exact_positions(game_id);
+        "#,
+    )?;
+
+    Ok(())
+}
+
 fn check_or_record_schema_version(connection: &Connection) -> Result<()> {
     let current_version: Option<i64> = connection
         .query_row(
@@ -154,11 +211,10 @@ fn check_or_record_schema_version(connection: &Connection) -> Result<()> {
         .context("reading schema version")?;
 
     match current_version {
-        Some(version) if version != SCHEMA_VERSION => {
-            bail!(
-                "unsupported database schema version {version}; \
-                 this program expects version {SCHEMA_VERSION}"
-            );
+        Some(version) if version < SCHEMA_VERSION => migrate(connection, version),
+
+        Some(version) if version > SCHEMA_VERSION => {
+            bail!("database schema version {version} is newer than this program supports");
         }
 
         Some(_) => Ok(()),

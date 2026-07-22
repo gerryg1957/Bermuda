@@ -11,7 +11,7 @@ Delta compression using up to 16 threads
 Compressing objects: 100% (1499/1499), done.
 Writing objects: 100% (1797/1797), 100.00 MiB | 15.93 MiB/s, done.
 Total 1797 (delta 441), reused 726 (delta 149), pack-reused 0 (from 0)
-gerry@stone-free:~/moyodb> git bundle verify ~/backups/moyodb/moyodb-$(date +%F).bundle
+gerry@stone-free:~/moyodb-core> git bundle verify ~/backups/moyodb/moyodb-$(date +%F).bundle
 The bundle contains these 4 refs:
 700f4c0c1d9eaecd02ef4b4c320000adec34224f refs/heads/master
 16a6dfbb05e08e5c92a5591c2868fc255e6bd7d7 refs/tags/v0.1.0
@@ -28,9 +28,9 @@ git clone ~/backups/moyodb/moyodb-core-2026-07-16.bundle moyodb-restored
 You may also keep a readable compressed copy of the working directory:
 
 
-gerry@stone-free:~/moyodb> tar --exclude='moyodb/target' \
->     -czf ~/backups/moyodb/moyodb-files-$(date +%F).tar.gz \
->     -C ~ moyodb
+gerry@stone-free:~/moyodb-core> tar --exclude='moyodb-core/target' \
+>     -czf ~/backups/moyodb/moyodb-core-files-$(date +%F).tar.gz \
+>     -C ~ moyodb-core
 
 2. Back up the database
 
@@ -55,6 +55,6 @@ sqlite3 ~/go-database-go4go/metadata.sqlite3 \
    
    Test the archives without extracting:
    
-   tar -tzf ~/backups/moyodb/moyodb-files-$(date +%F).tar.gz | head
+   tar -tzf ~/backups/moyodb/moyodb-core-files-$(date +%F).tar.gz | head
    tar -tzf ~/backups/moyodb/go-database-go4go-$(date +%F).tar.gz | head
    

@@ -55,8 +55,8 @@ enum Command {
         /// Directory containing SGF files.
         directory: PathBuf,
     },
-    /// Explore an indexed position from a game and move number.
-    ExplorePosition {
+    /// Find an indexed position from a game and move number.
+    FindPosition {
         /// MoyoDB project directory.
         project: PathBuf,
 
@@ -72,7 +72,7 @@ enum Command {
         project: PathBuf,
     },
     /// Find occurrences of an exact position fingerprint.
-    FindPosition {
+    FindFingerprint {
         /// MoyoDB project directory.
         project: PathBuf,
 
@@ -133,16 +133,16 @@ fn main() -> Result<()> {
 
         Command::Inspect { input } => commands::inspect_move_file(input),
 
-        Command::FindPosition {
+        Command::FindFingerprint {
             project,
             fingerprint,
-        } => find_position(project, fingerprint),
+        } => find_position_by_fingerprint(project, fingerprint),
 
-        Command::ExplorePosition {
+        Command::FindPosition {
             project,
             game_id,
             move_number,
-        } => explore_position(project, game_id, move_number),
+        } => find_position(project, game_id, move_number),
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { project } => build_position_index(project),
@@ -261,7 +261,7 @@ fn build_position_index(project_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn find_position(project_path: PathBuf, fingerprint: String) -> Result<()> {
+fn find_position_by_fingerprint(project_path: PathBuf, fingerprint: String) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
@@ -289,7 +289,7 @@ fn find_position(project_path: PathBuf, fingerprint: String) -> Result<()> {
     Ok(())
 }
 
-fn explore_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
+fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
