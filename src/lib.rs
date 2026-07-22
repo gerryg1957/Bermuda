@@ -21,5 +21,5 @@ pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};
-pub use replay::{replay_positions, PositionState};
+pub use replay::{PositionState, replay_positions};
 pub use sgf::{Collection, GameTree, Node, parse_collection};

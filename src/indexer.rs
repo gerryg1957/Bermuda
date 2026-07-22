@@ -1,6 +1,8 @@
 use crate::database;
 use crate::project::Project;
-use crate::{Color, PositionOccurrence, position_stream, read_move_file};
+use crate::{
+    Color, PositionOccurrence, PositionState, position_stream, read_move_file, replay_positions,
+};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
@@ -149,6 +151,25 @@ impl PositionIndexer {
             .with_context(|| format!("game {game_id} does not exist"))?;
 
         self.replay_game(&game)
+    }
+
+    pub fn replay_board_position(&self, game_id: i64, move_number: usize) -> Result<PositionState> {
+        let game = self
+            .game_by_id(game_id)?
+            .with_context(|| format!("game {game_id} does not exist"))?;
+
+        let record = read_move_file(&game.move_file)
+            .with_context(|| format!("reading move file for game {game_id}"))?;
+
+        let states =
+            replay_positions(&record).with_context(|| format!("replaying game {game_id}"))?;
+
+        states.get(move_number).cloned().with_context(|| {
+            format!(
+                "requested move {move_number}, but game {game_id} contains only {} moves",
+                states.len().saturating_sub(1)
+            )
+        })
     }
 
     pub fn position_from_game(

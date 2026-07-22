@@ -2,7 +2,10 @@ mod commands;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use moyodb::{import_directory, importer::ImportOutcome, indexer, project_manager::ProjectManager};
+use moyodb::{
+    board_display, import_directory, importer::ImportOutcome, indexer,
+    project_manager::ProjectManager,
+};
 use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Parser)]
@@ -317,6 +320,18 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
             println!("           Ko point: {}", ko);
         }
     }
+
+    let state = indexer.replay_board_position(game_id, move_number)?;
+
+    println!();
+    println!("{}", board_display::render(&state.board));
+
+    let side = match state.occurrence.side_to_move {
+        moyodb::Color::Black => "Black",
+        moyodb::Color::White => "White",
+    };
+
+    println!("{side} to move");
 
     Ok(())
 }
