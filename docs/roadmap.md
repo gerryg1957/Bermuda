@@ -112,6 +112,47 @@ Search results include:
 
 Validated against a real go4go database.
 
+## Position Display and Replay Foundation (Completed)
+
+The database can now reconstruct and display individual game positions.
+
+Completed:
+
+- Added `show-position` command for displaying a position from a stored game.
+- Reconstructs the board state directly from the compact move file.
+- Displays game metadata:
+  - Black player
+  - White player
+  - Event
+  - Date
+  - Result
+- Displays side to move.
+- Added tracking of the move that produced each position.
+- Displays the last move in standard Go coordinates (for example `Q16`).
+- Added board coordinate conversion support.
+- Maintains separation between:
+  - replay engine (`replay.rs`)
+  - board representation (`board.rs`)
+  - command-line presentation (`main.rs`)
+
+This provides the foundation for full game replay and future interactive analysis tools.
+
+---
+
+## Next: Database Game Replay
+
+Planned:
+
+- Add a command to replay a complete stored game.
+- Display positions sequentially from move 0 onwards.
+- Show:
+  - move number
+  - last move
+  - player to move
+  - board position
+- Allow limiting replay to a selected move range.
+- Provide a foundation for later GUI and analysis features.
+
 ---
 
 # 5. Analysis Workflow
