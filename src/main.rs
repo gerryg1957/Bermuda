@@ -69,6 +69,18 @@ enum Command {
         /// Position after this move number.
         move_number: usize,
     },
+    /// Display a position from a game and move number.
+    ShowPosition {
+        /// MoyoDB project directory.
+        project: PathBuf,
+
+        /// Database game ID.
+        game_id: i64,
+
+        /// Position after this move number.
+        move_number: usize,
+    },
+
     /// Build or resume the exact-position index.
     BuildPositionIndex {
         /// MoyoDB project directory.
@@ -146,6 +158,12 @@ fn main() -> Result<()> {
             game_id,
             move_number,
         } => find_position(project, game_id, move_number),
+
+        Command::ShowPosition {
+            project,
+            game_id,
+            move_number,
+        } => show_position(project, game_id, move_number),
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { project } => build_position_index(project),
@@ -361,6 +379,31 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     };
 
     println!("{side} to move");
+
+    Ok(())
+}
+
+fn show_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let indexer = project.position_indexer()?;
+
+    let state = indexer.replay_board_position(game_id, move_number)?;
+
+    println!("Game {}", game_id);
+    println!("Move {}", move_number);
+    println!();
+
+    let side = match state.occurrence.side_to_move {
+        moyodb::Color::Black => "Black",
+        moyodb::Color::White => "White",
+    };
+
+    println!("{side} to move");
+    println!();
+
+    println!("{}", board_display::render(&state.board));
 
     Ok(())
 }
