@@ -95,6 +95,15 @@ enum Command {
         fingerprint: String,
     },
 
+    /// Replay a stored game from the database.
+    ReplayGame {
+        /// MoyoDB project directory.
+        project: PathBuf,
+
+        /// Database game ID.
+        game_id: i64,
+    },
+
     /// Convert the first game and its main variation from SGF to a compact move file.
     Import {
         /// Source SGF file.
@@ -159,6 +168,8 @@ fn main() -> Result<()> {
             move_number,
         } => find_position(project, game_id, move_number),
 
+        Command::ReplayGame { project, game_id } => replay_game(project, game_id),
+
         Command::ShowPosition {
             project,
             game_id,
@@ -168,6 +179,51 @@ fn main() -> Result<()> {
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { project } => build_position_index(project),
     }
+}
+
+fn replay_game(project_path: PathBuf, game_id: i64) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let indexer = project.position_indexer()?;
+
+    let states = indexer.replay_game_states_by_id(game_id)?;
+
+    println!("Game {}", game_id);
+    println!("Positions: {}", states.len());
+    println!();
+
+    for state in states {
+        println!("Move {}", state.occurrence.move_number);
+
+        let side = match state.occurrence.side_to_move {
+            moyodb::Color::Black => "Black",
+            moyodb::Color::White => "White",
+        };
+
+        println!("{side} to move");
+
+        if let Some(last_move) = state.last_move {
+            let colour = match last_move.color {
+                moyodb::Color::Black => "Black",
+                moyodb::Color::White => "White",
+            };
+
+            match last_move.point {
+                Some(point) => {
+                    let coordinate = state.board.point_name(point)?;
+                    println!("Last move: {colour} {coordinate}");
+                }
+                None => println!("Last move: {colour} pass"),
+            }
+        }
+
+        println!();
+        println!("{}", board_display::render(&state.board));
+        println!();
+    }
+
+    Ok(())
 }
 
 fn import_one(project_path: PathBuf, source: String, version: String, sgf: PathBuf) -> Result<()> {
