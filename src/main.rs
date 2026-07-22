@@ -102,6 +102,10 @@ enum Command {
 
         /// Database game ID.
         game_id: i64,
+
+        /// Show only a specific move number.
+        #[arg(long)]
+        move_number: Option<usize>,
     },
 
     /// Convert the first game and its main variation from SGF to a compact move file.
@@ -168,7 +172,11 @@ fn main() -> Result<()> {
             move_number,
         } => find_position(project, game_id, move_number),
 
-        Command::ReplayGame { project, game_id } => replay_game(project, game_id),
+        Command::ReplayGame {
+            project,
+            game_id,
+            move_number,
+        } => replay_game(project, game_id, move_number),
 
         Command::ShowPosition {
             project,
@@ -181,19 +189,36 @@ fn main() -> Result<()> {
     }
 }
 
-fn replay_game(project_path: PathBuf, game_id: i64) -> Result<()> {
+fn replay_game(project_path: PathBuf, game_id: i64, move_number: Option<usize>) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
     let indexer = project.position_indexer()?;
-
     let states = indexer.replay_game_states_by_id(game_id)?;
 
     println!("Game {}", game_id);
-    println!("Positions: {}", states.len());
+
+    let total_moves = states.len().saturating_sub(1);
+
+    match move_number {
+        Some(target) => {
+            println!("Move {} of {}", target, total_moves);
+        }
+        None => {
+            println!("Positions: {}", states.len());
+            println!("Moves: {}", total_moves);
+        }
+    }
+
     println!();
 
     for state in states {
+        if let Some(target) = move_number {
+            if state.occurrence.move_number != target {
+                continue;
+            }
+        }
+
         println!("Move {}", state.occurrence.move_number);
 
         let side = match state.occurrence.side_to_move {
