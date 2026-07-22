@@ -195,6 +195,18 @@ impl PositionIndexer {
         })
     }
 
+    /// Replays an entire game and returns every board position.
+    pub fn replay_game_states_by_id(&self, game_id: i64) -> Result<Vec<PositionState>> {
+        let game = self
+            .game_by_id(game_id)?
+            .with_context(|| format!("game {game_id} does not exist"))?;
+
+        let record = read_move_file(&game.move_file)
+            .with_context(|| format!("reading move file for game {game_id}"))?;
+
+        replay_positions(&record).with_context(|| format!("replaying game {game_id}"))
+    }
+
     pub fn position_from_game(
         &self,
         game_id: i64,
@@ -483,10 +495,7 @@ fn decode_hex_digit(value: u8) -> Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Color, GameRecord, Metadata, Move, PositionOccurrence, position_stream, read_move_file,
-        write_move_file,
-    };
+    use crate::{Color, GameRecord, Metadata, Move, write_move_file};
     use rusqlite::params;
     use tempfile::TempDir;
 
