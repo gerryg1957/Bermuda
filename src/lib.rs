@@ -1,4 +1,5 @@
 pub mod board;
+pub mod board_display;
 pub mod canonical;
 pub mod database;
 pub mod game;
@@ -11,6 +12,7 @@ pub mod position;
 pub mod position_stream;
 pub mod project;
 pub mod project_manager;
+pub mod replay;
 pub mod sgf;
 
 pub use board::{Board, Color, Move};
@@ -19,4 +21,5 @@ pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};
+pub use replay::{replay_positions, PositionState};
 pub use sgf::{Collection, GameTree, Node, parse_collection};

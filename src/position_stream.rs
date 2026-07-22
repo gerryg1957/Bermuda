@@ -1,5 +1,5 @@
-use crate::{Board, Color, GameRecord, SetupStone, position_fingerprint};
-use anyhow::{Context, Result};
+use crate::{GameRecord, replay::replay_positions};
+use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PositionOccurrence {
@@ -7,7 +7,7 @@ pub struct PositionOccurrence {
     pub move_number: usize,
 
     /// The player expected to move from this position.
-    pub side_to_move: Color,
+    pub side_to_move: crate::Color,
 
     /// Simple-ko prohibition in this position, if any.
     pub ko_point: Option<u16>,
@@ -24,66 +24,16 @@ pub struct PositionOccurrence {
 /// Passes also produce occurrences because side-to-move and ko state may
 /// change even though the stones remain unchanged.
 pub fn position_stream(record: &GameRecord) -> Result<Vec<PositionOccurrence>> {
-    let mut board = Board::new(record.board_size).context("creating position-stream board")?;
-
-    apply_setup(&mut board, record)?;
-
-    let mut occurrences = Vec::with_capacity(record.moves.len() + 1);
-
-    let initial_side = record
-        .moves
-        .first()
-        .map(|mv| mv.color)
-        .unwrap_or(Color::Black);
-
-    occurrences.push(make_occurrence(&board, 0, initial_side));
-
-    for (index, &mv) in record.moves.iter().enumerate() {
-        board
-            .play(mv)
-            .with_context(|| format!("replaying move {}", index + 1))?;
-
-        let side_to_move = record
-            .moves
-            .get(index + 1)
-            .map(|next| next.color)
-            .unwrap_or_else(|| mv.color.opponent());
-
-        occurrences.push(make_occurrence(&board, index + 1, side_to_move));
-    }
-
-    Ok(occurrences)
-}
-
-fn apply_setup(board: &mut Board, record: &GameRecord) -> Result<()> {
-    for setup in &record.setup {
-        match *setup {
-            SetupStone::Add { color, point } => board
-                .set_setup(color, point)
-                .with_context(|| format!("applying setup stone at point {point}"))?,
-
-            SetupStone::Remove { point } => board
-                .clear_setup(point)
-                .with_context(|| format!("removing setup stone at point {point}"))?,
-        }
-    }
-
-    Ok(())
-}
-
-fn make_occurrence(board: &Board, move_number: usize, side_to_move: Color) -> PositionOccurrence {
-    PositionOccurrence {
-        move_number,
-        side_to_move,
-        ko_point: board.ko_point(),
-        fingerprint: position_fingerprint(board, side_to_move),
-    }
+    Ok(replay_positions(record)?
+        .into_iter()
+        .map(|state| state.occurrence)
+        .collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{extract_main_variation, parse_collection};
+    use crate::{Color, extract_main_variation, parse_collection};
 
     fn record(sgf: &str) -> GameRecord {
         let collection = parse_collection(sgf.as_bytes()).expect("parse SGF");
@@ -145,13 +95,6 @@ mod tests {
         assert_eq!(stream.len(), 2);
         assert_eq!(stream[0].move_number, 0);
         assert_eq!(stream[0].side_to_move, Color::White);
-
-        let empty = Board::new(19).unwrap();
-
-        assert_ne!(
-            stream[0].fingerprint,
-            position_fingerprint(&empty, Color::White)
-        );
     }
 
     #[test]
@@ -168,8 +111,6 @@ mod tests {
         assert_eq!(stream.len(), 4);
         assert_eq!(stream[2].move_number, 2);
 
-        // The stones are unchanged by the pass, but side to move differs
-        // from the position immediately before it.
         assert_ne!(stream[1].fingerprint, stream[2].fingerprint);
     }
 

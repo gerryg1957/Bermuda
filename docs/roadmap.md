@@ -1,260 +1,269 @@
 # MoyoDB Roadmap
 
-## Vision
+MoyoDB is a professional Go game database designed to replace legacy tools such as MoyoGo Studio and provide a modern foundation for searching, analysing, and exploring large SGF collections.
 
-MoyoDB is a modern open-source database and research environment for professional Go games.
-
-The project aims to provide a reliable, maintainable replacement for MoyoGo Studio with a modern architecture, fast searching, and a Qt-based graphical interface.
-
-The database is built around canonical game identities rather than SGF files, allowing the same game to be imported from multiple sources while storing only one canonical game record.
+The project is organised around a core database engine with command-line tools and a future graphical interface.
 
 ---
 
-# Version 0.2 — Foundation ✅
+# Phase 1 — Core game representation ✅ Complete
 
-Completed
+## Goals
 
-* SGF parser
-* Main variation extraction
-* Setup stone support
-* Captures
-* Passes
-* Simple ko
-* Compact binary move format
-* Board replay engine
-* Canonical game identity (SHA-256)
-* SQLite metadata database
-* Single-game importer
-* Recursive directory importer
-* Duplicate detection
-* Source-aware metadata
+Create a reliable internal representation of Go games.
 
----
+Implemented:
 
-# Version 0.3 — Production Importer
+- SGF parser
+- Main variation extraction
+- Setup stones
+- Captures
+- Pass moves
+- Simple ko handling
+- Compact move file format
 
-Goal: reliably build large databases from professional SGF collections.
+Result:
 
-Planned work
-
-* Hash-based storage directories for move files
-* Batch SQLite transactions
-* Import progress reporting
-* Import statistics
-* Improved error logging
-* Performance tuning
-* Full import of GoGoD
-* Full import of go4go
-
-Deliverable
-
-A complete professional game database built from existing SGF collections.
+SGF files can be converted into a compact internal representation suitable for database storage and replay.
 
 ---
 
-# Version 0.4 — Position Index
+# Phase 2 — Game identity and database foundation ✅ Complete
 
-Goal: convert game records into a searchable position database.
+## Goals
 
-Planned work
+Create a database architecture suitable for professional Go collections.
 
-* Replay every imported game
-* Store every board position
-* Canonical board representation
-* Position indexing
-* Position statistics
-* Fast position lookup
-* Incremental position indexing
-* Position fingerprints
-* Index rebuild command
+Implemented:
 
-Deliverable
+- MoyoDB project structure
+- SQLite metadata database
+- Canonical game hashing
+- Duplicate game detection
+- Source tracking
+- Import from individual SGF files
+- Import from SGF directories
 
-A complete position database suitable for large-scale searching.
+Project layout:
 
----
+MoyoDB project
+|
+├── moyodb-project.toml
+├── database/
+│ ├── metadata.sqlite3
+│ └── games/
+├── indexes/
+└── cache/
 
-# Version 0.5 — Pattern Search
 
-Goal: provide fast pattern searching across the complete database.
+Validated with:
 
-Planned work
-
-* Whole-board exact position search
-* Corner patterns
-* Side patterns
-* Centre patterns
-* Colour-independent matching
-* Rotation and reflection support
-* Candidate filtering
-* Search statistics
-
-Deliverable
-
-Professional-strength pattern searching.
+- GoGoD test collections
+- go4go collection
+- 116,684 games imported
 
 ---
 
-# Version 0.6 — Qt Desktop Application
+# Phase 3 — Exact position search engine ✅ Complete
 
-Goal: modern graphical user interface.
+## Goals
 
-Planned work
+Allow MoyoDB to answer:
 
-* Database browser
-* Game viewer
-* Board display
-* Pattern search interface
-* Game information panels
-* Import management
-* Preferences
+"Has this exact board position occurred before?"
 
-Deliverable
+Implemented:
 
-Daily-use desktop application.
+- Position fingerprints
+- Position stream generation
+- Incremental indexing
+- SQLite position index
+- Schema migration system
+- Exact position lookup
 
----
+Database tables:
 
-# Version 0.7 — Fuseki Explorer
+indexed_games
 
-Goal: explore professional opening play interactively.
+exact_positions
 
-Planned work
+Validation: 
 
-* Opening tree built from indexed positions
-* Move frequency statistics
-* Win/loss percentages
-* Symmetry-aware opening merging
-* Opening filters
+Games indexed : 116684
+Positions : 25085473
+Errors : 0
 
-  * Player
-  * Date range
-  * Event
-  * Source database
-* Jump directly from opening positions to matching games
-* Export opening sequences as SGF
 
-Deliverable
+Command examples:
 
-A professional opening explorer capable of analysing the first 30–50 moves of hundreds of thousands of games.
+
+moyodb build-position-index PROJECT
+
+moyodb find-position PROJECT GAME MOVE
 
 ---
 
-# Version 0.8 — Analysis
+# Phase 4 — Position exploration (current)
 
-Goal: support advanced Go research.
+## Goal
 
-Planned work
+Make search results understandable to humans.
 
-* Joseki explorer
-* Corner statistics
-* Player reports
-* Tournament reports
-* Date-range filtering
-* Opening popularity graphs
-* Position frequency analysis
-* Pattern statistics
-* AI integration hooks
+The first priority is to display positions.
 
-Deliverable
+Tasks:
 
-A comprehensive professional Go analysis environment.
+## 4.1 Show a board position
 
----
+Add:
 
-# Version 1.0 — Public Release
 
-Goals
+moyodb show-position PROJECT GAME MOVE
 
-* Stable file format
-* Stable database schema
-* Complete documentation
-* Linux packages
-* Windows packages
-* Open-source release
-* GPL licensing
-* User manual
 
-Deliverable
+Requirements:
 
-A complete professional Go database system suitable for long-term maintenance.
+- Replay game to requested move
+- Display board
+- Show side to move
+- Show ko point
+- Support setup positions
+
+This becomes the foundation for all later search features.
 
 ---
 
-## Current Focus
+## 4.2 Improve search results
 
-Building the first complete GUI vertical slice.
+Current:
 
-Current objectives
 
-* Expose database queries through Rust models.
-* Replace prototype QML models with live database data.
-* Connect game selection to board display.
-* Establish the GUI architecture that future search and analysis tools will reuse.
+Game 123 Move 50 Black to move
 
----
 
-## Current Architecture
+Target:
 
-The application is organised into distinct layers.
 
-```text
-Kirigami / QML
-        │
-Rust Qt models
-        │
-moyodb
-        │
-SQLite metadata + move files
-```
+Game 123
 
-Architecture principles
+Black:
+White:
+Event:
+Date:
+Result:
 
-* Canonical games are the primary database objects.
-* A canonical game may have multiple source records.
-* The GUI never accesses SQLite directly.
-* Rust owns querying, sorting, filtering and search.
-* QML is responsible only for presentation.
-* The same backend APIs will support browsing, filtering and pattern-search results.
+Position after move 50
+
+[board]
+
+
+Use existing metadata database.
 
 ---
 
-# Design Principles
+# Phase 5 — Pattern search engine
 
-* Correctness before optimisation.
-* Small, testable components.
-* Canonical game identity independent of SGF formatting.
-* Original implementations based on published specifications.
-* Clear separation between core library, importer, search engine, and GUI.
-* Open architecture suitable for long-term maintenance.
+## Goal
+
+Provide the feature that made tools like Kombilo valuable.
+
+Answer:
+
+"Where has this shape appeared before?"
+
+Initial implementation:
+
+- Corner pattern search
+- 5x5 patterns
+- 7x7 patterns
+
+Possible schema:
+
+pattern_positions
+
+pattern_hash
+game_id
+move_number
+x
+y
+width
+height
+
+
+Later:
+
+- arbitrary board regions
+- pattern similarity
+- professional joseki search
 
 ---
 
-## Development Progress
+# Phase 6 — Graphical interface
 
-### Completed
+## Goal
 
-* Public Git repository established on GitHub
-* GPL v3 licensed
-* Source code under version control
-* Documentation published
-* Development roadmap published
-* SGF parsing and canonical game identity
-* Compact move-file storage
-* SQLite database and source provenance
-* Position indexing and exact-position lookup
-* Kirigami application shell
-* Reusable Go board component
-* Prototype game-browser layout
-* Game-list query and sorting types
-* Database-backed `list_games()`
-* Deduplication to one row per canonical game
-* Representative metadata selection
+Provide a modern replacement for MoyoGo Studio.
 
-### Future project management improvements
+The GUI should use the existing MoyoDB engine.
 
-* GitHub Issues
-* GitHub Releases
-* Continuous Integration (GitHub Actions)
-* Contributor guidelines
-* Code of Conduct
+Architecture:
+
+Qt interface
+
+ |
+ v
+
+MoyoDB library
+
+ |
+ +-- database
+ +-- importer
+ +-- position search
+ +-- pattern search
+
+Features:
+
+- Game browser
+- Go board display
+- SGF viewer
+- Position search
+- Pattern search
+- Metadata search
+
+---
+
+# Phase 7 — Large collection optimisation
+
+## Goal
+
+Support professional-scale databases.
+
+Tasks:
+
+- Faster indexing
+- Parallel import
+- Better caching
+- Incremental updates
+- Collection statistics
+
+Target collections:
+
+- GoGoD
+- go4go
+- personal SGF archives
+
+---
+
+# Development principle
+
+Each phase should produce a working, testable system.
+
+Priority order:
+
+1. Correctness
+2. Database integrity
+3. Search capability
+4. User interface
+5. Performance optimisation
+
+The database engine comes first; the GUI is built on top of it.
