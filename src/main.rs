@@ -106,14 +106,12 @@ enum Command {
         /// Show only a specific move number.
         #[arg(long)]
         move_number: Option<usize>,
-        
+
         #[arg(long)]
         from: Option<usize>,
 
         #[arg(long)]
         to: Option<usize>,
-    
-        
     },
 
     /// Convert the first game and its main variation from SGF to a compact move file.
@@ -210,96 +208,118 @@ fn replay_game(
     let project = project_manager.open(&project_path)?;
 
     let indexer = project.position_indexer()?;
+    let game = indexer.read_game_by_id(game_id)?;
     let states = indexer.replay_game_states_by_id(game_id)?;
 
-   
-
     let total_moves = states.len().saturating_sub(1);
-    
+
     if move_number.is_some() && (from.is_some() || to.is_some()) {
-    anyhow::bail!("--move-number cannot be used together with --from or --to");
-}
-
-if let Some(start) = from {
-    if start > total_moves {
-        anyhow::bail!(
-            "move {} is outside this game; valid range is 0-{}",
-            start,
-            total_moves
-        );
+        anyhow::bail!("--move-number cannot be used together with --from or --to");
     }
-}
 
-if let Some(end) = to {
-    if end > total_moves {
-        anyhow::bail!(
-            "move {} is outside this game; valid range is 0-{}",
-            end,
-            total_moves
-        );
-    }
-}
-
-if let (Some(start), Some(end)) = (from, to) {
-    if start > end {
-        anyhow::bail!("--from cannot be greater than --to");
-    }
-}
-    
-    
-    if let Some(target) = move_number {
-    if target > total_moves {
-        anyhow::bail!(
-            "move {} is outside this game; valid range is 0-{}",
-            target,
-            total_moves
+    if let Some(start) = from {
+        if start > total_moves {
+            anyhow::bail!(
+                "move {} is outside this game; valid range is 0-{}",
+                start,
+                total_moves
             );
         }
     }
 
-     let range_start = from.unwrap_or(0);
-     let range_end = to.unwrap_or(total_moves);
-     
-     println!("Game {}", game_id);
-    
-   match move_number {
-    Some(target) => {
-        println!("Move {} of {}", target, total_moves);
+    if let Some(end) = to {
+        if end > total_moves {
+            anyhow::bail!(
+                "move {} is outside this game; valid range is 0-{}",
+                end,
+                total_moves
+            );
+        }
     }
-    None if from.is_some() || to.is_some() => {
-        println!(
-            "Showing moves {}-{} of {}",
-            range_start,
-            range_end,
-            total_moves
-        );
+
+    if let (Some(start), Some(end)) = (from, to) {
+        if start > end {
+            anyhow::bail!("--from cannot be greater than --to");
+        }
     }
-    None => {
-        println!("Positions: {}", states.len());
-        println!("Moves: {}", total_moves);
+
+    if let Some(target) = move_number {
+        if target > total_moves {
+            anyhow::bail!(
+                "move {} is outside this game; valid range is 0-{}",
+                target,
+                total_moves
+            );
+        }
     }
-}
-    
-    
-    
+
+    let range_start = from.unwrap_or(0);
+    let range_end = to.unwrap_or(total_moves);
+
+    let metadata = &game.metadata;
+
+    println!(
+        "{} vs {}",
+        metadata.black_player.as_deref().unwrap_or("Unknown Black"),
+        metadata.white_player.as_deref().unwrap_or("Unknown White")
+    );
+
+    if let Some(event) = &metadata.event {
+        println!("Event: {}", event);
+    }
+
+    if let Some(date) = &metadata.date {
+        println!("Date: {}", date);
+    }
+
+    if let Some(result) = &metadata.result {
+        println!("Result: {}", result);
+    }
+
+    println!("Board: {}x{}", game.board_size, game.board_size);
+
+    if let Some(komi) = metadata.komi {
+        println!("Komi: {}", komi);
+    }
+
+    if let Some(handicap) = metadata.handicap {
+        println!("Handicap: {}", handicap);
+    }
 
     println!();
 
-   for state in states {
-    let current = state.occurrence.move_number;
+    println!("Database game ID: {}", game_id);
 
-    if let Some(target) = move_number {
-        if current != target {
-            continue;
+    match move_number {
+        Some(target) => {
+            println!("Move {} of {}", target, total_moves);
         }
-    } else if current < range_start || current > range_end {
-        continue;
+        None if from.is_some() || to.is_some() => {
+            println!(
+                "Showing moves {}-{} of {}",
+                range_start, range_end, total_moves
+            );
+        }
+        None => {
+            println!("Positions: {}", states.len());
+            println!("Moves: {}", total_moves);
+        }
     }
 
-    println!("Move {}", current);   
-        
-        
-        
+    println!();
+
+    for state in states {
+        let current = state.occurrence.move_number;
+
+        if let Some(target) = move_number {
+            if current != target {
+                continue;
+            }
+        } else if current < range_start || current > range_end {
+            continue;
+        }
+
+        println!("Move {}", current);
 
         let side = match state.occurrence.side_to_move {
             moyodb::Color::Black => "Black",
