@@ -3,8 +3,8 @@ mod commands;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use moyodb::{
-    board_display, import_directory, importer::ImportOutcome, indexer,
-    project_manager::ProjectManager,
+    Pattern, PatternRect, PatternSearcher, board_display, import_directory,
+    importer::ImportOutcome, indexer, project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -138,6 +138,33 @@ enum Command {
         #[arg(short = 'n', long)]
         move_number: Option<usize>,
     },
+
+    /// Search a game for a pattern extracted from another position.
+    SearchPattern {
+        /// MoyoDB project directory.
+        project: PathBuf,
+
+        /// Game containing the pattern.
+        pattern_game_id: i64,
+
+        /// Move containing the pattern.
+        pattern_move_number: usize,
+
+        /// Rectangle left coordinate.
+        left: u8,
+
+        /// Rectangle bottom coordinate.
+        bottom: u8,
+
+        /// Rectangle width.
+        width: u8,
+
+        /// Rectangle height.
+        height: u8,
+
+        /// Game to search.
+        search_game_id: i64,
+    },
 }
 
 fn main() -> Result<()> {
@@ -185,6 +212,26 @@ fn main() -> Result<()> {
             from,
             to,
         } => replay_game(project, game_id, move_number, from, to),
+
+        Command::SearchPattern {
+            project,
+            pattern_game_id,
+            pattern_move_number,
+            left,
+            bottom,
+            width,
+            height,
+            search_game_id,
+        } => search_pattern(
+            project,
+            pattern_game_id,
+            pattern_move_number,
+            left,
+            bottom,
+            width,
+            height,
+            search_game_id,
+        ),
 
         Command::ShowPosition {
             project,
@@ -560,6 +607,48 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     };
 
     println!("{side} to move");
+
+    Ok(())
+}
+
+fn search_pattern(
+    project_path: PathBuf,
+    pattern_game_id: i64,
+    pattern_move_number: usize,
+    left: u8,
+    bottom: u8,
+    width: u8,
+    height: u8,
+    search_game_id: i64,
+) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let indexer = project.position_indexer()?;
+
+    let pattern_state = indexer.replay_board_position(pattern_game_id, pattern_move_number)?;
+
+    let pattern = Pattern::extract(
+        &pattern_state.board,
+        PatternRect {
+            left,
+            bottom,
+            width,
+            height,
+        },
+    )?;
+
+    let searcher = PatternSearcher::new();
+    let matches = searcher.search_game(&indexer, search_game_id, &pattern)?;
+
+    println!("Found {} matches", matches.len());
+
+    for found in matches {
+        println!(
+            "Game {}, move {}, left {}, bottom {}",
+            found.game_id, found.move_number, found.left, found.bottom
+        );
+    }
 
     Ok(())
 }

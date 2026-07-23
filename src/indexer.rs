@@ -262,6 +262,32 @@ impl PositionIndexer {
             .optional()
             .context("reading game from database")
     }
+    /// Returns the IDs of every game in the project.
+
+    pub fn game_ids(&self) -> Result<Vec<i64>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+            SELECT id
+            FROM games
+            ORDER BY id
+            "#,
+            )
+            .context("preparing game-id query")?;
+
+        let rows = statement
+            .query_map([], |row| row.get::<_, i64>(0))
+            .context("querying game IDs")?;
+
+        let mut ids = Vec::new();
+
+        for row in rows {
+            ids.push(row.context("reading game ID")?);
+        }
+
+        Ok(ids)
+    }
 
     /// Returns every game that has not yet been indexed with `index_version`.
     pub fn games_to_index(&self, index_version: i64) -> Result<Vec<GameToIndex>> {
