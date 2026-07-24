@@ -165,6 +165,47 @@ enum Command {
         /// Game to search.
         search_game_id: i64,
     },
+
+    /// Search the complete database for a pattern extracted from a position.
+    SearchPatternDatabase {
+        /// MoyoDB project directory.
+        project: PathBuf,
+
+        /// Game containing the pattern.
+        pattern_game_id: i64,
+
+        /// Move containing the pattern.
+        pattern_move_number: usize,
+
+        /// Rectangle left coordinate.
+        left: u8,
+
+        /// Rectangle bottom coordinate.
+        bottom: u8,
+
+        /// Rectangle width.
+        width: u8,
+
+        /// Rectangle height.
+        height: u8,
+    },
+}
+
+#[derive(Debug)]
+struct PatternSearchRequest {
+    project_path: PathBuf,
+    pattern_game_id: i64,
+    pattern_move_number: usize,
+    rect: PatternRect,
+}
+
+#[derive(Debug)]
+struct SingleGamePatternSearchRequest {
+    project_path: PathBuf,
+    pattern_game_id: i64,
+    pattern_move_number: usize,
+    rect: PatternRect,
+    search_game_id: i64,
 }
 
 fn main() -> Result<()> {
@@ -222,7 +263,20 @@ fn main() -> Result<()> {
             width,
             height,
             search_game_id,
-        } => search_pattern(
+        } => search_pattern(SingleGamePatternSearchRequest {
+            project_path: project,
+            pattern_game_id,
+            pattern_move_number,
+            rect: PatternRect {
+                left,
+                bottom,
+                width,
+                height,
+            },
+            search_game_id,
+        }),
+
+        Command::SearchPatternDatabase {
             project,
             pattern_game_id,
             pattern_move_number,
@@ -230,8 +284,17 @@ fn main() -> Result<()> {
             bottom,
             width,
             height,
-            search_game_id,
-        ),
+        } => search_pattern_database(PatternSearchRequest {
+            project_path: project,
+            pattern_game_id,
+            pattern_move_number,
+            rect: PatternRect {
+                left,
+                bottom,
+                width,
+                height,
+            },
+        }),
 
         Command::ShowPosition {
             project,
@@ -264,40 +327,40 @@ fn replay_game(
         anyhow::bail!("--move-number cannot be used together with --from or --to");
     }
 
-    if let Some(start) = from {
-        if start > total_moves {
-            anyhow::bail!(
-                "move {} is outside this game; valid range is 0-{}",
-                start,
-                total_moves
-            );
-        }
+    if let Some(start) = from
+        && start > total_moves
+    {
+        anyhow::bail!(
+            "move {} is outside this game; valid range is 0-{}",
+            start,
+            total_moves
+        );
     }
 
-    if let Some(end) = to {
-        if end > total_moves {
-            anyhow::bail!(
-                "move {} is outside this game; valid range is 0-{}",
-                end,
-                total_moves
-            );
-        }
+    if let Some(end) = to
+        && end > total_moves
+    {
+        anyhow::bail!(
+            "move {} is outside this game; valid range is 0-{}",
+            end,
+            total_moves
+        );
     }
 
-    if let (Some(start), Some(end)) = (from, to) {
-        if start > end {
-            anyhow::bail!("--from cannot be greater than --to");
-        }
+    if let (Some(start), Some(end)) = (from, to)
+        && start > end
+    {
+        anyhow::bail!("--from cannot be greater than --to");
     }
 
-    if let Some(target) = move_number {
-        if target > total_moves {
-            anyhow::bail!(
-                "move {} is outside this game; valid range is 0-{}",
-                target,
-                total_moves
-            );
-        }
+    if let Some(target) = move_number
+        && target > total_moves
+    {
+        anyhow::bail!(
+            "move {} is outside this game; valid range is 0-{}",
+            target,
+            total_moves
+        );
     }
 
     let range_start = from.unwrap_or(0);
@@ -611,16 +674,15 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     Ok(())
 }
 
-fn search_pattern(
-    project_path: PathBuf,
-    pattern_game_id: i64,
-    pattern_move_number: usize,
-    left: u8,
-    bottom: u8,
-    width: u8,
-    height: u8,
-    search_game_id: i64,
-) -> Result<()> {
+fn search_pattern(request: SingleGamePatternSearchRequest) -> Result<()> {
+    let SingleGamePatternSearchRequest {
+        project_path,
+        pattern_game_id,
+        pattern_move_number,
+        rect,
+        search_game_id,
+    } = request;
+
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
@@ -628,18 +690,42 @@ fn search_pattern(
 
     let pattern_state = indexer.replay_board_position(pattern_game_id, pattern_move_number)?;
 
-    let pattern = Pattern::extract(
-        &pattern_state.board,
-        PatternRect {
-            left,
-            bottom,
-            width,
-            height,
-        },
-    )?;
+    let pattern = Pattern::extract(&pattern_state.board, rect)?;
 
     let searcher = PatternSearcher::new();
     let matches = searcher.search_game(&indexer, search_game_id, &pattern)?;
+
+    println!("Found {} matches", matches.len());
+
+    for found in matches {
+        println!(
+            "Game {}, move {}, left {}, bottom {}",
+            found.game_id, found.move_number, found.left, found.bottom
+        );
+    }
+
+    Ok(())
+}
+
+fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
+    let PatternSearchRequest {
+        project_path,
+        pattern_game_id,
+        pattern_move_number,
+        rect,
+    } = request;
+
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let indexer = project.position_indexer()?;
+
+    let pattern_state = indexer.replay_board_position(pattern_game_id, pattern_move_number)?;
+
+    let pattern = Pattern::extract(&pattern_state.board, rect)?;
+
+    let searcher = PatternSearcher::new();
+    let matches = searcher.search_database(&indexer, &pattern)?;
 
     println!("Found {} matches", matches.len());
 
