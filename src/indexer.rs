@@ -1,3 +1,8 @@
+//! Common search result types used throughout MoyoDB.
+//!
+//! All search operations should return these types so that
+//! command-line tools, graphical interfaces, and other clients
+//! can consume search results through a consistent API.
 use crate::database;
 use crate::project::Project;
 use crate::{
@@ -30,6 +35,10 @@ pub struct ExactPositionMatch {
     pub ko_point: Option<u16>,
 }
 
+/// A single exact-position match together with the preferred game metadata.
+///
+/// This type is currently used by the exact-position search implementation.
+/// It will eventually be adapted into the public `SearchResult` API
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PositionSearchResult {
     pub game_id: i64,
@@ -44,13 +53,26 @@ pub struct PositionSearchResult {
     pub result: Option<String>,
 }
 
+/// Provides access to a MoyoDB project's position index.
+///
+/// `PositionIndexer` is responsible for:
+///
+/// - replaying games and positions;
+/// - building and maintaining the position index;
+/// - searching indexed positions.
+///
+/// It forms the primary access point for position-based operations
+/// within the MoyoDB library.
 pub struct PositionIndexer {
     database_root: PathBuf,
     connection: Connection,
 }
 
 impl PositionIndexer {
-    /// Opens an existing MoyoDB database.
+    /// Opens the MoyoDB database stored at `database_root`.
+    ///
+    /// The directory must contain an existing MoyoDB database and its
+    /// SQLite metadata file.
     pub fn open(database_root: &Path) -> Result<Self> {
         let connection = database::open(database_root)?;
 
@@ -59,11 +81,20 @@ impl PositionIndexer {
             connection,
         })
     }
+
+    /// Opens the position index for an existing MoyoDB project.
+    ///
+    /// This is the preferred constructor when the caller already has a
+    /// [`Project`] value.
     pub fn open_project(project: &Project) -> Result<Self> {
         Self::open(&project.database_root())
     }
 
-    /// Reads and replays one compact move file.
+    /// Replays a game's move file and produces every indexed position.
+    ///
+    /// The returned stream contains the initial position followed by each
+    /// subsequent position reached during the game. This method is primarily
+    /// used when building or rebuilding the position index.
     pub fn replay_game(&self, game: &GameToIndex) -> Result<IndexedPositionStream> {
         if !game.move_file.is_file() {
             bail!(
@@ -90,6 +121,10 @@ impl PositionIndexer {
         })
     }
 
+    /// Builds or rebuilds the position index for a single game.
+    ///
+    /// Any existing index entries for the game are replaced. The number of
+    /// indexed positions written is returned.
     pub fn index_game(&mut self, game: &GameToIndex, index_version: i64) -> Result<usize> {
         if index_version <= 0 {
             bail!("index version must be positive");
@@ -151,6 +186,10 @@ impl PositionIndexer {
         Ok(occurrence_count)
     }
 
+    /// Builds or rebuilds the position index for a game identified by its ID.
+    ///
+    /// This is a convenience wrapper around [`Self::index_game`] for callers
+    /// that do not already have a [`GameToIndex`] value.
     pub fn index_game_by_id(&mut self, game_id: i64, index_version: i64) -> Result<usize> {
         let game = self
             .game_by_id(game_id)?
@@ -159,7 +198,10 @@ impl PositionIndexer {
         self.index_game(&game, index_version)
     }
 
-    /// Reads and replays a game directly by database ID.
+    /// Reads a game record from the database.
+    ///
+    /// The returned [`GameRecord`] contains the complete move sequence and
+    /// associated metadata required to replay the game.
     pub fn replay_game_by_id(&self, game_id: i64) -> Result<IndexedPositionStream> {
         let game = self
             .game_by_id(game_id)?
@@ -167,6 +209,11 @@ impl PositionIndexer {
 
         self.replay_game(&game)
     }
+
+    /// Reads a game record from the database.
+    ///
+    /// The returned [`GameRecord`] contains the complete move sequence and
+    /// associated metadata required to replay the game.
     pub fn read_game_by_id(&self, game_id: i64) -> Result<GameRecord> {
         let game = self
             .game_by_id(game_id)?
@@ -176,6 +223,10 @@ impl PositionIndexer {
             .with_context(|| format!("reading move file for game {game_id}"))
     }
 
+    /// Replays a game to a specific move and returns the resulting board state.
+    ///
+    /// This method is useful for displaying or analysing a position at a
+    /// particular point within a game.
     pub fn replay_board_position(&self, game_id: i64, move_number: usize) -> Result<PositionState> {
         let game = self
             .game_by_id(game_id)?
@@ -195,7 +246,10 @@ impl PositionIndexer {
         })
     }
 
-    /// Replays an entire game and returns every board position.
+    /// Replays a game and returns every board position reached.
+    ///
+    /// The returned vector contains the initial position followed by the
+    /// position after each move in the game.
     pub fn replay_game_states_by_id(&self, game_id: i64) -> Result<Vec<PositionState>> {
         let game = self
             .game_by_id(game_id)?
@@ -207,6 +261,9 @@ impl PositionIndexer {
         replay_positions(&record).with_context(|| format!("replaying game {game_id}"))
     }
 
+    /// Returns a specific indexed position from a game.
+    ///
+    /// Positions are identified by their move number within the game.
     pub fn position_from_game(
         &self,
         game_id: i64,
@@ -226,6 +283,9 @@ impl PositionIndexer {
             })
     }
 
+    /// Finds games containing the same position as a specified game position.
+    ///
+    /// The search is performed using the indexed position fingerprint.
     pub fn find_matches_from_game(
         &self,
         game_id: i64,
@@ -263,7 +323,6 @@ impl PositionIndexer {
             .context("reading game from database")
     }
     /// Returns the IDs of every game in the project.
-
     pub fn game_ids(&self) -> Result<Vec<i64>> {
         let mut statement = self
             .connection
@@ -289,7 +348,10 @@ impl PositionIndexer {
         Ok(ids)
     }
 
-    /// Returns every game that has not yet been indexed with `index_version`.
+    /// Returns the games that require indexing for the specified index version.
+    ///
+    /// Games already indexed at the requested version are excluded from the
+    /// returned list.
     pub fn games_to_index(&self, index_version: i64) -> Result<Vec<GameToIndex>> {
         let mut statement = self
             .connection
@@ -329,7 +391,9 @@ impl PositionIndexer {
         Ok(games)
     }
 
-    /// Returns the number of games still requiring indexing.
+    /// Returns the number of games that require indexing.
+    ///
+    /// This can be used to report indexing progress before processing begins.
     pub fn count_games_to_index(&self, index_version: i64) -> Result<u64> {
         let count: i64 = self
             .connection
@@ -350,6 +414,10 @@ impl PositionIndexer {
         u64::try_from(count).context("negative game count returned by SQLite")
     }
 
+    /// Finds every occurrence of an exact board position.
+    ///
+    /// The search uses the position fingerprint and returns all matching
+    /// occurrences without loading or replaying every game.
     pub fn find_exact_position(&self, fingerprint_hex: &str) -> Result<Vec<ExactPositionMatch>> {
         let fingerprint = decode_fingerprint_hex(fingerprint_hex)?;
 
@@ -400,6 +468,10 @@ impl PositionIndexer {
         Ok(matches)
     }
 
+    /// Finds every occurrence of an exact board position together with game metadata.
+    ///
+    /// This is a convenience method that combines exact-position search with
+    /// the preferred metadata for each matching game.
     pub fn find_exact_position_with_metadata(
         &self,
         fingerprint_hex: &str,

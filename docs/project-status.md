@@ -1,218 +1,209 @@
-MoyoDB Project Status
+# MoyoDB Project Status
 
-Updated: 21 July 2026
+**Date:** 24 July 2026
 
-Overall Status
+## Vision
 
-The project has now moved beyond being a collection of database components and has become a working native Go database engine capable of importing, indexing and searching professional games.
+MoyoDB is a modern native Go database intended to replace MoyoGo Studio.
 
-Estimated completion of core engine: ~65%
+The project is being developed as a reusable Rust library with a command-line interface for development and testing, and a future Qt desktop application as the primary user interface.
 
-The remaining work is primarily in usability, search sophistication and GUI development rather than proving the underlying architecture.
+The long-term goal is to provide a fast, professional-quality database capable of handling the complete GoGoD and Go4Go collections while offering powerful position and pattern search.
 
-Completed
-SGF Processing
+---
 
-✔ SGF parser
+# Overall Progress
 
-✔ Main variation extraction
+The core database engine is now substantially complete.
 
-✔ Setup stones (AB/AW)
+The project has successfully demonstrated:
 
-✔ Pass handling
+- SGF import
+- Compact binary game storage
+- Canonical game hashing
+- Duplicate detection
+- SQLite metadata management
+- Position replay
+- Incremental position indexing
+- Exact whole-board position search
+- Rectangular pattern search
 
-✔ Capture handling
+The remaining work is primarily concerned with building a stable application API and graphical user interface rather than fundamental database technology.
 
-✔ Ko enforcement
+---
 
-✔ Compact move-file generation
+# Completed Components
 
-Database
+## SGF Processing
 
-✔ SQLite metadata database
+- SGF parser
+- Main variation extraction
+- Setup stones
+- Pass moves
+- Capture handling
+- Ko enforcement
+- Metadata extraction
 
-✔ Canonical game hashing
+## Storage
 
-✔ Duplicate detection
+- Compact move-file format
+- Canonical game hashing
+- Duplicate detection
+- Project management
+- SQLite metadata database
 
-✔ Project structure
+## Import
 
-✔ Database initialisation
+- Single game import
+- Recursive directory import
+- Duplicate detection during import
+- Incremental importing
 
-✔ Game import
+Successfully tested with:
 
-✔ Batch directory import
+- GoGoD
+- Go4Go
+- Mixed test collections
 
-Position Replay
+---
 
-✔ Complete board reconstruction
-
-✔ Replay to arbitrary move
-
-✔ Position display
-
-✔ Game metadata display
-
-Position Index
-
-✔ Incremental position index
-
-✔ Database versioning
-
-✔ Incremental rebuilds
-
-✔ Fast indexing
-
-Current test results:
-
-100 games
-21,474 indexed positions
-0 errors
-~95 games/second indexing
-Pattern Search
-
-Implemented and working:
-
-✔ Extract pattern from any position
-
-✔ Search individual game
-
-✔ Search entire database
-
-✔ Find multiple occurrences
-
-✔ Find occurrences at different board locations
-
-✔ Database-wide search verified on test collection
-
-This is the biggest milestone reached so far.
-
-Command Line Interface
+## Position Engine
 
 Implemented:
 
-init
-import
-import-dir
-build-position-index
-show-position
-search-pattern
-search-pattern-database
+- Board replay
+- Position reconstruction
+- Position fingerprints
+- Incremental position indexing
 
-The CLI is now genuinely useful for testing the engine.
+Current index size tested:
 
-Recently Verified
+- 21,474 indexed positions
+- 100-game regression database
 
-The latest testing confirmed that database-wide search is functioning correctly.
+---
 
-Tests demonstrated:
+## Search Engine
 
-search of an individual game
-search across an entire database
-identical results between both where expected
-successful detection of patterns in many different games and at multiple board locations
-repeated matches across consecutive positions where the local pattern remains unchanged.
-Current Limitations
+Implemented:
 
-The search engine currently reports every matching position.
+### Exact position search
 
-For example
+Searches for complete board positions using fingerprints.
 
-Game 5
-move 50
-move 51
-move 52
-...
-move 78
+### Pattern search
 
-instead of
+Searches arbitrary rectangular regions anywhere on the board.
 
-Game 5
-moves 50–78
+Current implementation searches the complete database correctly and has been validated on both small and larger collections.
 
-This is not incorrect, but it is not yet user-friendly.
+---
 
-Next Development Priorities
-1. Improve Search Result Presentation
+# Current Architecture
 
-High priority.
+```
+           SGF
+            │
+            ▼
+        Importer
+            │
+            ▼
+      SQLite Project
+            │
+            ▼
+     Position Indexer
+            │
+     ┌──────┴──────┐
+     │             │
+ Exact Search   Pattern Search
+```
 
-Collapse consecutive matches into ranges such as
+The command-line interface currently serves as a development and regression-testing tool.
 
-Game 23
-moves 54–81
+Future graphical interfaces will use the library directly rather than invoking command-line commands.
 
-instead of dozens of individual entries.
+---
 
-2. Rich Search Results
+# Current Status
 
-Include
+The underlying database technology has largely been proven.
 
-player names
-event
-date
-result
+Development is now moving towards creating a stable public library API suitable for:
 
-with every match.
+- Qt desktop application
+- Future web interfaces
+- Automated testing
+- External applications
 
-3. Pattern Variations
+The emphasis is shifting from implementing algorithms to designing reusable interfaces.
 
-Support optional searching with
+---
 
-colour swap
-rotations
-reflections
+# Next Milestones
 
-Eventually also
+## 1. Search API
 
-corner search
-edge search
-joseki search
-4. Performance
+Design a unified search API that returns structured search results suitable for graphical interfaces.
 
-Current performance is already good.
+## 2. Library API
 
-Future improvements include
+Define stable public interfaces separating:
 
-parallel searching
-compressed index pages
-cached pattern hashes
-5. Database Management
+- database
+- indexing
+- replay
+- search
 
-Still to add
+from presentation.
 
-game deletion
-re-index after deletion
-import updates
-project maintenance commands
-6. GUI
+## 3. Qt GUI
 
-No GUI work has begun.
+Develop a native desktop interface consisting of:
 
-Planned features include
+- Project management
+- Game list
+- Game viewer
+- Pattern editor
+- Search results
 
-board display
-interactive pattern selection
-result browser
-game replay
-database management
-Longer-Term Features
-Fuseki search
-Joseki search
-Life-and-death search
-Influence search
-Shape similarity
-AI-assisted pattern search
-Statistical reports
-Professional game analytics
-Current Assessment
+The command-line interface will remain available for scripting and regression testing.
 
-The project has now demonstrated all of the critical technical capabilities needed for a serious professional Go database:
+---
 
-robust SGF ingestion
-reliable board reconstruction
-canonical game identification
-scalable position indexing
-database-wide pattern search
+# Longer-Term Development
 
-The remaining work is focused on making these capabilities efficient and pleasant to use. In particular, refining search result presentation, adding richer search options, and eventually building a graphical interface will transform the current engine into a practical replacement for MoyoGo Studio.
+Planned enhancements include:
+
+- Rotated and reflected pattern search
+- Colour-independent pattern search
+- Joseki search
+- Fuseki search
+- Opening statistics
+- Player statistics
+- Influence and territory analysis
+- AI-assisted search
+- SGF export of search results
+
+---
+
+# Development Philosophy
+
+The project follows several key principles:
+
+- Correctness before optimisation.
+- Library-first architecture.
+- Incremental development with comprehensive testing.
+- Command-line tools for development.
+- Graphical interface for everyday use.
+
+Every significant feature is validated by automated tests before new functionality is added.
+
+---
+
+# Summary
+
+MoyoDB has progressed from an experimental SGF parser into a functioning Go database engine.
+
+The core technologies required for a professional Go database have now been demonstrated.
+
+The next phase of development focuses on producing a polished application architecture and graphical user interface capable of replacing MoyoGo Studio on modern systems.

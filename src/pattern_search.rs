@@ -9,6 +9,17 @@ pub struct PatternMatch {
     pub bottom: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternSearchGame {
+    pub game_id: i64,
+    pub black_player: Option<String>,
+    pub white_player: Option<String>,
+    pub date: Option<String>,
+    pub event: Option<String>,
+    pub result: Option<String>,
+    pub matches: Vec<PatternMatch>,
+}
+
 pub struct PatternSearcher;
 
 impl PatternSearcher {
@@ -81,5 +92,11 @@ impl PatternSearcher {
         }
 
         Ok(matches)
+    }
+}
+
+impl Default for PatternSearcher {
+    fn default() -> Self {
+        Self::new()
     }
 }

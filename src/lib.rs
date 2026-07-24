@@ -15,6 +15,7 @@ pub mod position_stream;
 pub mod project;
 pub mod project_manager;
 pub mod replay;
+pub mod search;
 pub mod sgf;
 
 pub use board::{Board, Color, Move};
@@ -22,8 +23,9 @@ pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
 pub use pattern::{BoardEdges, Pattern, PatternCell, PatternRect};
-pub use pattern_search::{PatternMatch, PatternSearcher};
+pub use pattern_search::{PatternMatch, PatternSearchGame, PatternSearcher};
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};
 pub use replay::{PositionState, replay_positions};
+pub use search::{SearchOccurrence, SearchResult};
 pub use sgf::{Collection, GameTree, Node, parse_collection};
