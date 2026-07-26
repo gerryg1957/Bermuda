@@ -1,4 +1,5 @@
-use crate::Color;
+use crate::{Color, PatternMatch, PatternSearchQuery, PatternSearcher, indexer::PositionIndexer};
+use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOccurrence {
@@ -23,4 +24,23 @@ pub struct SearchResult {
     pub result: Option<String>,
 
     pub occurrences: Vec<SearchOccurrence>,
+}
+
+pub struct SearchEngine<'a> {
+    indexer: &'a PositionIndexer,
+    pattern_searcher: PatternSearcher,
+}
+
+impl<'a> SearchEngine<'a> {
+    #[must_use]
+    pub fn new(indexer: &'a PositionIndexer) -> Self {
+        Self {
+            indexer,
+            pattern_searcher: PatternSearcher::new(),
+        }
+    }
+
+    pub fn search_pattern(&self, query: &PatternSearchQuery) -> Result<Vec<PatternMatch>> {
+        self.pattern_searcher.search(self.indexer, query)
+    }
 }

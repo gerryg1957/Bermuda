@@ -27,5 +27,5 @@ pub use pattern_search::{PatternMatch, PatternSearchQuery, PatternSearchScope, P
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};
 pub use replay::{PositionState, replay_positions};
-pub use search::{SearchOccurrence, SearchResult};
+pub use search::{SearchEngine, SearchOccurrence, SearchResult};
 pub use sgf::{Collection, GameTree, Node, parse_collection};
