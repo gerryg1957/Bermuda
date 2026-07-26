@@ -1,6 +1,6 @@
 use moyodb::{
     Color, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchQuery,
-    PatternSearchScope, PatternSearcher, database, indexer::PositionIndexer, write_move_file,
+    PatternSearchScope, SearchEngine, database, indexer::PositionIndexer, write_move_file,
 };
 use rusqlite::params;
 use std::path::Path;
@@ -101,8 +101,8 @@ fn game_scope_searches_only_requested_game() {
         scope: PatternSearchScope::Game(1),
     };
 
-    let matches = PatternSearcher::new()
-        .search(&indexer, &query)
+    let matches = SearchEngine::new(&indexer)
+        .search_pattern(&query)
         .expect("search one game");
 
     assert_eq!(
@@ -126,8 +126,8 @@ fn project_scope_searches_every_game() {
         scope: PatternSearchScope::Project,
     };
 
-    let matches = PatternSearcher::new()
-        .search(&indexer, &query)
+    let matches = SearchEngine::new(&indexer)
+        .search_pattern(&query)
         .expect("search project");
 
     assert_eq!(
