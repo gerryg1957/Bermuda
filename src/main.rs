@@ -3,8 +3,8 @@ mod commands;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use moyodb::{
-    Pattern, PatternRect, PatternSearcher, board_display, import_directory,
-    importer::ImportOutcome, indexer, project_manager::ProjectManager,
+    Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, PatternSearcher, board_display,
+    import_directory, importer::ImportOutcome, indexer, project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -692,8 +692,13 @@ fn search_pattern(request: SingleGamePatternSearchRequest) -> Result<()> {
 
     let pattern = Pattern::extract(&pattern_state.board, rect)?;
 
+    let query = PatternSearchQuery {
+        pattern,
+        scope: PatternSearchScope::Game(search_game_id),
+    };
+
     let searcher = PatternSearcher::new();
-    let matches = searcher.search_game(&indexer, search_game_id, &pattern)?;
+    let matches = searcher.search(&indexer, &query)?;
 
     println!("Found {} matches", matches.len());
 
@@ -724,8 +729,13 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
 
     let pattern = Pattern::extract(&pattern_state.board, rect)?;
 
+    let query = PatternSearchQuery {
+        pattern,
+        scope: PatternSearchScope::Project,
+    };
+
     let searcher = PatternSearcher::new();
-    let matches = searcher.search_database(&indexer, &pattern)?;
+    let matches = searcher.search(&indexer, &query)?;
 
     println!("Found {} matches", matches.len());
 

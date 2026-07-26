@@ -20,6 +20,18 @@ pub struct PatternSearchGame {
     pub matches: Vec<PatternMatch>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternSearchScope {
+    Game(i64),
+    Project,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternSearchQuery {
+    pub pattern: Pattern,
+    pub scope: PatternSearchScope,
+}
+
 pub struct PatternSearcher;
 
 impl PatternSearcher {
@@ -57,6 +69,17 @@ impl PatternSearcher {
         }
 
         Ok(matches)
+    }
+
+    pub fn search(
+        &self,
+        indexer: &PositionIndexer,
+        query: &PatternSearchQuery,
+    ) -> Result<Vec<PatternMatch>> {
+        match query.scope {
+            PatternSearchScope::Game(game_id) => self.search_game(indexer, game_id, &query.pattern),
+            PatternSearchScope::Project => self.search_database(indexer, &query.pattern),
+        }
     }
 
     pub fn search_game(

@@ -23,7 +23,9 @@ pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
 pub use pattern::{BoardEdges, Pattern, PatternCell, PatternRect};
-pub use pattern_search::{PatternMatch, PatternSearchGame, PatternSearcher};
+pub use pattern_search::{
+    PatternMatch, PatternSearchGame, PatternSearchQuery, PatternSearchScope, PatternSearcher,
+};
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};
 pub use replay::{PositionState, replay_positions};
