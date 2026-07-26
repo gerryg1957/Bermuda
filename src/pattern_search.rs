@@ -9,17 +9,6 @@ pub struct PatternMatch {
     pub bottom: u8,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PatternSearchGame {
-    pub game_id: i64,
-    pub black_player: Option<String>,
-    pub white_player: Option<String>,
-    pub date: Option<String>,
-    pub event: Option<String>,
-    pub result: Option<String>,
-    pub matches: Vec<PatternMatch>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternSearchScope {
     Game(i64),
