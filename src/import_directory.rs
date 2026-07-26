@@ -64,6 +64,20 @@ pub fn run(
 
         summary.processed += 1;
 
+        if summary.processed.is_multiple_of(10_000) {
+            let elapsed = started.elapsed().as_secs_f64();
+            let rate = if elapsed > 0.0 {
+                summary.processed as f64 / elapsed
+            } else {
+                0.0
+            };
+
+            eprintln!(
+                "Processed {} games ({rate:.1} SGF files/second)...",
+                summary.processed
+            );
+        }
+
         match importer.import_file(source, version, entry.path()) {
             Ok(ImportOutcome::Imported { .. }) => {
                 summary.imported += 1;
