@@ -31,6 +31,10 @@ impl GameCatalogue {
     pub fn count(&self, query: &GameListQuery) -> Result<u64> {
         game_list::count_games(&self.connection, query)
     }
+
+    pub fn get(&self, game_id: i64) -> Result<GameListRow> {
+        game_list::get_game(&self.connection, game_id)
+    }
 }
 
 #[cfg(test)]
@@ -55,6 +59,10 @@ mod tests {
         assert_eq!(count, 0);
 
         assert!(games.is_empty());
+
+        let error = catalogue.get(1).expect_err("unknown game should fail");
+
+        assert!(error.to_string().contains("game 1 does not exist"));
 
         Ok(())
     }

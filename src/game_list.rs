@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameColumn {
@@ -359,6 +359,85 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
         .context("counting catalogue games")?;
 
     u64::try_from(count).context("catalogue game count was negative")
+}
+
+pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
+    let sql = r#"
+        WITH ranked_metadata AS (
+            SELECT
+                game_sources.game_id,
+                game_metadata.black_player,
+                game_metadata.white_player,
+                game_metadata.played_date,
+                game_metadata.result,
+                game_metadata.event,
+
+                ROW_NUMBER() OVER (
+                    PARTITION BY game_sources.game_id
+                    ORDER BY
+                        (
+                            (game_metadata.black_player IS NOT NULL) +
+                            (game_metadata.white_player IS NOT NULL) +
+                            (game_metadata.played_date IS NOT NULL) +
+                            (game_metadata.result IS NOT NULL) +
+                            (game_metadata.event IS NOT NULL)
+                        ) DESC,
+                        game_sources.id ASC
+                ) AS metadata_rank
+
+            FROM game_sources
+
+            LEFT JOIN game_metadata
+                ON game_metadata.game_source_id = game_sources.id
+        ),
+
+        selected_metadata AS (
+            SELECT
+                game_id,
+                black_player,
+                white_player,
+                played_date,
+                result,
+                event
+
+            FROM ranked_metadata
+
+            WHERE metadata_rank = 1
+        )
+
+        SELECT
+            games.id,
+            selected_metadata.black_player,
+            selected_metadata.white_player,
+            selected_metadata.played_date,
+            selected_metadata.result,
+            selected_metadata.event
+
+        FROM games
+
+        LEFT JOIN selected_metadata
+            ON selected_metadata.game_id = games.id
+
+        WHERE games.id = ?1
+    "#;
+
+    let game = connection
+        .query_row(sql, [game_id], |row| {
+            Ok(GameListRow {
+                game_id: row.get(0)?,
+                black_player: row.get(1)?,
+                white_player: row.get(2)?,
+                game_date: row.get(3)?,
+                result: row.get(4)?,
+                event: row.get(5)?,
+                matched_move: None,
+                match_count: None,
+            })
+        })
+        .optional()
+        .context("reading game from catalogue")?;
+
+    game.with_context(|| format!("game {game_id} does not exist"))
 }
 
 fn order_by_clause(query: &GameListQuery) -> String {
@@ -886,6 +965,35 @@ mod tests {
         };
 
         assert_eq!(count_games(&connection, &query)?, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn gets_one_game_by_id() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let game = get_game(&connection, 1)?;
+
+        assert_eq!(game.game_id, 1);
+        assert_eq!(game.black_player.as_deref(), Some("Alpha"));
+        assert_eq!(game.white_player.as_deref(), Some("Beta"));
+        assert_eq!(game.game_date.as_deref(), Some("2026-04-15"));
+        assert_eq!(game.event.as_deref(), Some("Spring Tournament"));
+        assert_eq!(game.result.as_deref(), Some("B+R"));
+        assert_eq!(game.matched_move, None);
+        assert_eq!(game.match_count, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn getting_unknown_game_reports_error() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let error = get_game(&connection, 999).expect_err("unknown game should fail");
+
+        assert!(error.to_string().contains("game 999 does not exist"));
 
         Ok(())
     }
