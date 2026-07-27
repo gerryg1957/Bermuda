@@ -3,6 +3,7 @@ pub mod board_display;
 pub mod canonical;
 pub mod database;
 pub mod game;
+pub mod game_catalogue;
 pub mod game_list;
 pub mod import_directory;
 pub mod importer;
