@@ -4,6 +4,7 @@
 //! command-line tools, graphical interfaces, and other clients
 //! can consume search results through a consistent API.
 use crate::database;
+use crate::game_store::load_game_record;
 use crate::project::Project;
 use crate::{
     Colour, GameRecord, PositionOccurrence, PositionState, position_stream, read_move_file,
@@ -215,12 +216,7 @@ impl PositionIndexer {
     /// The returned [`GameRecord`] contains the complete move sequence and
     /// associated metadata required to replay the game.
     pub fn read_game_by_id(&self, game_id: i64) -> Result<GameRecord> {
-        let game = self
-            .game_by_id(game_id)?
-            .with_context(|| format!("game {game_id} does not exist"))?;
-
-        read_move_file(&game.move_file)
-            .with_context(|| format!("reading move file for game {game_id}"))
+        load_game_record(&self.connection, &self.database_root, game_id)
     }
 
     /// Replays a game to a specific move and returns the resulting board state.
@@ -228,12 +224,7 @@ impl PositionIndexer {
     /// This method is useful for displaying or analysing a position at a
     /// particular point within a game.
     pub fn replay_board_position(&self, game_id: i64, move_number: usize) -> Result<PositionState> {
-        let game = self
-            .game_by_id(game_id)?
-            .with_context(|| format!("game {game_id} does not exist"))?;
-
-        let record = read_move_file(&game.move_file)
-            .with_context(|| format!("reading move file for game {game_id}"))?;
+        let record = self.read_game_by_id(game_id)?;
 
         let states =
             replay_positions(&record).with_context(|| format!("replaying game {game_id}"))?;

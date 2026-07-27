@@ -25,23 +25,30 @@ impl GameStore {
     }
 
     pub fn load(&self, game_id: i64) -> Result<GameRecord> {
-        let relative_move_file: Option<String> = self
-            .connection
-            .query_row(
-                "SELECT move_file FROM games WHERE id = ?1",
-                [game_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .context("reading game from database")?;
-
-        let relative_move_file =
-            relative_move_file.with_context(|| format!("game {game_id} does not exist"))?;
-
-        let move_file = self.database_root.join(relative_move_file);
-
-        read_move_file(&move_file).with_context(|| format!("reading move file for game {game_id}"))
+        load_game_record(&self.connection, &self.database_root, game_id)
     }
+}
+
+pub(crate) fn load_game_record(
+    connection: &Connection,
+    database_root: &Path,
+    game_id: i64,
+) -> Result<GameRecord> {
+    let relative_move_file: Option<String> = connection
+        .query_row(
+            "SELECT move_file FROM games WHERE id = ?1",
+            [game_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("reading game from database")?;
+
+    let relative_move_file =
+        relative_move_file.with_context(|| format!("game {game_id} does not exist"))?;
+
+    let move_file = database_root.join(relative_move_file);
+
+    read_move_file(&move_file).with_context(|| format!("reading move file for game {game_id}"))
 }
 
 #[cfg(test)]
