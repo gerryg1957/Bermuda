@@ -193,6 +193,16 @@ WHERE (
     OR {player_condition}
 )
 
+AND (
+    ?4 IS NULL
+    OR selected_metadata.played_date >= ?4
+)
+
+AND (
+    ?5 IS NULL
+    OR selected_metadata.played_date <= ?5
+)
+
 ORDER BY {order_by}
 
         LIMIT ?1
@@ -210,6 +220,8 @@ ORDER BY {order_by}
                 i64::from(query.limit),
                 i64::from(query.offset),
                 query.player.as_deref(),
+                query.date_from.as_deref(),
+                query.date_to.as_deref(),
             ],
             |row| {
                 Ok(GameListRow {
@@ -547,6 +559,64 @@ mod tests {
         assert_eq!(
             games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
             vec![2]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_from_date_inclusively() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            date_from: Some("2026-04-15".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_to_date_inclusively() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            date_to: Some("2025-11-03".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![2]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_within_date_range() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            date_from: Some("2025-12-01".to_owned()),
+            date_to: Some("2026-12-31".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![1]
         );
 
         Ok(())
