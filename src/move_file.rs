@@ -1,5 +1,5 @@
 use crate::{
-    board::{Color, Move},
+    board::{Colour, Move},
     game::{GameRecord, Metadata, SetupStone},
 };
 use std::{
@@ -21,8 +21,8 @@ pub enum MoveFileError {
     BadMagic,
     #[error("unsupported move-file version {0}")]
     UnsupportedVersion(u16),
-    #[error("invalid color byte {0}")]
-    InvalidColor(u8),
+    #[error("invalid colour byte {0}")]
+    InvalidColour(u8),
     #[error("invalid UTF-8 metadata")]
     InvalidUtf8,
     #[error("metadata field is too large")]
@@ -56,8 +56,8 @@ pub fn write_move_file(path: impl AsRef<Path>, record: &GameRecord) -> Result<()
 
     for setup in &record.setup {
         match *setup {
-            SetupStone::Add { color, point } => {
-                writer.write_all(&[0, color_byte(color)])?;
+            SetupStone::Add { colour, point } => {
+                writer.write_all(&[0, colour_byte(colour)])?;
                 write_u16(&mut writer, point)?;
             }
             SetupStone::Remove { point } => {
@@ -67,7 +67,7 @@ pub fn write_move_file(path: impl AsRef<Path>, record: &GameRecord) -> Result<()
         }
     }
     for mv in &record.moves {
-        writer.write_all(&[color_byte(mv.color)])?;
+        writer.write_all(&[colour_byte(mv.colour)])?;
         write_u16(&mut writer, mv.point.unwrap_or(PASS))?;
     }
     writer.flush()?;
@@ -103,23 +103,23 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
     let mut setup = Vec::with_capacity(setup_count as usize);
     for _ in 0..setup_count {
         let kind = read_byte(&mut reader)?;
-        let color = read_byte(&mut reader)?;
+        let colour = read_byte(&mut reader)?;
         let point = read_u16(&mut reader)?;
         setup.push(match kind {
             0 => SetupStone::Add {
-                color: parse_color(color)?,
+                colour: parse_colour(colour)?,
                 point,
             },
             1 => SetupStone::Remove { point },
-            _ => return Err(MoveFileError::InvalidColor(kind)),
+            _ => return Err(MoveFileError::InvalidColour(kind)),
         });
     }
     let mut moves = Vec::with_capacity(move_count as usize);
     for _ in 0..move_count {
-        let color = parse_color(read_byte(&mut reader)?)?;
+        let colour = parse_colour(read_byte(&mut reader)?)?;
         let point = read_u16(&mut reader)?;
         moves.push(Move {
-            color,
+            colour,
             point: (point != PASS).then_some(point),
         });
     }
@@ -140,17 +140,17 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
     })
 }
 
-fn color_byte(color: Color) -> u8 {
-    match color {
-        Color::Black => 0,
-        Color::White => 1,
+fn colour_byte(colour: Colour) -> u8 {
+    match colour {
+        Colour::Black => 0,
+        Colour::White => 1,
     }
 }
-fn parse_color(byte: u8) -> Result<Color, MoveFileError> {
+fn parse_colour(byte: u8) -> Result<Colour, MoveFileError> {
     match byte {
-        0 => Ok(Color::Black),
-        1 => Ok(Color::White),
-        other => Err(MoveFileError::InvalidColor(other)),
+        0 => Ok(Colour::Black),
+        1 => Ok(Colour::White),
+        other => Err(MoveFileError::InvalidColour(other)),
     }
 }
 fn write_u16(writer: &mut impl Write, value: u16) -> io::Result<()> {

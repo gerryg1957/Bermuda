@@ -1,11 +1,11 @@
-use crate::{Color, PatternMatch, PatternSearchQuery, PatternSearcher, indexer::PositionIndexer};
+use crate::{Colour, PatternMatch, PatternSearchQuery, PatternSearcher, indexer::PositionIndexer};
 use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOccurrence {
     pub move_number: usize,
 
-    pub side_to_move: Option<Color>,
+    pub side_to_move: Option<Colour>,
     pub ko_point: Option<u16>,
 
     pub left: Option<u8>,

@@ -1,4 +1,6 @@
-use crate::{Board, Color, GameRecord, Move, PositionOccurrence, SetupStone, position_fingerprint};
+use crate::{
+    Board, Colour, GameRecord, Move, PositionOccurrence, SetupStone, position_fingerprint,
+};
 use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
@@ -22,8 +24,8 @@ pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
     let initial_side = record
         .moves
         .first()
-        .map(|mv| mv.color)
-        .unwrap_or(Color::Black);
+        .map(|mv| mv.colour)
+        .unwrap_or(Colour::Black);
 
     states.push(make_state(&board, 0, initial_side, None));
 
@@ -35,8 +37,8 @@ pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
         let side_to_move = record
             .moves
             .get(index + 1)
-            .map(|next| next.color)
-            .unwrap_or_else(|| mv.color.opponent());
+            .map(|next| next.colour)
+            .unwrap_or_else(|| mv.colour.opponent());
 
         states.push(make_state(&board, index + 1, side_to_move, Some(mv)));
     }
@@ -47,8 +49,8 @@ pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
 fn apply_setup(board: &mut Board, record: &GameRecord) -> Result<()> {
     for setup in &record.setup {
         match *setup {
-            SetupStone::Add { color, point } => {
-                board.set_setup(color, point)?;
+            SetupStone::Add { colour, point } => {
+                board.set_setup(colour, point)?;
             }
             SetupStone::Remove { point } => {
                 board.clear_setup(point)?;
@@ -62,7 +64,7 @@ fn apply_setup(board: &mut Board, record: &GameRecord) -> Result<()> {
 fn make_state(
     board: &Board,
     move_number: usize,
-    side_to_move: Color,
+    side_to_move: Colour,
     last_move: Option<Move>,
 ) -> PositionState {
     PositionState {

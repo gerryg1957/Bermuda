@@ -1,4 +1,4 @@
-use crate::{Board, Color, GameRecord, SetupStone};
+use crate::{Board, Colour, GameRecord, SetupStone};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 
@@ -54,8 +54,8 @@ fn hash_initial_position(hasher: &mut Sha256, record: &GameRecord) -> Result<()>
 
     for setup in &record.setup {
         match *setup {
-            SetupStone::Add { color, point } => board
-                .set_setup(color, point)
+            SetupStone::Add { colour, point } => board
+                .set_setup(colour, point)
                 .with_context(|| format!("applying canonical setup stone at point {point}"))?,
 
             SetupStone::Remove { point } => board
@@ -70,21 +70,21 @@ fn hash_initial_position(hasher: &mut Sha256, record: &GameRecord) -> Result<()>
     let mut white_points = Vec::new();
 
     for point in 0..point_count {
-        match board.color_at(point) {
-            Some(Color::Black) => black_points.push(point),
-            Some(Color::White) => white_points.push(point),
+        match board.colour_at(point) {
+            Some(Colour::Black) => black_points.push(point),
+            Some(Colour::White) => white_points.push(point),
             None => {}
         }
     }
 
-    hash_points(hasher, Color::Black, &black_points);
-    hash_points(hasher, Color::White, &white_points);
+    hash_points(hasher, Colour::Black, &black_points);
+    hash_points(hasher, Colour::White, &white_points);
 
     Ok(())
 }
 
-fn hash_points(hasher: &mut Sha256, color: Color, points: &[u16]) {
-    hasher.update([color_byte(color)]);
+fn hash_points(hasher: &mut Sha256, colour: Colour, points: &[u16]) {
+    hasher.update([colour_byte(colour)]);
 
     let count = u16::try_from(points.len())
         .expect("a supported Go board cannot contain more than u16::MAX points");
@@ -103,7 +103,7 @@ fn hash_moves(hasher: &mut Sha256, record: &GameRecord) {
     hasher.update(move_count.to_be_bytes());
 
     for mv in &record.moves {
-        hasher.update([color_byte(mv.color)]);
+        hasher.update([colour_byte(mv.colour)]);
 
         match mv.point {
             Some(point) => {
@@ -117,10 +117,10 @@ fn hash_moves(hasher: &mut Sha256, record: &GameRecord) {
     }
 }
 
-fn color_byte(color: Color) -> u8 {
-    match color {
-        Color::Black => 1,
-        Color::White => 2,
+fn colour_byte(colour: Colour) -> u8 {
+    match colour {
+        Colour::Black => 1,
+        Colour::White => 2,
     }
 }
 

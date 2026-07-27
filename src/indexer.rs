@@ -6,7 +6,7 @@
 use crate::database;
 use crate::project::Project;
 use crate::{
-    Color, GameRecord, PositionOccurrence, PositionState, position_stream, read_move_file,
+    Colour, GameRecord, PositionOccurrence, PositionState, position_stream, read_move_file,
     replay_positions,
 };
 use anyhow::{Context, Result, bail};
@@ -31,7 +31,7 @@ pub struct IndexedPositionStream {
 pub struct ExactPositionMatch {
     pub game_id: i64,
     pub move_number: usize,
-    pub side_to_move: Color,
+    pub side_to_move: Colour,
     pub ko_point: Option<u16>,
 }
 
@@ -43,7 +43,7 @@ pub struct ExactPositionMatch {
 pub struct PositionSearchResult {
     pub game_id: i64,
     pub move_number: usize,
-    pub side_to_move: Color,
+    pub side_to_move: Colour,
     pub ko_point: Option<u16>,
 
     pub black_player: Option<String>,
@@ -159,7 +159,7 @@ impl PositionIndexer {
                     occurrence.fingerprint.as_slice(),
                     game.game_id,
                     occurrence.move_number as i64,
-                    color_value(occurrence.side_to_move),
+                    colour_value(occurrence.side_to_move),
                     occurrence.ko_point.map(i64::from),
                 ])?;
             }
@@ -457,7 +457,7 @@ impl PositionIndexer {
                 game_id,
                 move_number: usize::try_from(move_number)
                     .context("negative or oversized move number in database")?,
-                side_to_move: color_from_value(side_to_move)?,
+                side_to_move: colour_from_value(side_to_move)?,
                 ko_point: ko_point
                     .map(u16::try_from)
                     .transpose()
@@ -532,7 +532,7 @@ impl PositionIndexer {
             results.push(PositionSearchResult {
                 game_id,
                 move_number: usize::try_from(move_number).context("invalid move number")?,
-                side_to_move: color_from_value(side_to_move)?,
+                side_to_move: colour_from_value(side_to_move)?,
                 ko_point: ko_point
                     .map(u16::try_from)
                     .transpose()
@@ -549,17 +549,17 @@ impl PositionIndexer {
     }
 }
 
-fn color_value(color: Color) -> i64 {
-    match color {
-        Color::Black => 1,
-        Color::White => 2,
+fn colour_value(colour: Colour) -> i64 {
+    match colour {
+        Colour::Black => 1,
+        Colour::White => 2,
     }
 }
 
-fn color_from_value(value: i64) -> Result<Color> {
+fn colour_from_value(value: i64) -> Result<Colour> {
     match value {
-        1 => Ok(Color::Black),
-        2 => Ok(Color::White),
+        1 => Ok(Colour::Black),
+        2 => Ok(Colour::White),
         _ => bail!("invalid colour value: {value}"),
     }
 }
@@ -593,7 +593,7 @@ fn decode_hex_digit(value: u8) -> Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Color, GameRecord, Metadata, Move, write_move_file};
+    use crate::{Colour, GameRecord, Metadata, Move, write_move_file};
     use rusqlite::params;
     use tempfile::TempDir;
 
@@ -750,11 +750,11 @@ mod tests {
             "games/aa/test-one.moves",
             vec![
                 Move {
-                    color: Color::Black,
+                    colour: Colour::Black,
                     point: Some(3 * 19 + 3),
                 },
                 Move {
-                    color: Color::White,
+                    colour: Colour::White,
                     point: Some(15 * 19 + 15),
                 },
             ],
@@ -766,7 +766,7 @@ mod tests {
         let occurrence = indexer.position_from_game(1, 1).expect("select position");
 
         assert_eq!(occurrence.move_number, 1);
-        assert_eq!(occurrence.side_to_move, Color::White);
+        assert_eq!(occurrence.side_to_move, Colour::White);
     }
 
     #[test]
@@ -780,7 +780,7 @@ mod tests {
             &root,
             "games/aa/test-one.moves",
             vec![Move {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: Some(3 * 19 + 3),
             }],
         );
@@ -806,11 +806,11 @@ mod tests {
             "games/aa/test-one.moves",
             vec![
                 Move {
-                    color: Color::Black,
+                    colour: Colour::Black,
                     point: Some(3 * 19 + 3),
                 },
                 Move {
-                    color: Color::White,
+                    colour: Colour::White,
                     point: Some(15 * 19 + 15),
                 },
             ],
@@ -864,7 +864,7 @@ mod tests {
             &root,
             "games/aa/test-one.moves",
             vec![Move {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: Some(3 * 19 + 3),
             }],
         );
@@ -930,11 +930,11 @@ mod tests {
             "games/aa/test-one.moves",
             vec![
                 Move {
-                    color: Color::Black,
+                    colour: Colour::Black,
                     point: Some(3 * 19 + 3),
                 },
                 Move {
-                    color: Color::White,
+                    colour: Colour::White,
                     point: Some(15 * 19 + 15),
                 },
             ],
@@ -949,13 +949,13 @@ mod tests {
         assert_eq!(stream.occurrences.len(), 3);
 
         assert_eq!(stream.occurrences[0].move_number, 0);
-        assert_eq!(stream.occurrences[0].side_to_move, Color::Black);
+        assert_eq!(stream.occurrences[0].side_to_move, Colour::Black);
 
         assert_eq!(stream.occurrences[1].move_number, 1);
-        assert_eq!(stream.occurrences[1].side_to_move, Color::White);
+        assert_eq!(stream.occurrences[1].side_to_move, Colour::White);
 
         assert_eq!(stream.occurrences[2].move_number, 2);
-        assert_eq!(stream.occurrences[2].side_to_move, Color::Black);
+        assert_eq!(stream.occurrences[2].side_to_move, Colour::Black);
     }
     #[test]
     fn finds_matches_from_game_position() {
@@ -969,11 +969,11 @@ mod tests {
             "games/aa/test-one.moves",
             vec![
                 Move {
-                    color: Color::Black,
+                    colour: Colour::Black,
                     point: Some(3 * 19 + 3),
                 },
                 Move {
-                    color: Color::White,
+                    colour: Colour::White,
                     point: Some(15 * 19 + 15),
                 },
             ],
@@ -992,7 +992,7 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].game_id, 1);
         assert_eq!(matches[0].move_number, 1);
-        assert_eq!(matches[0].side_to_move, Color::White);
+        assert_eq!(matches[0].side_to_move, Colour::White);
     }
 
     #[test]

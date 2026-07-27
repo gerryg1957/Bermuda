@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use moyodb::{
-    Board, Color, GameRecord, SetupStone, extract_main_variation, parse_collection, read_move_file,
-    write_move_file,
+    Board, Colour, GameRecord, SetupStone, extract_main_variation, parse_collection,
+    read_move_file, write_move_file,
 };
 use std::{fs, path::PathBuf};
 
@@ -40,7 +40,7 @@ pub fn inspect_move_file(input: PathBuf) -> Result<()> {
     let black_moves = record
         .moves
         .iter()
-        .filter(|mv| mv.color == Color::Black)
+        .filter(|mv| mv.colour == Colour::Black)
         .count();
 
     let white_moves = record.moves.len() - black_moves;
@@ -109,8 +109,8 @@ fn replay_to(record: &GameRecord, move_count: usize) -> Result<Board> {
 
     for setup in &record.setup {
         match *setup {
-            SetupStone::Add { color, point } => board
-                .set_setup(color, point)
+            SetupStone::Add { colour, point } => board
+                .set_setup(colour, point)
                 .with_context(|| format!("applying setup stone at point {point}"))?,
 
             SetupStone::Remove { point } => board
@@ -139,9 +139,9 @@ fn print_board(board: &Board) {
         for x in 0..size {
             let point = u16::from(y) * u16::from(size) + u16::from(x);
 
-            let symbol = match board.color_at(point) {
-                Some(Color::Black) => 'X',
-                Some(Color::White) => 'O',
+            let symbol = match board.colour_at(point) {
+                Some(Colour::Black) => 'X',
+                Some(Colour::White) => 'O',
                 None => '.',
             };
 

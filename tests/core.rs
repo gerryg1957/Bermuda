@@ -1,5 +1,5 @@
 use moyodb::{
-    board::{BoardError, Color, Move},
+    board::{BoardError, Colour, Move},
     extract_main_variation,
     game::replay,
     parse_collection, read_move_file, write_move_file,
@@ -32,36 +32,36 @@ fn captures_a_stone() {
     let p = |x: u8, y: u8| u16::from(y) * 5 + u16::from(x);
     board
         .play(Move {
-            color: Color::White,
+            colour: Colour::White,
             point: Some(p(1, 1)),
         })
         .unwrap();
     board
         .play(Move {
-            color: Color::Black,
+            colour: Colour::Black,
             point: Some(p(0, 1)),
         })
         .unwrap();
     board
         .play(Move {
-            color: Color::Black,
+            colour: Colour::Black,
             point: Some(p(1, 0)),
         })
         .unwrap();
     board
         .play(Move {
-            color: Color::Black,
+            colour: Colour::Black,
             point: Some(p(2, 1)),
         })
         .unwrap();
     let captured = board
         .play(Move {
-            color: Color::Black,
+            colour: Colour::Black,
             point: Some(p(1, 2)),
         })
         .unwrap();
     assert_eq!(captured, vec![p(1, 1)]);
-    assert_eq!(board.color_at(p(1, 1)), None);
+    assert_eq!(board.colour_at(p(1, 1)), None);
 }
 
 #[test]
@@ -69,33 +69,33 @@ fn enforces_simple_ko_and_pass_clears_it() {
     let mut board = moyodb::Board::new(5).unwrap();
     let p = |x: u8, y: u8| u16::from(y) * 5 + u16::from(x);
     for &(c, x, y) in &[
-        (Color::Black, 0, 1),
-        (Color::Black, 1, 0),
-        (Color::Black, 1, 2),
-        (Color::White, 1, 1),
-        (Color::White, 2, 0),
-        (Color::White, 2, 2),
-        (Color::White, 3, 1),
+        (Colour::Black, 0, 1),
+        (Colour::Black, 1, 0),
+        (Colour::Black, 1, 2),
+        (Colour::White, 1, 1),
+        (Colour::White, 2, 0),
+        (Colour::White, 2, 2),
+        (Colour::White, 3, 1),
     ] {
         board.set_setup(c, p(x, y)).unwrap();
     }
     board
         .play(Move {
-            color: Color::Black,
+            colour: Colour::Black,
             point: Some(p(2, 1)),
         })
         .unwrap();
     assert_eq!(board.ko_point(), Some(p(1, 1)));
     assert_eq!(
         board.play(Move {
-            color: Color::White,
+            colour: Colour::White,
             point: Some(p(1, 1))
         }),
         Err(BoardError::Ko(p(1, 1)))
     );
     board
         .play(Move {
-            color: Color::White,
+            colour: Colour::White,
             point: None,
         })
         .unwrap();

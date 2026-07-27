@@ -1,5 +1,5 @@
 use moyodb::{
-    Color, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchQuery,
+    Colour, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchQuery,
     PatternSearchScope, SearchEngine, database, indexer::PositionIndexer, write_move_file,
 };
 use rusqlite::params;
@@ -57,7 +57,7 @@ fn write_test_move_file(root: &Path, relative_path: &str) {
         board_size: 19,
         setup: Vec::new(),
         moves: vec![Move {
-            color: Color::Black,
+            colour: Colour::Black,
             point: Some(0),
         }],
         metadata: Metadata {

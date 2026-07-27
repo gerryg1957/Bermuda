@@ -7,7 +7,7 @@ pub struct PositionOccurrence {
     pub move_number: usize,
 
     /// The player expected to move from this position.
-    pub side_to_move: crate::Color,
+    pub side_to_move: crate::Colour,
 
     /// Simple-ko prohibition in this position, if any.
     pub ko_point: Option<u16>,
@@ -33,7 +33,7 @@ pub fn position_stream(record: &GameRecord) -> Result<Vec<PositionOccurrence>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Color, extract_main_variation, parse_collection};
+    use crate::{Colour, extract_main_variation, parse_collection};
 
     fn record(sgf: &str) -> GameRecord {
         let collection = parse_collection(sgf.as_bytes()).expect("parse SGF");
@@ -54,16 +54,16 @@ mod tests {
         assert_eq!(stream.len(), 4);
 
         assert_eq!(stream[0].move_number, 0);
-        assert_eq!(stream[0].side_to_move, Color::Black);
+        assert_eq!(stream[0].side_to_move, Colour::Black);
 
         assert_eq!(stream[1].move_number, 1);
-        assert_eq!(stream[1].side_to_move, Color::White);
+        assert_eq!(stream[1].side_to_move, Colour::White);
 
         assert_eq!(stream[2].move_number, 2);
-        assert_eq!(stream[2].side_to_move, Color::Black);
+        assert_eq!(stream[2].side_to_move, Colour::Black);
 
         assert_eq!(stream[3].move_number, 3);
-        assert_eq!(stream[3].side_to_move, Color::White);
+        assert_eq!(stream[3].side_to_move, Colour::White);
     }
 
     #[test]
@@ -77,8 +77,8 @@ mod tests {
 
         let stream = position_stream(&game).unwrap();
 
-        assert_eq!(stream[1].side_to_move, Color::Black);
-        assert_eq!(stream[2].side_to_move, Color::White);
+        assert_eq!(stream[1].side_to_move, Colour::Black);
+        assert_eq!(stream[2].side_to_move, Colour::White);
     }
 
     #[test]
@@ -94,7 +94,7 @@ mod tests {
 
         assert_eq!(stream.len(), 2);
         assert_eq!(stream[0].move_number, 0);
-        assert_eq!(stream[0].side_to_move, Color::White);
+        assert_eq!(stream[0].side_to_move, Colour::White);
     }
 
     #[test]
@@ -122,6 +122,6 @@ mod tests {
 
         assert_eq!(stream.len(), 1);
         assert_eq!(stream[0].move_number, 0);
-        assert_eq!(stream[0].side_to_move, Color::Black);
+        assert_eq!(stream[0].side_to_move, Colour::Black);
     }
 }

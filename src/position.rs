@@ -1,4 +1,4 @@
-use crate::{Board, Color};
+use crate::{Board, Colour};
 use sha2::{Digest, Sha256};
 
 const POSITION_FORMAT_VERSION: u8 = 1;
@@ -16,13 +16,13 @@ const POSITION_MAGIC: &[u8] = b"MOYODB-EXACT-POSITION";
 /// - simple-ko point, if present.
 ///
 /// Game metadata and move number are deliberately excluded.
-pub fn position_fingerprint(board: &Board, side_to_move: Color) -> [u8; 32] {
+pub fn position_fingerprint(board: &Board, side_to_move: Colour) -> [u8; 32] {
     let mut hasher = Sha256::new();
 
     hasher.update(POSITION_MAGIC);
     hasher.update([POSITION_FORMAT_VERSION]);
     hasher.update([board.size()]);
-    hasher.update([color_byte(side_to_move)]);
+    hasher.update([colour_byte(side_to_move)]);
 
     for word in board.black_words() {
         hasher.update(word.to_be_bytes());
@@ -45,7 +45,7 @@ pub fn position_fingerprint(board: &Board, side_to_move: Color) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-pub fn position_fingerprint_hex(board: &Board, side_to_move: Color) -> String {
+pub fn position_fingerprint_hex(board: &Board, side_to_move: Colour) -> String {
     let fingerprint = position_fingerprint(board, side_to_move);
     let mut text = String::with_capacity(64);
 
@@ -57,10 +57,10 @@ pub fn position_fingerprint_hex(board: &Board, side_to_move: Color) -> String {
     text
 }
 
-fn color_byte(color: Color) -> u8 {
-    match color {
-        Color::Black => 1,
-        Color::White => 2,
+fn colour_byte(colour: Colour) -> u8 {
+    match colour {
+        Colour::Black => 1,
+        Colour::White => 2,
     }
 }
 
@@ -78,21 +78,21 @@ mod tests {
 
         first
             .play(Move {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: Some(point),
             })
             .unwrap();
 
         second
             .play(Move {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: Some(point),
             })
             .unwrap();
 
         assert_eq!(
-            position_fingerprint(&first, Color::White),
-            position_fingerprint(&second, Color::White)
+            position_fingerprint(&first, Colour::White),
+            position_fingerprint(&second, Colour::White)
         );
     }
 
@@ -101,8 +101,8 @@ mod tests {
         let board = Board::new(19).unwrap();
 
         assert_ne!(
-            position_fingerprint(&board, Color::Black),
-            position_fingerprint(&board, Color::White)
+            position_fingerprint(&board, Colour::Black),
+            position_fingerprint(&board, Colour::White)
         );
     }
 
@@ -113,14 +113,14 @@ mod tests {
 
         occupied
             .play(Move {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: Some(occupied.point(3, 3).unwrap()),
             })
             .unwrap();
 
         assert_ne!(
-            position_fingerprint(&empty, Color::White),
-            position_fingerprint(&occupied, Color::White)
+            position_fingerprint(&empty, Colour::White),
+            position_fingerprint(&occupied, Colour::White)
         );
     }
 
@@ -130,8 +130,8 @@ mod tests {
         let board_19 = Board::new(19).unwrap();
 
         assert_ne!(
-            position_fingerprint(&board_9, Color::Black),
-            position_fingerprint(&board_19, Color::Black)
+            position_fingerprint(&board_9, Colour::Black),
+            position_fingerprint(&board_19, Colour::Black)
         );
     }
 }

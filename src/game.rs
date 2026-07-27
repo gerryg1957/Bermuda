@@ -1,5 +1,5 @@
 use crate::{
-    board::{Board, BoardError, Color, Move},
+    board::{Board, BoardError, Colour, Move},
     sgf::{Collection, GameTree, Node},
 };
 use thiserror::Error;
@@ -17,7 +17,7 @@ pub struct Metadata {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetupStone {
-    Add { color: Color, point: u16 },
+    Add { colour: Colour, point: u16 },
     Remove { point: u16 },
 }
 
@@ -114,7 +114,7 @@ fn collect_sequence(
     for node in nodes {
         for value in node.values("AB") {
             setup.push(SetupStone::Add {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate {
                     value: value.clone(),
                     size,
@@ -123,7 +123,7 @@ fn collect_sequence(
         }
         for value in node.values("AW") {
             setup.push(SetupStone::Add {
-                color: Color::White,
+                colour: Colour::White,
                 point: coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate {
                     value: value.clone(),
                     size,
@@ -146,13 +146,13 @@ fn collect_sequence(
         }
         if let Some(value) = black {
             moves.push(Move {
-                color: Color::Black,
+                colour: Colour::Black,
                 point: move_coordinate(value, size)?,
             });
         }
         if let Some(value) = white {
             moves.push(Move {
-                color: Color::White,
+                colour: Colour::White,
                 point: move_coordinate(value, size)?,
             });
         }
@@ -167,7 +167,7 @@ pub fn replay(record: &GameRecord) -> Result<Board, GameError> {
     })?;
     for stone in &record.setup {
         match *stone {
-            SetupStone::Add { color, point } => board.set_setup(color, point),
+            SetupStone::Add { colour, point } => board.set_setup(colour, point),
             SetupStone::Remove { point } => board.clear_setup(point),
         }
         .map_err(|source| GameError::Replay {

@@ -432,16 +432,16 @@ fn replay_game(
         println!("Move {}", current);
 
         let side = match state.occurrence.side_to_move {
-            moyodb::Color::Black => "Black",
-            moyodb::Color::White => "White",
+            moyodb::Colour::Black => "Black",
+            moyodb::Colour::White => "White",
         };
 
         println!("{side} to move");
 
         if let Some(last_move) = state.last_move {
-            let colour = match last_move.color {
-                moyodb::Color::Black => "Black",
-                moyodb::Color::White => "White",
+            let colour = match last_move.colour {
+                moyodb::Colour::Black => "Black",
+                moyodb::Colour::White => "White",
             };
 
             match last_move.point {
@@ -584,8 +584,8 @@ fn find_position_by_fingerprint(project_path: PathBuf, fingerprint: String) -> R
 
     for position_match in matches {
         let side = match position_match.side_to_move {
-            moyodb::Color::Black => "Black",
-            moyodb::Color::White => "White",
+            moyodb::Colour::Black => "Black",
+            moyodb::Colour::White => "White",
         };
 
         println!(
@@ -624,8 +624,8 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
 
     for m in matches {
         let side = match m.side_to_move {
-            moyodb::Color::Black => "Black",
-            moyodb::Color::White => "White",
+            moyodb::Colour::Black => "Black",
+            moyodb::Colour::White => "White",
         };
 
         println!("Game {}", m.game_id);
@@ -665,8 +665,8 @@ fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     println!("{}", board_display::render(&state.board));
 
     let side = match state.occurrence.side_to_move {
-        moyodb::Color::Black => "Black",
-        moyodb::Color::White => "White",
+        moyodb::Colour::Black => "Black",
+        moyodb::Colour::White => "White",
     };
 
     println!("{side} to move");
@@ -783,17 +783,17 @@ fn show_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     println!();
 
     let side = match state.occurrence.side_to_move {
-        moyodb::Color::Black => "Black",
-        moyodb::Color::White => "White",
+        moyodb::Colour::Black => "Black",
+        moyodb::Colour::White => "White",
     };
 
     println!("{side} to move");
     println!();
 
     if let Some(last_move) = state.last_move {
-        let colour = match last_move.color {
-            moyodb::Color::Black => "Black",
-            moyodb::Color::White => "White",
+        let colour = match last_move.colour {
+            moyodb::Colour::Black => "Black",
+            moyodb::Colour::White => "White",
         };
 
         match last_move.point {

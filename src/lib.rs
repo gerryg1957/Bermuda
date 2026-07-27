@@ -19,7 +19,7 @@ pub mod replay;
 pub mod search;
 pub mod sgf;
 
-pub use board::{Board, Color, Move};
+pub use board::{Board, Colour, Move};
 pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};

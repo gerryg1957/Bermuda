@@ -291,7 +291,7 @@ The current design includes:
 
 pub struct SearchOccurrence {
     pub move_number: usize,
-    pub side_to_move: Option<Color>,
+    pub side_to_move: Option<Colour>,
     pub ko_point: Option<u16>,
     pub left: Option<u8>,
     pub bottom: Option<u8>,

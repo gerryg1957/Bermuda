@@ -1,4 +1,4 @@
-use crate::{Board, Color};
+use crate::{Board, Colour};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,11 +8,11 @@ pub enum PatternCell {
     White,
 }
 
-impl From<Option<Color>> for PatternCell {
-    fn from(value: Option<Color>) -> Self {
+impl From<Option<Colour>> for PatternCell {
+    fn from(value: Option<Colour>) -> Self {
         match value {
-            Some(Color::Black) => Self::Black,
-            Some(Color::White) => Self::White,
+            Some(Colour::Black) => Self::Black,
+            Some(Colour::White) => Self::White,
             None => Self::Empty,
         }
     }
@@ -79,7 +79,7 @@ impl Pattern {
                     .point(x, y)
                     .expect("validated pattern coordinates must lie on board");
 
-                cells.push(PatternCell::from(board.color_at(point)));
+                cells.push(PatternCell::from(board.colour_at(point)));
             }
         }
 
@@ -113,17 +113,17 @@ impl Pattern {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Board, Color};
+    use crate::{Board, Colour};
 
     #[test]
     fn extracts_centre_pattern() {
         let mut board = Board::new(19).unwrap();
 
         board
-            .set_setup(Color::Black, board.point(9, 9).unwrap())
+            .set_setup(Colour::Black, board.point(9, 9).unwrap())
             .unwrap();
         board
-            .set_setup(Color::White, board.point(10, 9).unwrap())
+            .set_setup(Colour::White, board.point(10, 9).unwrap())
             .unwrap();
 
         let pattern = Pattern::extract(
@@ -235,10 +235,10 @@ fn matches_identical_pattern() {
     let mut board = Board::new(19).unwrap();
 
     board
-        .set_setup(Color::Black, board.point(5, 5).unwrap())
+        .set_setup(Colour::Black, board.point(5, 5).unwrap())
         .unwrap();
     board
-        .set_setup(Color::White, board.point(6, 5).unwrap())
+        .set_setup(Colour::White, board.point(6, 5).unwrap())
         .unwrap();
 
     let pattern = Pattern::extract(
@@ -260,7 +260,7 @@ fn does_not_match_different_location() {
     let mut board = Board::new(19).unwrap();
 
     board
-        .set_setup(Color::Black, board.point(5, 5).unwrap())
+        .set_setup(Colour::Black, board.point(5, 5).unwrap())
         .unwrap();
 
     let pattern = Pattern::extract(

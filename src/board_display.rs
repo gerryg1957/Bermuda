@@ -1,4 +1,4 @@
-use crate::{Board, Color};
+use crate::{Board, Colour};
 
 pub fn render(board: &Board) -> String {
     let mut output = String::new();
@@ -16,9 +16,9 @@ pub fn render(board: &Board) -> String {
         for x in 0..board.size() {
             let point = board.point(x, y).unwrap();
 
-            let symbol = match board.color_at(point) {
-                Some(Color::Black) => 'X',
-                Some(Color::White) => 'O',
+            let symbol = match board.colour_at(point) {
+                Some(Colour::Black) => 'X',
+                Some(Colour::White) => 'O',
                 None => '.',
             };
 
