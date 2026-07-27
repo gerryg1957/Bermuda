@@ -27,6 +27,10 @@ impl GameCatalogue {
     pub fn list(&self, query: &GameListQuery) -> Result<Vec<GameListRow>> {
         game_list::list_games(&self.connection, query)
     }
+
+    pub fn count(&self, query: &GameListQuery) -> Result<u64> {
+        game_list::count_games(&self.connection, query)
+    }
 }
 
 #[cfg(test)]
@@ -46,6 +50,9 @@ mod tests {
 
         let catalogue = project.catalogue()?;
         let games = catalogue.list(&GameListQuery::default())?;
+        let count = catalogue.count(&GameListQuery::default())?;
+
+        assert_eq!(count, 0);
 
         assert!(games.is_empty());
 

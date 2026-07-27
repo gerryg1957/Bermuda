@@ -121,27 +121,39 @@ impl Default for GameListQuery {
     }
 }
 
-pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<GameListRow>> {
-    let order_by = order_by_clause(query);
-    let player_condition = match query.colour {
-        PlayerColour::Black => "selected_metadata.black_player = ?3",
-        PlayerColour::White => "selected_metadata.white_player = ?3",
-        PlayerColour::Either => {
-            "(selected_metadata.black_player = ?3 OR selected_metadata.white_player = ?3)"
+fn player_condition(colour: PlayerColour, parameter: &str) -> String {
+    match colour {
+        PlayerColour::Black => {
+            format!("selected_metadata.black_player = {parameter}")
         }
-    };
+        PlayerColour::White => {
+            format!("selected_metadata.white_player = {parameter}")
+        }
+        PlayerColour::Either => format!(
+            "(selected_metadata.black_player = {parameter} \
+             OR selected_metadata.white_player = {parameter})"
+        ),
+    }
+}
 
-    let result_condition = match query.result {
+fn result_condition(result: GameResultFilter) -> &'static str {
+    match result {
         GameResultFilter::Any => "1 = 1",
         GameResultFilter::BlackWin => "selected_metadata.result LIKE 'B+%'",
         GameResultFilter::WhiteWin => "selected_metadata.result LIKE 'W+%'",
         GameResultFilter::Jigo => {
             "(selected_metadata.result LIKE 'Jigo%' \
-         OR selected_metadata.result = 'Draw' \
-         OR selected_metadata.result = '0')"
+             OR selected_metadata.result = 'Draw' \
+             OR selected_metadata.result = '0')"
         }
         GameResultFilter::Void => "selected_metadata.result LIKE 'Void%'",
-    };
+    }
+}
+
+pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<GameListRow>> {
+    let order_by = order_by_clause(query);
+    let player_condition = player_condition(query.colour, "?3");
+    let result_condition = result_condition(query.result);
 
     let sql = format!(
         r#"
@@ -256,6 +268,97 @@ ORDER BY {order_by}
 
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .context("reading game-list rows")
+}
+
+pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64> {
+    let player_condition = player_condition(query.colour, "?1");
+    let result_condition = result_condition(query.result);
+
+    let sql = format!(
+        r#"
+        WITH ranked_metadata AS (
+            SELECT
+                game_sources.game_id,
+                game_metadata.black_player,
+                game_metadata.white_player,
+                game_metadata.played_date,
+                game_metadata.result,
+                game_metadata.event,
+
+                ROW_NUMBER() OVER (
+                    PARTITION BY game_sources.game_id
+                    ORDER BY
+                        (
+                            (game_metadata.black_player IS NOT NULL) +
+                            (game_metadata.white_player IS NOT NULL) +
+                            (game_metadata.played_date IS NOT NULL) +
+                            (game_metadata.result IS NOT NULL) +
+                            (game_metadata.event IS NOT NULL)
+                        ) DESC,
+                        game_sources.id ASC
+                ) AS metadata_rank
+
+            FROM game_sources
+
+            LEFT JOIN game_metadata
+                ON game_metadata.game_source_id = game_sources.id
+        ),
+
+        selected_metadata AS (
+            SELECT
+                game_id,
+                black_player,
+                white_player,
+                played_date,
+                result,
+                event
+
+            FROM ranked_metadata
+
+            WHERE metadata_rank = 1
+        )
+
+        SELECT COUNT(*)
+
+        FROM games
+
+        LEFT JOIN selected_metadata
+            ON selected_metadata.game_id = games.id
+
+        WHERE (
+            ?1 IS NULL
+            OR {player_condition}
+        )
+
+        AND (
+            ?2 IS NULL
+            OR selected_metadata.played_date >= ?2
+        )
+
+        AND (
+            ?3 IS NULL
+            OR selected_metadata.played_date <= ?3
+        )
+
+        AND (
+            {result_condition}
+        )
+        "#
+    );
+
+    let count: i64 = connection
+        .query_row(
+            &sql,
+            params![
+                query.player.as_deref(),
+                query.date_from.as_deref(),
+                query.date_to.as_deref(),
+            ],
+            |row| row.get(0),
+        )
+        .context("counting catalogue games")?;
+
+    u64::try_from(count).context("catalogue game count was negative")
 }
 
 fn order_by_clause(query: &GameListQuery) -> String {
@@ -734,6 +837,55 @@ mod tests {
                 "stored result was {stored_result:?}"
             );
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn counts_all_games_ignoring_pagination() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            offset: 1,
+            limit: 1,
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(count_games(&connection, &query)?, 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn counts_games_matching_combined_filters() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            colour: PlayerColour::Black,
+            date_from: Some("2026-01-01".to_owned()),
+            date_to: Some("2026-12-31".to_owned()),
+            result: GameResultFilter::BlackWin,
+            offset: 100,
+            limit: 0,
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(count_games(&connection, &query)?, 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn counts_zero_when_no_games_match() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Nobody".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(count_games(&connection, &query)?, 0);
 
         Ok(())
     }
