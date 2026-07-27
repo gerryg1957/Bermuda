@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameColumn {
@@ -123,6 +123,13 @@ impl Default for GameListQuery {
 
 pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<GameListRow>> {
     let order_by = order_by_clause(query);
+    let player_condition = match query.colour {
+        PlayerColour::Black => "selected_metadata.black_player = ?3",
+        PlayerColour::White => "selected_metadata.white_player = ?3",
+        PlayerColour::Either => {
+            "(selected_metadata.black_player = ?3 OR selected_metadata.white_player = ?3)"
+        }
+    };
 
     let sql = format!(
         r#"
@@ -179,9 +186,14 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
         FROM games
 
         LEFT JOIN selected_metadata
-            ON selected_metadata.game_id = games.id
+    ON selected_metadata.game_id = games.id
 
-        ORDER BY {order_by}
+WHERE (
+    ?3 IS NULL
+    OR {player_condition}
+)
+
+ORDER BY {order_by}
 
         LIMIT ?1
         OFFSET ?2
@@ -193,18 +205,25 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
         .context("preparing game-list query")?;
 
     let rows = statement
-        .query_map([i64::from(query.limit), i64::from(query.offset)], |row| {
-            Ok(GameListRow {
-                game_id: row.get(0)?,
-                black_player: row.get(1)?,
-                white_player: row.get(2)?,
-                game_date: row.get(3)?,
-                result: row.get(4)?,
-                event: row.get(5)?,
-                matched_move: None,
-                match_count: None,
-            })
-        })
+        .query_map(
+            params![
+                i64::from(query.limit),
+                i64::from(query.offset),
+                query.player.as_deref(),
+            ],
+            |row| {
+                Ok(GameListRow {
+                    game_id: row.get(0)?,
+                    black_player: row.get(1)?,
+                    white_player: row.get(2)?,
+                    game_date: row.get(3)?,
+                    result: row.get(4)?,
+                    event: row.get(5)?,
+                    matched_move: None,
+                    match_count: None,
+                })
+            },
+        )
         .context("querying game list")?;
 
     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -296,8 +315,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn lists_one_row_per_canonical_game_and_uses_best_metadata() -> Result<()> {
+    fn populated_test_connection() -> Result<Connection> {
         let connection = Connection::open_in_memory().context("opening in-memory test database")?;
 
         connection.execute_batch(
@@ -424,6 +442,13 @@ mod tests {
         "#,
         )?;
 
+        Ok(connection)
+    }
+
+    #[test]
+    fn lists_one_row_per_canonical_game_and_uses_best_metadata() -> Result<()> {
+        let connection = populated_test_connection()?;
+
         let query = GameListQuery::default();
         let games = list_games(&connection, &query)?;
 
@@ -447,6 +472,82 @@ mod tests {
 
         assert_eq!(second_game.black_player.as_deref(), Some("Gamma"));
         assert_eq!(second_game.white_player.as_deref(), Some("Delta"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_by_black_player() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        let wrong_colour_query = GameListQuery {
+            player: Some("Beta".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert!(list_games(&connection, &wrong_colour_query)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_by_white_player() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Beta".to_owned()),
+            colour: PlayerColour::White,
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        let wrong_colour_query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            colour: PlayerColour::White,
+            ..GameListQuery::default()
+        };
+
+        assert!(list_games(&connection, &wrong_colour_query)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_by_player_of_either_colour() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Delta".to_owned()),
+            colour: PlayerColour::Either,
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![2]
+        );
 
         Ok(())
     }
