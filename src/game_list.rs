@@ -131,6 +131,18 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
         }
     };
 
+    let result_condition = match query.result {
+        GameResultFilter::Any => "1 = 1",
+        GameResultFilter::BlackWin => "selected_metadata.result LIKE 'B+%'",
+        GameResultFilter::WhiteWin => "selected_metadata.result LIKE 'W+%'",
+        GameResultFilter::Jigo => {
+            "(selected_metadata.result LIKE 'Jigo%' \
+         OR selected_metadata.result = 'Draw' \
+         OR selected_metadata.result = '0')"
+        }
+        GameResultFilter::Void => "selected_metadata.result LIKE 'Void%'",
+    };
+
     let sql = format!(
         r#"
         WITH ranked_metadata AS (
@@ -201,6 +213,10 @@ AND (
 AND (
     ?5 IS NULL
     OR selected_metadata.played_date <= ?5
+)
+
+AND (
+    {result_condition}
 )
 
 ORDER BY {order_by}
@@ -618,6 +634,106 @@ mod tests {
             games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
             vec![1]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_black_wins() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            result: GameResultFilter::BlackWin,
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_white_wins() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            result: GameResultFilter::WhiteWin,
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![2]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_jigo_results() -> Result<()> {
+        for stored_result in ["Jigo", "Jigo (B connects the ko)", "Draw", "0"] {
+            let connection = populated_test_connection()?;
+
+            connection.execute(
+                "
+            UPDATE game_metadata
+            SET result = ?1
+            WHERE game_source_id = 3
+            ",
+                [stored_result],
+            )?;
+
+            let query = GameListQuery {
+                result: GameResultFilter::Jigo,
+                ..GameListQuery::default()
+            };
+
+            let games = list_games(&connection, &query)?;
+
+            assert_eq!(
+                games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+                vec![2],
+                "stored result was {stored_result:?}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_void_results() -> Result<()> {
+        for stored_result in ["Void", "Void (triple ko)", "Void game"] {
+            let connection = populated_test_connection()?;
+
+            connection.execute(
+                "
+            UPDATE game_metadata
+            SET result = ?1
+            WHERE game_source_id = 3
+            ",
+                [stored_result],
+            )?;
+
+            let query = GameListQuery {
+                result: GameResultFilter::Void,
+                ..GameListQuery::default()
+            };
+
+            let games = list_games(&connection, &query)?;
+
+            assert_eq!(
+                games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+                vec![2],
+                "stored result was {stored_result:?}"
+            );
+        }
 
         Ok(())
     }
