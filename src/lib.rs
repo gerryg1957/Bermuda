@@ -5,6 +5,7 @@ pub mod database;
 pub mod game;
 pub mod game_catalogue;
 pub mod game_list;
+pub mod game_store;
 pub mod import_directory;
 pub mod importer;
 pub mod indexer;
