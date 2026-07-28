@@ -20,6 +20,8 @@ pub mod replay;
 pub mod search;
 pub mod sgf;
 
+mod game_date;
+
 pub use board::{Board, Colour, Move};
 pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};

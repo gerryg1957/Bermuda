@@ -15,7 +15,7 @@ impl GameColumn {
         match self {
             Self::BlackPlayer => "selected_metadata.black_player",
             Self::WhitePlayer => "selected_metadata.white_player",
-            Self::Date => "selected_metadata.played_date",
+            Self::Date => "selected_metadata.played_date_sort",
             Self::Result => "selected_metadata.result",
             Self::Event => "selected_metadata.event",
         }
@@ -163,6 +163,7 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                 game_metadata.black_player,
                 game_metadata.white_player,
                 game_metadata.played_date,
+                game_metadata.played_date_sort,
                 game_metadata.result,
                 game_metadata.event,
 
@@ -191,6 +192,7 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                 black_player,
                 white_player,
                 played_date,
+                played_date_sort,
                 result,
                 event
 
@@ -204,6 +206,7 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
             selected_metadata.black_player,
             selected_metadata.white_player,
             selected_metadata.played_date,
+
             selected_metadata.result,
             selected_metadata.event
 
@@ -219,12 +222,12 @@ WHERE (
 
 AND (
     ?4 IS NULL
-    OR selected_metadata.played_date >= ?4
+    OR selected_metadata.played_date_sort >= ?4
 )
 
 AND (
     ?5 IS NULL
-    OR selected_metadata.played_date <= ?5
+    OR selected_metadata.played_date_sort <= ?5
 )
 
 AND (
@@ -282,6 +285,7 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                 game_metadata.black_player,
                 game_metadata.white_player,
                 game_metadata.played_date,
+                game_metadata.played_date_sort,
                 game_metadata.result,
                 game_metadata.event,
 
@@ -310,6 +314,7 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                 black_player,
                 white_player,
                 played_date,
+                played_date_sort,
                 result,
                 event
 
@@ -332,12 +337,12 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
 
         AND (
             ?2 IS NULL
-            OR selected_metadata.played_date >= ?2
+            OR selected_metadata.played_date_sort >= ?2
         )
 
         AND (
             ?3 IS NULL
-            OR selected_metadata.played_date <= ?3
+            OR selected_metadata.played_date_sort <= ?3
         )
 
         AND (
@@ -369,6 +374,7 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 game_metadata.black_player,
                 game_metadata.white_player,
                 game_metadata.played_date,
+                game_metadata.played_date_sort,
                 game_metadata.result,
                 game_metadata.event,
 
@@ -397,6 +403,7 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 black_player,
                 white_player,
                 played_date,
+                played_date_sort,
                 result,
                 event
 
@@ -491,7 +498,7 @@ mod tests {
         );
         assert_eq!(
             GameColumn::Date.sql_expression(),
-            "selected_metadata.played_date"
+            "selected_metadata.played_date_sort"
         );
         assert_eq!(
             GameColumn::Result.sql_expression(),
@@ -518,7 +525,7 @@ mod tests {
         assert_eq!(
             order_by_clause(&query),
             concat!(
-                "selected_metadata.played_date DESC, ",
+                "selected_metadata.played_date_sort DESC, ",
                 "selected_metadata.black_player ASC, ",
                 "games.id ASC"
             )
@@ -566,6 +573,7 @@ mod tests {
             black_player    TEXT,
             white_player    TEXT,
             played_date     TEXT,
+            played_date_sort  TEXT,
             event           TEXT,
             result          TEXT,
             komi            REAL,
@@ -617,41 +625,44 @@ mod tests {
 
         -- The second source describes the same canonical game more fully.
         INSERT INTO game_metadata (
-            game_source_id,
-            black_player,
-            white_player,
-            played_date,
-            event,
-            result
-        )
-        VALUES (
-            2,
-            'Alpha',
-            'Beta',
-            '2026-04-15',
-            'Spring Tournament',
-            'B+R'
-        );
+    game_source_id,
+    black_player,
+    white_player,
+    played_date,
+    played_date_sort,
+    event,
+    result
+)
+VALUES (
+    2,
+    'Alpha',
+    'Beta',
+    '2026-04-15',
+    '2026-04-15',
+    'Spring Tournament',
+    'B+R'
+);
 
-        INSERT INTO game_metadata (
-            game_source_id,
-            black_player,
-            white_player,
-            played_date,
-            event,
-            result
-        )
-        VALUES (
-            3,
-            'Gamma',
-            'Delta',
-            '2025-11-03',
-            'Autumn Tournament',
-            'W+2.5'
-        );
-        "#,
+  INSERT INTO game_metadata (
+    game_source_id,
+    black_player,
+    white_player,
+    played_date,
+    played_date_sort,
+    event,
+    result
+)
+VALUES (
+    3,
+    'Gamma',
+    'Delta',
+    '2025-11-03',
+    '2025-11-03',
+    'Autumn Tournament',
+    'W+2.5'
+);
+"#,
         )?;
-
         Ok(connection)
     }
 

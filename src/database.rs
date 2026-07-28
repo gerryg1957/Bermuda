@@ -1,11 +1,13 @@
 use anyhow::{Context, Result, bail};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
+
+use crate::game_date::{normalise_played_date, played_date_sort_key};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 5;
 
 pub fn initialise(root: &Path) -> Result<()> {
     if root.exists() && !root.is_dir() {
@@ -74,6 +76,7 @@ pub fn initialise(root: &Path) -> Result<()> {
                 black_player    TEXT,
                 white_player    TEXT,
                 played_date     TEXT,
+                played_date_sort  TEXT,
                 event           TEXT,
                 result          TEXT,
                 komi            REAL,
@@ -127,6 +130,9 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
             CREATE INDEX IF NOT EXISTS game_metadata_played_date
                 ON game_metadata(played_date);
 
+            CREATE INDEX IF NOT EXISTS game_metadata_played_date_sort
+                ON game_metadata(played_date_sort);
+
             CREATE INDEX IF NOT EXISTS game_metadata_event
                 ON game_metadata(event);
             "#,
@@ -144,21 +150,33 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
 }
 
 fn migrate(connection: &Connection, from_version: i64) -> Result<()> {
+    let transaction = connection
+        .unchecked_transaction()
+        .context("starting database schema migration")?;
+
     let mut version = from_version;
 
     while version < SCHEMA_VERSION {
         match version {
-            2 => migrate_2_to_3(connection)?,
+            2 => migrate_2_to_3(&transaction)?,
+            3 => migrate_3_to_4(&transaction)?,
+            4 => migrate_4_to_5(&transaction)?,
             _ => bail!("no migration available from schema version {version}"),
         }
 
         version += 1;
     }
 
-    connection.execute(
-        "UPDATE schema_info SET schema_version = ?1",
-        [SCHEMA_VERSION],
-    )?;
+    transaction
+        .execute(
+            "UPDATE schema_info SET schema_version = ?1",
+            [SCHEMA_VERSION],
+        )
+        .context("recording migrated schema version")?;
+
+    transaction
+        .commit()
+        .context("committing database schema migration")?;
 
     Ok(())
 }
@@ -196,6 +214,116 @@ fn migrate_2_to_3(connection: &Connection) -> Result<()> {
             ON exact_positions(game_id);
         "#,
     )?;
+
+    Ok(())
+}
+
+fn migrate_3_to_4(connection: &Connection) -> Result<()> {
+    let dates = {
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT game_source_id, played_date
+                FROM game_metadata
+                WHERE played_date IS NOT NULL
+                "#,
+            )
+            .context("preparing existing played-date migration")?;
+
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .context("reading existing played dates")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collecting existing played dates")?
+    };
+
+    for (game_source_id, played_date) in dates {
+        let normalised = normalise_played_date(&played_date);
+
+        if normalised == played_date {
+            continue;
+        }
+
+        connection
+            .execute(
+                r#"
+                UPDATE game_metadata
+                SET played_date = ?1
+                WHERE game_source_id = ?2
+                "#,
+                params![normalised, game_source_id],
+            )
+            .with_context(|| format!("normalising played date for game source {game_source_id}"))?;
+    }
+
+    Ok(())
+}
+
+fn migrate_4_to_5(connection: &Connection) -> Result<()> {
+    connection
+        .execute(
+            "ALTER TABLE game_metadata ADD COLUMN played_date_sort TEXT",
+            [],
+        )
+        .context("adding played-date sort column")?;
+
+    let dates = {
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT game_source_id, played_date
+                FROM game_metadata
+                WHERE played_date IS NOT NULL
+                "#,
+            )
+            .context("preparing played-date sort migration")?;
+
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .context("reading played dates for sort migration")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collecting played dates for sort migration")?
+    };
+
+    {
+        let mut update = connection
+            .prepare(
+                r#"
+            UPDATE game_metadata
+            SET played_date_sort = ?1
+            WHERE game_source_id = ?2
+            "#,
+            )
+            .context("preparing played-date sort updates")?;
+
+        for (game_source_id, played_date) in dates {
+            let Some(sort_key) = played_date_sort_key(&played_date) else {
+                continue;
+            };
+
+            update
+                .execute(params![sort_key, game_source_id])
+                .with_context(|| {
+                    format!("setting played-date sort key for game source {game_source_id}")
+                })?;
+        }
+    }
+
+    connection
+        .execute(
+            r#"
+            CREATE INDEX IF NOT EXISTS game_metadata_played_date_sort
+            ON game_metadata(played_date_sort)
+            "#,
+            [],
+        )
+        .context("creating played-date sort index")?;
 
     Ok(())
 }
@@ -253,4 +381,105 @@ pub fn open(root: &Path) -> Result<Connection> {
 
 pub fn metadata_path(root: &Path) -> PathBuf {
     root.join("metadata.sqlite3")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_version_3_dates_and_creates_sort_keys() -> Result<()> {
+        let connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            CREATE TABLE schema_info (
+                schema_version INTEGER NOT NULL
+            );
+
+            INSERT INTO schema_info(schema_version)
+            VALUES (3);
+
+            CREATE TABLE game_metadata (
+                game_source_id INTEGER PRIMARY KEY,
+                played_date TEXT
+            );
+
+            INSERT INTO game_metadata(game_source_id, played_date)
+            VALUES
+                (1, 'c. 1683'),
+                (2, '1683'),
+                (3, '1683-07'),
+                (4, '1683-07-12'),
+                (5, 'Published 2012-09'),
+                (6, NULL);
+            "#,
+        )?;
+
+        migrate(&connection, 3)?;
+
+        let schema_version: i64 =
+            connection.query_row("SELECT schema_version FROM schema_info", [], |row| {
+                row.get(0)
+            })?;
+
+        assert_eq!(schema_version, 5);
+
+        let stored_dates = {
+            let mut statement = connection.prepare(
+                r#"
+        SELECT
+            game_source_id,
+            played_date,
+            played_date_sort
+        FROM game_metadata
+        ORDER BY game_source_id
+        "#,
+            )?;
+
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        assert_eq!(
+            stored_dates,
+            vec![
+                (
+                    1,
+                    Some("1683-01-01".to_owned()),
+                    Some("1683-01-01".to_owned()),
+                ),
+                (
+                    2,
+                    Some("1683-01-01".to_owned()),
+                    Some("1683-01-01".to_owned()),
+                ),
+                (
+                    3,
+                    Some("1683-07-01".to_owned()),
+                    Some("1683-07-01".to_owned()),
+                ),
+                (
+                    4,
+                    Some("1683-07-12".to_owned()),
+                    Some("1683-07-12".to_owned()),
+                ),
+                (
+                    5,
+                    Some("Published 2012-09".to_owned()),
+                    Some("2012-09-01".to_owned()),
+                ),
+                (6, None, None),
+            ]
+        );
+
+        Ok(())
+    }
 }

@@ -2,7 +2,10 @@ use anyhow::{Context, Result, bail};
 
 use crate::{
     GameRecord, canonical_hash, canonical_hash_hex, database, extract_main_variation, game,
-    parse_collection, project::Project, write_move_file,
+    game_date::{normalise_played_date, played_date_sort_key},
+    parse_collection,
+    project::Project,
+    write_move_file,
 };
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -260,26 +263,32 @@ fn insert_metadata(
     game_source_id: i64,
     record: &GameRecord,
 ) -> Result<()> {
+    let played_date = record.metadata.date.as_deref().map(normalise_played_date);
+
+    let played_date_sort = played_date.as_deref().and_then(played_date_sort_key);
+
     transaction
         .execute(
             r#"
             INSERT INTO game_metadata(
-                game_source_id,
-                black_player,
-                white_player,
-                played_date,
-                event,
-                result,
-                komi,
-                handicap
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+    game_source_id,
+    black_player,
+    white_player,
+    played_date,
+    played_date_sort,
+    event,
+    result,
+    komi,
+    handicap
+)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 game_source_id,
                 record.metadata.black_player.as_deref(),
                 record.metadata.white_player.as_deref(),
-                record.metadata.date.as_deref(),
+                played_date.as_deref(),
+                played_date_sort.as_deref(),
                 record.metadata.event.as_deref(),
                 record.metadata.result.as_deref(),
                 record.metadata.komi,
@@ -306,5 +315,87 @@ mod tests {
                 .join("2f")
                 .join(format!("{hash}.moves"))
         );
+    }
+
+    #[test]
+    fn normalises_approximate_year() {
+        assert_eq!(normalise_played_date("c. 1683"), "1683-01-01");
+        assert_eq!(normalise_played_date("c.1683"), "1683-01-01");
+    }
+
+    #[test]
+    fn normalises_year_and_year_month() {
+        assert_eq!(normalise_played_date("1683"), "1683-01-01");
+        assert_eq!(normalise_played_date("1683-07"), "1683-07-01");
+    }
+
+    #[test]
+    fn preserves_complete_iso_date() {
+        assert_eq!(normalise_played_date("1683-07-12"), "1683-07-12");
+    }
+
+    #[test]
+    fn preserves_unrecognised_descriptive_dates() {
+        assert_eq!(
+            normalise_played_date("Published 2012-09"),
+            "Published 2012-09"
+        );
+    }
+
+    #[test]
+    fn trims_surrounding_whitespace() {
+        assert_eq!(normalise_played_date("  c. 1683  "), "1683-01-01");
+        assert_eq!(
+            normalise_played_date("  Published 2012-09  "),
+            "Published 2012-09"
+        );
+    }
+
+    #[test]
+    fn preserves_invalid_year_month_values() {
+        assert_eq!(normalise_played_date("1683-00"), "1683-00");
+        assert_eq!(normalise_played_date("1683-13"), "1683-13");
+    }
+
+    #[test]
+    fn insert_metadata_stores_normalised_played_date() -> Result<()> {
+        let mut connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+        CREATE TABLE game_metadata (
+            id              INTEGER PRIMARY KEY,
+            game_source_id  INTEGER NOT NULL,
+            black_player    TEXT,
+            white_player    TEXT,
+            played_date     TEXT,
+            played_date_sort  TEXT,
+            event           TEXT,
+            result          TEXT,
+            komi            REAL,
+            handicap        INTEGER
+        );
+        "#,
+        )?;
+
+        let collection = parse_collection(b"(;FF[4]GM[1]SZ[19]DT[c. 1683])")?;
+        let record = extract_main_variation(&collection)?;
+
+        let transaction = connection.transaction()?;
+        insert_metadata(&transaction, 1, &record)?;
+        transaction.commit()?;
+
+        let (stored_date, stored_sort_date): (String, String) = connection.query_row(
+            r#"
+        SELECT played_date, played_date_sort
+        FROM game_metadata
+        "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        assert_eq!(stored_date, "1683-01-01");
+        assert_eq!(stored_sort_date, "1683-01-01");
+        Ok(())
     }
 }

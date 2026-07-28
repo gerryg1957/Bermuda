@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use moyodb::{
     Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
-    import_directory, importer::ImportOutcome, indexer, project_manager::ProjectManager,
+    game_list::GameListQuery, import_directory, importer::ImportOutcome, indexer,
+    project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -57,6 +58,11 @@ enum Command {
 
         /// Directory containing SGF files.
         directory: PathBuf,
+    },
+    /// List games in a MoyoDB project.
+    ListGames {
+        /// MoyoDB project directory.
+        project: PathBuf,
     },
     /// Find an indexed position from a game and move number.
     FindPosition {
@@ -231,6 +237,8 @@ fn main() -> Result<()> {
             directory,
         } => import_sgf_directory(project, source, version, directory),
 
+        Command::ListGames { project } => list_games(project),
+
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
         Command::Inspect { input } => commands::inspect_move_file(input),
@@ -305,6 +313,36 @@ fn main() -> Result<()> {
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { project } => build_position_index(project),
     }
+}
+
+fn list_games(project_path: PathBuf) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let catalogue = project.catalogue()?;
+    let query = GameListQuery::default();
+
+    let total = catalogue.count(&query)?;
+    let games = catalogue.list(&query)?;
+
+    println!("Games in project: {total}");
+    println!("Showing: {}", games.len());
+    println!();
+
+    println!("ID\tDate\tBlack\tWhite\tResult");
+
+    for game in games {
+        println!(
+            "{}\t{}\t{}\t{}\t{}",
+            game.game_id,
+            game.game_date.as_deref().unwrap_or("-"),
+            game.black_player.as_deref().unwrap_or("Unknown"),
+            game.white_player.as_deref().unwrap_or("Unknown"),
+            game.result.as_deref().unwrap_or("-"),
+        );
+    }
+
+    Ok(())
 }
 
 fn replay_game(
