@@ -340,4 +340,49 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn returns_all_game_positions() -> Result<()> {
+        let (_temporary, project) = create_test_project();
+
+        let mut record = test_record();
+        record.moves = vec![
+            Move {
+                colour: Colour::Black,
+                point: Some(60),
+            },
+            Move {
+                colour: Colour::White,
+                point: None,
+            },
+            Move {
+                colour: Colour::Black,
+                point: Some(61),
+            },
+        ];
+
+        insert_test_record(&project, 1, "games/aa/positions.moves", &record)?;
+
+        let store = project.game_store()?;
+        let positions = store.positions(1)?;
+
+        assert_eq!(positions.len(), 4);
+
+        assert_eq!(positions[0].occurrence.move_number, 0);
+        assert_eq!(positions[0].last_move, None);
+
+        assert_eq!(positions[1].occurrence.move_number, 1);
+        assert_eq!(positions[1].last_move, Some(record.moves[0]));
+
+        assert_eq!(positions[2].occurrence.move_number, 2);
+        assert_eq!(positions[2].last_move, Some(record.moves[1]));
+
+        assert_eq!(positions[3].occurrence.move_number, 3);
+        assert_eq!(positions[3].last_move, Some(record.moves[2]));
+
+        assert_eq!(positions[3].board.colour_at(60), Some(Colour::Black));
+        assert_eq!(positions[3].board.colour_at(61), Some(Colour::Black));
+
+        Ok(())
+    }
 }
