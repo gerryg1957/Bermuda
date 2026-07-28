@@ -4,7 +4,7 @@
 //! command-line tools, graphical interfaces, and other clients
 //! can consume search results through a consistent API.
 use crate::database;
-use crate::game_store::load_game_record;
+use crate::game_store::{load_game_record, load_position_at};
 use crate::project::Project;
 use crate::{
     Colour, GameRecord, PositionOccurrence, PositionState, position_stream, read_move_file,
@@ -224,17 +224,7 @@ impl PositionIndexer {
     /// This method is useful for displaying or analysing a position at a
     /// particular point within a game.
     pub fn replay_board_position(&self, game_id: i64, move_number: usize) -> Result<PositionState> {
-        let record = self.read_game_by_id(game_id)?;
-
-        let states =
-            replay_positions(&record).with_context(|| format!("replaying game {game_id}"))?;
-
-        states.get(move_number).cloned().with_context(|| {
-            format!(
-                "requested move {move_number}, but game {game_id} contains only {} moves",
-                states.len().saturating_sub(1)
-            )
-        })
+        load_position_at(&self.connection, &self.database_root, game_id, move_number)
     }
 
     /// Replays a game and returns every board position reached.

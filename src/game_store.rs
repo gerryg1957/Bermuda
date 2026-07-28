@@ -35,17 +35,7 @@ impl GameStore {
     }
 
     pub fn position_at(&self, game_id: i64, move_number: usize) -> Result<PositionState> {
-        let record = self.load(game_id)?;
-
-        let states =
-            replay_positions(&record).with_context(|| format!("replaying game {game_id}"))?;
-
-        states.get(move_number).cloned().with_context(|| {
-            format!(
-                "requested move {move_number}, but game {game_id} contains only {} moves",
-                states.len().saturating_sub(1)
-            )
-        })
+        load_position_at(&self.connection, &self.database_root, game_id, move_number)
     }
 }
 
@@ -69,6 +59,24 @@ pub(crate) fn load_game_record(
     let move_file = database_root.join(relative_move_file);
 
     read_move_file(&move_file).with_context(|| format!("reading move file for game {game_id}"))
+}
+
+pub(crate) fn load_position_at(
+    connection: &Connection,
+    database_root: &Path,
+    game_id: i64,
+    move_number: usize,
+) -> Result<PositionState> {
+    let record = load_game_record(connection, database_root, game_id)?;
+
+    let states = replay_positions(&record).with_context(|| format!("replaying game {game_id}"))?;
+
+    states.get(move_number).cloned().with_context(|| {
+        format!(
+            "requested move {move_number}, but game {game_id} contains only {} moves",
+            states.len().saturating_sub(1)
+        )
+    })
 }
 
 #[cfg(test)]
