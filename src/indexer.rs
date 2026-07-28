@@ -4,11 +4,10 @@
 //! command-line tools, graphical interfaces, and other clients
 //! can consume search results through a consistent API.
 use crate::database;
-use crate::game_store::{load_game_record, load_position_at};
+use crate::game_store::{load_game_record, load_position_at, load_positions};
 use crate::project::Project;
 use crate::{
     Colour, GameRecord, PositionOccurrence, PositionState, position_stream, read_move_file,
-    replay_positions,
 };
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, params};
@@ -232,14 +231,7 @@ impl PositionIndexer {
     /// The returned vector contains the initial position followed by the
     /// position after each move in the game.
     pub fn replay_game_states_by_id(&self, game_id: i64) -> Result<Vec<PositionState>> {
-        let game = self
-            .game_by_id(game_id)?
-            .with_context(|| format!("game {game_id} does not exist"))?;
-
-        let record = read_move_file(&game.move_file)
-            .with_context(|| format!("reading move file for game {game_id}"))?;
-
-        replay_positions(&record).with_context(|| format!("replaying game {game_id}"))
+        load_positions(&self.connection, &self.database_root, game_id)
     }
 
     /// Returns a specific indexed position from a game.
