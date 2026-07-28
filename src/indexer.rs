@@ -198,16 +198,20 @@ impl PositionIndexer {
         self.index_game(&game, index_version)
     }
 
-    /// Reads a game record from the database.
+    /// Replays a database game and returns every indexed position.
     ///
-    /// The returned [`GameRecord`] contains the complete move sequence and
-    /// associated metadata required to replay the game.
+    /// The returned stream contains the initial position followed by the
+    /// position after each move in the game.
     pub fn replay_game_by_id(&self, game_id: i64) -> Result<IndexedPositionStream> {
-        let game = self
-            .game_by_id(game_id)?
-            .with_context(|| format!("game {game_id} does not exist"))?;
+        let record = self.read_game_by_id(game_id)?;
 
-        self.replay_game(&game)
+        let occurrences = position_stream(&record)
+            .with_context(|| format!("building position stream for game {game_id}"))?;
+
+        Ok(IndexedPositionStream {
+            game_id,
+            occurrences,
+        })
     }
 
     /// Reads a game record from the database.
@@ -983,7 +987,7 @@ mod tests {
             .replay_game_by_id(1)
             .expect_err("missing move file should fail");
 
-        assert!(error.to_string().contains("does not exist"));
+        assert!(error.to_string().contains("reading move file for game 1"));
     }
 
     #[test]
