@@ -242,18 +242,7 @@ impl PositionIndexer {
         game_id: i64,
         move_number: usize,
     ) -> Result<PositionOccurrence> {
-        let stream = self.replay_game_by_id(game_id)?;
-
-        stream
-            .occurrences
-            .get(move_number)
-            .cloned()
-            .with_context(|| {
-                format!(
-                    "requested move {move_number}, but game {game_id} contains only {} moves",
-                    stream.occurrences.len().saturating_sub(1)
-                )
-            })
+        Ok(self.replay_board_position(game_id, move_number)?.occurrence)
     }
 
     /// Finds games containing the same position as a specified game position.
