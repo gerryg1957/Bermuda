@@ -3,7 +3,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::{database, game::GameRecord, move_file::read_move_file, project::Project};
+use crate::{
+    database,
+    game::GameRecord,
+    move_file::read_move_file,
+    project::Project,
+    replay::{PositionState, replay_positions},
+};
 
 pub struct GameStore {
     connection: Connection,
@@ -26,6 +32,20 @@ impl GameStore {
 
     pub fn load(&self, game_id: i64) -> Result<GameRecord> {
         load_game_record(&self.connection, &self.database_root, game_id)
+    }
+
+    pub fn position_at(&self, game_id: i64, move_number: usize) -> Result<PositionState> {
+        let record = self.load(game_id)?;
+
+        let states =
+            replay_positions(&record).with_context(|| format!("replaying game {game_id}"))?;
+
+        states.get(move_number).cloned().with_context(|| {
+            format!(
+                "requested move {move_number}, but game {game_id} contains only {} moves",
+                states.len().saturating_sub(1)
+            )
+        })
     }
 }
 
@@ -56,7 +76,8 @@ mod tests {
     use super::*;
 
     use crate::{
-        game::{GameRecord, Metadata},
+        board::{Colour, Move},
+        game::{GameRecord, Metadata, SetupStone},
         move_file::write_move_file,
         project::Project,
         project_manager::ProjectManager,
@@ -123,6 +144,20 @@ mod tests {
         write_move_file(&absolute_path, record).expect("write test move file");
     }
 
+    fn insert_test_record(
+        project: &Project,
+        game_id: i64,
+        relative_path: &str,
+        record: &GameRecord,
+    ) -> Result<()> {
+        write_test_move_file(&project.database_root(), relative_path, record);
+
+        let connection = database::open(&project.database_root())?;
+        insert_game(&connection, game_id, relative_path);
+
+        Ok(())
+    }
+
     #[test]
     fn loads_game_by_id() -> Result<()> {
         let (_temporary, project) = create_test_project();
@@ -168,6 +203,121 @@ mod tests {
         let error = store.load(1).expect_err("missing move file should fail");
 
         assert!(error.to_string().contains("reading move file for game 1"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn returns_initial_position_after_setup() -> Result<()> {
+        let (_temporary, project) = create_test_project();
+
+        let mut record = test_record();
+        record.setup = vec![SetupStone::Add {
+            colour: Colour::Black,
+            point: 60,
+        }];
+        record.moves = vec![Move {
+            colour: Colour::White,
+            point: Some(61),
+        }];
+
+        insert_test_record(&project, 1, "games/aa/initial.moves", &record)?;
+
+        let store = project.game_store()?;
+        let position = store.position_at(1, 0)?;
+
+        assert_eq!(position.occurrence.move_number, 0);
+        assert_eq!(position.occurrence.side_to_move, Colour::White);
+        assert_eq!(position.board.colour_at(60), Some(Colour::Black));
+        assert_eq!(position.board.colour_at(61), None);
+        assert_eq!(position.last_move, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn returns_position_after_move() -> Result<()> {
+        let (_temporary, project) = create_test_project();
+
+        let mut record = test_record();
+        record.moves = vec![
+            Move {
+                colour: Colour::Black,
+                point: Some(60),
+            },
+            Move {
+                colour: Colour::White,
+                point: Some(61),
+            },
+        ];
+
+        insert_test_record(&project, 1, "games/aa/moves.moves", &record)?;
+
+        let store = project.game_store()?;
+        let position = store.position_at(1, 1)?;
+
+        assert_eq!(position.occurrence.move_number, 1);
+        assert_eq!(position.occurrence.side_to_move, Colour::White);
+        assert_eq!(position.board.colour_at(60), Some(Colour::Black));
+        assert_eq!(position.board.colour_at(61), None);
+        assert_eq!(position.last_move, Some(record.moves[0]));
+
+        Ok(())
+    }
+    #[test]
+    fn returns_position_after_pass() -> Result<()> {
+        let (_temporary, project) = create_test_project();
+
+        let mut record = test_record();
+        record.moves = vec![
+            Move {
+                colour: Colour::Black,
+                point: Some(60),
+            },
+            Move {
+                colour: Colour::White,
+                point: None,
+            },
+            Move {
+                colour: Colour::Black,
+                point: Some(61),
+            },
+        ];
+
+        insert_test_record(&project, 1, "games/aa/pass.moves", &record)?;
+
+        let store = project.game_store()?;
+        let position = store.position_at(1, 2)?;
+
+        assert_eq!(position.occurrence.move_number, 2);
+        assert_eq!(position.occurrence.side_to_move, Colour::Black);
+        assert_eq!(position.board.colour_at(60), Some(Colour::Black));
+        assert_eq!(position.board.colour_at(61), None);
+        assert_eq!(position.last_move, Some(record.moves[1]));
+
+        Ok(())
+    }
+
+    #[test]
+    fn reports_out_of_range_move_number() -> Result<()> {
+        let (_temporary, project) = create_test_project();
+
+        let mut record = test_record();
+        record.moves = vec![Move {
+            colour: Colour::Black,
+            point: Some(60),
+        }];
+
+        insert_test_record(&project, 1, "games/aa/short.moves", &record)?;
+
+        let store = project.game_store()?;
+
+        let error = store
+            .position_at(1, 2)
+            .expect_err("out-of-range move should fail");
+
+        assert!(error.to_string().contains("requested move 2"));
+        assert!(error.to_string().contains("contains only 1 moves"));
 
         Ok(())
     }
