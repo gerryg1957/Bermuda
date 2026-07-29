@@ -63,7 +63,16 @@ enum Command {
     ListGames {
         /// MoyoDB project directory.
         project: PathBuf,
+
+        /// Maximum number of games to display.
+        #[arg(long, default_value_t = 200)]
+        limit: u32,
+
+        /// Number of matching games to skip.
+        #[arg(long, default_value_t = 0)]
+        offset: u32,
     },
+
     /// Find an indexed position from a game and move number.
     FindPosition {
         /// MoyoDB project directory.
@@ -237,7 +246,11 @@ fn main() -> Result<()> {
             directory,
         } => import_sgf_directory(project, source, version, directory),
 
-        Command::ListGames { project } => list_games(project),
+        Command::ListGames {
+            project,
+            limit,
+            offset,
+        } => list_games(project, limit, offset),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
@@ -315,12 +328,16 @@ fn main() -> Result<()> {
     }
 }
 
-fn list_games(project_path: PathBuf) -> Result<()> {
+fn list_games(project_path: PathBuf, limit: u32, offset: u32) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
     let catalogue = project.catalogue()?;
-    let query = GameListQuery::default();
+    let query = GameListQuery {
+        limit,
+        offset,
+        ..GameListQuery::default()
+    };
 
     let total = catalogue.count(&query)?;
     let games = catalogue.list(&query)?;
