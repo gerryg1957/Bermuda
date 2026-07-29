@@ -4,10 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use moyodb::{
     Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
-    game_list::{GameListQuery, PlayerColour},
-    import_directory,
-    importer::ImportOutcome,
-    indexer,
+    game_list::{GameListQuery, GameResultFilter, PlayerColour}, import_directory, importer::ImportOutcome, indexer,
     project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
@@ -39,6 +36,28 @@ impl From<CliPlayerColour> for PlayerColour {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliGameResult {
+    Any,
+    BlackWin,
+    WhiteWin,
+    Jigo,
+    Void,
+}
+
+impl From<CliGameResult> for GameResultFilter {
+    fn from(value: CliGameResult) -> Self {
+        match value {
+            CliGameResult::Any => Self::Any,
+            CliGameResult::BlackWin => Self::BlackWin,
+            CliGameResult::WhiteWin => Self::WhiteWin,
+            CliGameResult::Jigo => Self::Jigo,
+            CliGameResult::Void => Self::Void,
+        }
+    }
+}
+
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -79,7 +98,7 @@ enum Command {
         /// Directory containing SGF files.
         directory: PathBuf,
     },
-    /// List games in a MoyoDB project.
+      /// List games in a MoyoDB project.
     ListGames {
         /// MoyoDB project directory.
         project: PathBuf,
@@ -100,6 +119,10 @@ enum Command {
         #[arg(long)]
         date_to: Option<String>,
 
+        /// Game result to match.
+        #[arg(long, value_enum, default_value = "any")]
+        result: CliGameResult,
+
         /// Maximum number of games to display.
         #[arg(long, default_value_t = 200)]
         limit: u32,
@@ -108,7 +131,7 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         offset: u32,
     },
-
+    
     /// Find an indexed position from a game and move number.
     FindPosition {
         /// MoyoDB project directory.
@@ -281,16 +304,28 @@ fn main() -> Result<()> {
             version,
             directory,
         } => import_sgf_directory(project, source, version, directory),
-
         Command::ListGames {
             project,
             player,
             colour,
             date_from,
             date_to,
+            result,
             limit,
             offset,
-        } => list_games(project, player, colour, date_from, date_to, limit, offset),
+        } => list_games(
+            project,
+            GameListQuery {
+                player,
+                colour: colour.into(),
+                date_from,
+                date_to,
+                result: result.into(),
+                limit,
+                offset,
+                ..GameListQuery::default()
+            },
+        ),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
@@ -368,28 +403,11 @@ fn main() -> Result<()> {
     }
 }
 
-fn list_games(
-    project_path: PathBuf,
-    player: Option<String>,
-    colour: CliPlayerColour,
-    date_from: Option<String>,
-    date_to: Option<String>,
-    limit: u32,
-    offset: u32,
-) -> Result<()> {
+fn list_games(project_path: PathBuf, query: GameListQuery) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
     let catalogue = project.catalogue()?;
-    let query = GameListQuery {
-        player,
-        colour: colour.into(),
-        date_from,
-        date_to,
-        limit,
-        offset,
-        ..GameListQuery::default()
-    };
 
     let total = catalogue.count(&query)?;
     let games = catalogue.list(&query)?;
