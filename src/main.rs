@@ -1,10 +1,13 @@
 mod commands;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use moyodb::{
     Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
-    game_list::GameListQuery, import_directory, importer::ImportOutcome, indexer,
+    game_list::{GameListQuery, PlayerColour},
+    import_directory,
+    importer::ImportOutcome,
+    indexer,
     project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
@@ -18,6 +21,23 @@ use std::{path::PathBuf, time::Instant};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliPlayerColour {
+    Black,
+    White,
+    Either,
+}
+
+impl From<CliPlayerColour> for PlayerColour {
+    fn from(value: CliPlayerColour) -> Self {
+        match value {
+            CliPlayerColour::Black => Self::Black,
+            CliPlayerColour::White => Self::White,
+            CliPlayerColour::Either => Self::Either,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -60,7 +80,6 @@ enum Command {
         directory: PathBuf,
     },
     /// List games in a MoyoDB project.
-    /// List games in a MoyoDB project.
     ListGames {
         /// MoyoDB project directory.
         project: PathBuf,
@@ -68,6 +87,10 @@ enum Command {
         /// Show only games involving this player.
         #[arg(long)]
         player: Option<String>,
+
+        /// Player colour to match.
+        #[arg(long, value_enum, default_value = "either")]
+        colour: CliPlayerColour,
 
         /// Maximum number of games to display.
         #[arg(long, default_value_t = 200)]
@@ -254,9 +277,10 @@ fn main() -> Result<()> {
         Command::ListGames {
             project,
             player,
+            colour,
             limit,
             offset,
-        } => list_games(project, player, limit, offset),
+        } => list_games(project, player, colour, limit, offset),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
@@ -337,6 +361,7 @@ fn main() -> Result<()> {
 fn list_games(
     project_path: PathBuf,
     player: Option<String>,
+    colour: CliPlayerColour,
     limit: u32,
     offset: u32,
 ) -> Result<()> {
@@ -346,6 +371,7 @@ fn list_games(
     let catalogue = project.catalogue()?;
     let query = GameListQuery {
         player,
+        colour: colour.into(),
         limit,
         offset,
         ..GameListQuery::default()
