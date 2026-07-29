@@ -5,8 +5,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 use moyodb::{
     Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
     game_list::{
-    GameColumn, GameListQuery, GameResultFilter, PlayerColour, SortDirection, SortField,
-}, import_directory, importer::ImportOutcome, indexer,
+        GameColumn, GameListQuery, GameResultFilter, PlayerColour, SortDirection, SortField,
+    },
+    import_directory,
+    importer::ImportOutcome,
+    indexer,
     project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
@@ -135,8 +138,8 @@ enum Command {
         /// Directory containing SGF files.
         directory: PathBuf,
     },
-      /// List games in a MoyoDB project.
-        ListGames {
+    /// List games in a MoyoDB project.
+    ListGames {
         /// MoyoDB project directory.
         project: PathBuf,
 
@@ -176,8 +179,17 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         offset: u32,
     },
-    
-        /// Find an indexed position from a game and move number.
+
+    /// Display details of one stored game.
+    ShowGame {
+        /// MoyoDB project directory.
+        project: PathBuf,
+
+        /// Database game ID.
+        game_id: i64,
+    },
+
+    /// Find an indexed position from a game and move number.
     FindPosition {
         /// MoyoDB project directory.
         project: PathBuf,
@@ -200,7 +212,7 @@ enum Command {
         /// Position after this move number.
         move_number: usize,
     },
-    
+
     /// Build or resume the exact-position index.
     BuildPositionIndex {
         /// MoyoDB project directory.
@@ -387,7 +399,9 @@ fn main() -> Result<()> {
 
             list_games(project, query)
         }
-          
+
+        Command::ShowGame { project, game_id } => show_game(project, game_id),
+
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
         Command::Inspect { input } => commands::inspect_move_file(input),
@@ -488,6 +502,52 @@ fn list_games(project_path: PathBuf, query: GameListQuery) -> Result<()> {
             game.white_player.as_deref().unwrap_or("Unknown"),
             game.result.as_deref().unwrap_or("-"),
         );
+    }
+
+    Ok(())
+}
+
+fn show_game(project_path: PathBuf, game_id: i64) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let catalogue = project.catalogue()?;
+    let catalogue_row = catalogue.get(game_id)?;
+
+    let game_store = project.game_store()?;
+    let game = game_store.load(game_id)?;
+
+    println!("Game ID    : {}", catalogue_row.game_id);
+    println!(
+        "Date       : {}",
+        catalogue_row.game_date.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Black      : {}",
+        catalogue_row.black_player.as_deref().unwrap_or("Unknown")
+    );
+    println!(
+        "White      : {}",
+        catalogue_row.white_player.as_deref().unwrap_or("Unknown")
+    );
+    println!(
+        "Result     : {}",
+        catalogue_row.result.as_deref().unwrap_or("-")
+    );
+    println!(
+        "Event      : {}",
+        catalogue_row.event.as_deref().unwrap_or("-")
+    );
+    println!("Board size : {}×{}", game.board_size, game.board_size);
+    println!("Moves      : {}", game.moves.len());
+    println!("Setup stones: {}", game.setup.len());
+
+    if let Some(komi) = game.metadata.komi {
+        println!("Komi       : {komi}");
+    }
+
+    if let Some(handicap) = game.metadata.handicap {
+        println!("Handicap   : {handicap}");
     }
 
     Ok(())
