@@ -92,6 +92,14 @@ enum Command {
         #[arg(long, value_enum, default_value = "either")]
         colour: CliPlayerColour,
 
+        /// Earliest game date to include, in YYYY-MM-DD form.
+        #[arg(long)]
+        date_from: Option<String>,
+
+        /// Latest game date to include, in YYYY-MM-DD form.
+        #[arg(long)]
+        date_to: Option<String>,
+
         /// Maximum number of games to display.
         #[arg(long, default_value_t = 200)]
         limit: u32,
@@ -278,9 +286,11 @@ fn main() -> Result<()> {
             project,
             player,
             colour,
+            date_from,
+            date_to,
             limit,
             offset,
-        } => list_games(project, player, colour, limit, offset),
+        } => list_games(project, player, colour, date_from, date_to, limit, offset),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
@@ -362,6 +372,8 @@ fn list_games(
     project_path: PathBuf,
     player: Option<String>,
     colour: CliPlayerColour,
+    date_from: Option<String>,
+    date_to: Option<String>,
     limit: u32,
     offset: u32,
 ) -> Result<()> {
@@ -372,6 +384,8 @@ fn list_games(
     let query = GameListQuery {
         player,
         colour: colour.into(),
+        date_from,
+        date_to,
         limit,
         offset,
         ..GameListQuery::default()
