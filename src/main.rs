@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use moyodb::{
     Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
-    game_list::{GameListQuery, GameResultFilter, PlayerColour}, import_directory, importer::ImportOutcome, indexer,
+    game_list::{
+    GameColumn, GameListQuery, GameResultFilter, PlayerColour, SortDirection, SortField,
+}, import_directory, importer::ImportOutcome, indexer,
     project_manager::ProjectManager,
 };
 use std::{path::PathBuf, time::Instant};
@@ -58,6 +60,41 @@ impl From<CliGameResult> for GameResultFilter {
     }
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliGameColumn {
+    Date,
+    BlackPlayer,
+    WhitePlayer,
+    Result,
+    Event,
+}
+
+impl From<CliGameColumn> for GameColumn {
+    fn from(value: CliGameColumn) -> Self {
+        match value {
+            CliGameColumn::Date => Self::Date,
+            CliGameColumn::BlackPlayer => Self::BlackPlayer,
+            CliGameColumn::WhitePlayer => Self::WhitePlayer,
+            CliGameColumn::Result => Self::Result,
+            CliGameColumn::Event => Self::Event,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliSortDirection {
+    Ascending,
+    Descending,
+}
+
+impl From<CliSortDirection> for SortDirection {
+    fn from(value: CliSortDirection) -> Self {
+        match value {
+            CliSortDirection::Ascending => Self::Ascending,
+            CliSortDirection::Descending => Self::Descending,
+        }
+    }
+}
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -99,7 +136,7 @@ enum Command {
         directory: PathBuf,
     },
       /// List games in a MoyoDB project.
-    ListGames {
+        ListGames {
         /// MoyoDB project directory.
         project: PathBuf,
 
@@ -123,6 +160,14 @@ enum Command {
         #[arg(long, value_enum, default_value = "any")]
         result: CliGameResult,
 
+        /// Column used to sort the game list.
+        #[arg(long, value_enum)]
+        sort_by: Option<CliGameColumn>,
+
+        /// Direction used with --sort-by.
+        #[arg(long, value_enum, requires = "sort_by")]
+        sort_direction: Option<CliSortDirection>,
+
         /// Maximum number of games to display.
         #[arg(long, default_value_t = 200)]
         limit: u32,
@@ -132,7 +177,7 @@ enum Command {
         offset: u32,
     },
     
-    /// Find an indexed position from a game and move number.
+        /// Find an indexed position from a game and move number.
     FindPosition {
         /// MoyoDB project directory.
         project: PathBuf,
@@ -143,6 +188,7 @@ enum Command {
         /// Position after this move number.
         move_number: usize,
     },
+
     /// Display a position from a game and move number.
     ShowPosition {
         /// MoyoDB project directory.
@@ -154,7 +200,7 @@ enum Command {
         /// Position after this move number.
         move_number: usize,
     },
-
+    
     /// Build or resume the exact-position index.
     BuildPositionIndex {
         /// MoyoDB project directory.
@@ -311,11 +357,12 @@ fn main() -> Result<()> {
             date_from,
             date_to,
             result,
+            sort_by,
+            sort_direction,
             limit,
             offset,
-        } => list_games(
-            project,
-            GameListQuery {
+        } => {
+            let mut query = GameListQuery {
                 player,
                 colour: colour.into(),
                 date_from,
@@ -324,9 +371,23 @@ fn main() -> Result<()> {
                 limit,
                 offset,
                 ..GameListQuery::default()
-            },
-        ),
+            };
 
+            if let Some(column) = sort_by {
+                let direction = sort_direction.unwrap_or(match column {
+                    CliGameColumn::Date => CliSortDirection::Descending,
+                    _ => CliSortDirection::Ascending,
+                });
+
+                query.sort_fields = vec![SortField {
+                    column: column.into(),
+                    direction: direction.into(),
+                }];
+            }
+
+            list_games(project, query)
+        }
+          
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
         Command::Inspect { input } => commands::inspect_move_file(input),
