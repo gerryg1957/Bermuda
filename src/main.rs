@@ -60,9 +60,14 @@ enum Command {
         directory: PathBuf,
     },
     /// List games in a MoyoDB project.
+    /// List games in a MoyoDB project.
     ListGames {
         /// MoyoDB project directory.
         project: PathBuf,
+
+        /// Show only games involving this player.
+        #[arg(long)]
+        player: Option<String>,
 
         /// Maximum number of games to display.
         #[arg(long, default_value_t = 200)]
@@ -248,9 +253,10 @@ fn main() -> Result<()> {
 
         Command::ListGames {
             project,
+            player,
             limit,
             offset,
-        } => list_games(project, limit, offset),
+        } => list_games(project, player, limit, offset),
 
         Command::Import { sgf, output } => commands::import_sgf(sgf, output),
 
@@ -328,12 +334,18 @@ fn main() -> Result<()> {
     }
 }
 
-fn list_games(project_path: PathBuf, limit: u32, offset: u32) -> Result<()> {
+fn list_games(
+    project_path: PathBuf,
+    player: Option<String>,
+    limit: u32,
+    offset: u32,
+) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
     let catalogue = project.catalogue()?;
     let query = GameListQuery {
+        player,
         limit,
         offset,
         ..GameListQuery::default()
