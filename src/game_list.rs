@@ -78,7 +78,7 @@ pub enum GameResultFilter {
     Void,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GameListRow {
     pub game_id: i64,
     pub black_player: Option<String>,
@@ -86,6 +86,7 @@ pub struct GameListRow {
     pub game_date: Option<String>,
     pub result: Option<String>,
     pub event: Option<String>,
+    pub komi: Option<f32>,
     pub matched_move: Option<u32>,
     pub match_count: Option<u32>,
 }
@@ -166,6 +167,7 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                 game_metadata.played_date_sort,
                 game_metadata.result,
                 game_metadata.event,
+                game_metadata.komi,
 
                 ROW_NUMBER() OVER (
                     PARTITION BY game_sources.game_id
@@ -175,7 +177,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                             (game_metadata.white_player IS NOT NULL) +
                             (game_metadata.played_date IS NOT NULL) +
                             (game_metadata.result IS NOT NULL) +
-                            (game_metadata.event IS NOT NULL)
+                            (game_metadata.event IS NOT NULL) +
+                            (game_metadata.komi IS NOT NULL)
                         ) DESC,
                         game_sources.id ASC
                 ) AS metadata_rank
@@ -194,7 +197,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                 played_date,
                 played_date_sort,
                 result,
-                event
+                event,
+                komi
 
             FROM ranked_metadata
 
@@ -208,7 +212,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
             selected_metadata.played_date,
 
             selected_metadata.result,
-            selected_metadata.event
+            selected_metadata.event,
+            selected_metadata.komi
 
         FROM games
 
@@ -262,6 +267,7 @@ ORDER BY {order_by}
                     game_date: row.get(3)?,
                     result: row.get(4)?,
                     event: row.get(5)?,
+                    komi: row.get(6)?,
                     matched_move: None,
                     match_count: None,
                 })
@@ -288,6 +294,7 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                 game_metadata.played_date_sort,
                 game_metadata.result,
                 game_metadata.event,
+                game_metadata.komi,
 
                 ROW_NUMBER() OVER (
                     PARTITION BY game_sources.game_id
@@ -297,7 +304,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                             (game_metadata.white_player IS NOT NULL) +
                             (game_metadata.played_date IS NOT NULL) +
                             (game_metadata.result IS NOT NULL) +
-                            (game_metadata.event IS NOT NULL)
+                            (game_metadata.event IS NOT NULL) +
+                            (game_metadata.komi IS NOT NULL)
                         ) DESC,
                         game_sources.id ASC
                 ) AS metadata_rank
@@ -377,6 +385,7 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 game_metadata.played_date_sort,
                 game_metadata.result,
                 game_metadata.event,
+                game_metadata.komi,
 
                 ROW_NUMBER() OVER (
                     PARTITION BY game_sources.game_id
@@ -386,7 +395,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                             (game_metadata.white_player IS NOT NULL) +
                             (game_metadata.played_date IS NOT NULL) +
                             (game_metadata.result IS NOT NULL) +
-                            (game_metadata.event IS NOT NULL)
+                            (game_metadata.event IS NOT NULL) +
+                            (game_metadata.komi IS NOT NULL)
                         ) DESC,
                         game_sources.id ASC
                 ) AS metadata_rank
@@ -405,7 +415,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 played_date,
                 played_date_sort,
                 result,
-                event
+                event,
+                komi
 
             FROM ranked_metadata
 
@@ -418,7 +429,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
             selected_metadata.white_player,
             selected_metadata.played_date,
             selected_metadata.result,
-            selected_metadata.event
+            selected_metadata.event,
+            selected_metadata.komi
 
         FROM games
 
@@ -437,6 +449,7 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 game_date: row.get(3)?,
                 result: row.get(4)?,
                 event: row.get(5)?,
+                komi: row.get(6)?,
                 matched_move: None,
                 match_count: None,
             })

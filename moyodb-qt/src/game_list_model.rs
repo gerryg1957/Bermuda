@@ -1,5 +1,5 @@
 use cxx_qt::CxxQtType;
-use std::{path::Path, pin::Pin};
+use std::{fmt::Display, path::Path, pin::Pin};
 
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
@@ -183,7 +183,7 @@ impl ffi::GameListModel {
                         played_date: optional_text(&game.game_date),
                         result: optional_text(&game.result),
                         event: optional_text(&game.event),
-                        komi: QString::default(),
+                        komi: optional_number(&game.komi),
                         handicap: QString::default(),
                     })
                     .collect();
@@ -206,4 +206,14 @@ impl ffi::GameListModel {
 
 fn optional_text(value: &Option<String>) -> QString {
     QString::from(value.as_deref().unwrap_or(""))
+}
+
+fn optional_number<T>(value: &Option<T>) -> QString
+where
+    T: Display,
+{
+    match value {
+        Some(value) => QString::from(value.to_string()),
+        None => QString::default(),
+    }
 }

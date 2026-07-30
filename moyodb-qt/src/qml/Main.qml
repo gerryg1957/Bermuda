@@ -76,6 +76,10 @@ ApplicationWindow {
 
             projectPath: root.projectPath
 
+            onGameSelected: function(game) {
+            boardPane.selectedGame = game
+            }
+
             SplitView.minimumWidth: 420
             SplitView.preferredWidth: 820
             SplitView.fillWidth: true
@@ -85,6 +89,7 @@ ApplicationWindow {
         Pane {
             id: boardPane
 
+            property var selectedGame: null
             padding: 0
 
             SplitView.minimumWidth: 420
@@ -121,19 +126,55 @@ ApplicationWindow {
                         anchors.fill: parent
                         spacing: 4
 
-                        Label {
+                                              Label {
                             Layout.fillWidth: true
 
-                            text: qsTr("No game selected")
+                            text: boardPane.selectedGame
+                                ? qsTr("%1 — %2")
+                                      .arg(boardPane.selectedGame.black)
+                                      .arg(boardPane.selectedGame.white)
+                                : qsTr("No game selected")
+
                             font.pixelSize: 20
                             elide: Text.ElideRight
                         }
 
-                        Label {
+                                               Label {
                             Layout.fillWidth: true
 
-                            text: qsTr("Select a game from the database")
-                            color: palette.mid
+                            text: {
+                                if (!boardPane.selectedGame) {
+                                    return qsTr("Select a game from the catalogue")
+                                }
+
+                                let details = []
+
+                                if (boardPane.selectedGame.gameDate.length > 0) {
+                                    details.push(
+                                        boardPane.selectedGame.gameDate)
+                                }
+
+                                if (boardPane.selectedGame.result.length > 0) {
+                                    details.push(
+                                        boardPane.selectedGame.result)
+                                }
+
+                                if (boardPane.selectedGame.komi.length > 0) {
+                                    details.push(
+                                        qsTr("Komi %1").arg(
+                                        boardPane.selectedGame.komi))
+                                }
+
+                                if (boardPane.selectedGame.eventName.length > 0) {
+                                    details.push(
+                                        boardPane.selectedGame.eventName)
+                                }
+
+                                return details.join(" · ")
+                            }
+
+                            color: palette.text
+                            opacity: 0.75
                             font.pixelSize: 16
                             elide: Text.ElideRight
                         }

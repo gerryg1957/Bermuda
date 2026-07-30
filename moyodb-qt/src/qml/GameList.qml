@@ -9,7 +9,7 @@ Kirigami.AbstractCard {
 
     signal gameSelected(var game)
 
-        property string projectPath: ""
+    property string projectPath: ""
     property int selectedRow: -1
     property bool projectLoaded: false
 
@@ -66,41 +66,49 @@ Kirigami.AbstractCard {
                 anchors.fill: parent
                 spacing: 0
 
-                Label {
-                    text: qsTr("Black")
-                    Layout.preferredWidth: 150
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
-
-                Label {
-                    text: qsTr("White")
-                    Layout.preferredWidth: 150
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
-
-                Label {
-                    text: qsTr("Date")
-                    Layout.preferredWidth: 105
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
-
-                Label {
-                    text: qsTr("Result")
-                    Layout.preferredWidth: 80
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
-
-                Label {
-                    text: qsTr("Event")
-                    Layout.fillWidth: true
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
+            Label {
+                text: qsTr("Black")
+                Layout.preferredWidth: 150
+                padding: Kirigami.Units.smallSpacing
+                font.bold: true
             }
+
+            Label {
+                text: qsTr("White")
+                Layout.preferredWidth: 150
+                padding: Kirigami.Units.smallSpacing
+                font.bold: true
+            }
+
+            Label {
+                text: qsTr("Date")
+                Layout.preferredWidth: 105
+                padding: Kirigami.Units.smallSpacing
+                font.bold: true
+            }
+
+            Label {
+                text: qsTr("Result")
+                Layout.preferredWidth: 80
+                padding: Kirigami.Units.smallSpacing
+                font.bold: true
+            }
+
+            Label {
+                text: qsTr("Komi")
+                Layout.preferredWidth: 60
+                padding: Kirigami.Units.smallSpacing
+                horizontalAlignment: Text.AlignHCenter
+                font.bold: true
+            }
+
+            Label {
+                text: qsTr("Event")
+                Layout.fillWidth: true
+                padding: Kirigami.Units.smallSpacing
+                font.bold: true
+            }
+        }
         }
 
         Kirigami.Separator {
@@ -118,6 +126,7 @@ Kirigami.AbstractCard {
             currentIndex: root.selectedRow
 
             ScrollBar.vertical: ScrollBar {
+                id: verticalScrollBar
             }
 
             delegate: ItemDelegate {
@@ -130,11 +139,33 @@ Kirigami.AbstractCard {
                 required property string playedDate
                 required property string result
                 required property string event
+                required property string komi
 
                 width: gameView.width
                 height: Math.round(Kirigami.Units.gridUnit * 1.5)
 
                 highlighted: root.selectedRow === index
+
+                background: Rectangle {
+                    anchors {
+                        left: parent.left
+                        right: parent.right
+                        verticalCenter: parent.verticalCenter
+                        verticalCenterOffset: 6
+                        leftMargin: 4
+                        rightMargin: verticalScrollBar.width + 4
+                    }
+
+                    height: parent.height - 4
+
+                    radius: 4
+
+                    color: rowDelegate.highlighted
+                        ? rowDelegate.palette.highlight
+                        : rowDelegate.hovered
+                            ? rowDelegate.palette.alternateBase
+                            : "transparent"
+                }
 
                 onClicked: {
                     root.selectedRow = index
@@ -145,7 +176,8 @@ Kirigami.AbstractCard {
                         white: whitePlayer,
                         gameDate: playedDate,
                         result: result,
-                        eventName: event
+                        eventName: event,
+                        komi: rowDelegate.komi
                     })
                 }
 
@@ -176,6 +208,12 @@ Kirigami.AbstractCard {
                         text: rowDelegate.result
                         Layout.preferredWidth: 80
                         leftPadding: Kirigami.Units.smallSpacing
+                    }
+
+                    Label {
+                        text: rowDelegate.komi
+                        Layout.preferredWidth: 60
+                        horizontalAlignment: Text.AlignHCenter
                     }
 
                     Label {
