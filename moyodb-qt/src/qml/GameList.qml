@@ -38,7 +38,10 @@ Kirigami.AbstractCard {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: Kirigami.Units.smallSpacing
+            Layout.leftMargin: Kirigami.Units.smallSpacing
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            Layout.topMargin: 2
+            Layout.bottomMargin: 2
 
             Kirigami.Heading {
                 text: qsTr("Games")
@@ -129,7 +132,7 @@ Kirigami.AbstractCard {
                 required property string event
 
                 width: gameView.width
-                height: Kirigami.Units.gridUnit * 2
+                height: Math.round(Kirigami.Units.gridUnit * 1.5)
 
                 highlighted: root.selectedRow === index
 
