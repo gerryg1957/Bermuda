@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -10,15 +11,39 @@ ApplicationWindow {
     title: qsTr("MoyoDB")
 
     // Initial size only. The user can resize or maximize normally.
-    width: 1280
+       width: 1500
     height: 850
 
     minimumWidth: 900
     minimumHeight: 600
-
     property string projectPath: Qt.application.arguments.length > 1
         ? Qt.application.arguments[1]
         : ""
+
+          Settings {
+        id: uiSettings
+
+        location: StandardPaths.writableLocation(
+                      StandardPaths.ConfigLocation)
+                  + "/moyodb.ini"
+
+        category: "MainWindow"
+
+        property alias windowWidth: root.width
+        property alias windowHeight: root.height
+        property var splitViewState
+    }
+
+    Component.onCompleted: {
+        if (uiSettings.splitViewState) {
+            mainSplitView.restoreState(uiSettings.splitViewState)
+        }
+    }
+
+    Component.onDestruction: {
+        uiSettings.splitViewState = mainSplitView.saveState()
+    }
+
 
     header: ToolBar {
         implicitHeight: 52
@@ -52,7 +77,7 @@ ApplicationWindow {
             projectPath: root.projectPath
 
             SplitView.minimumWidth: 420
-            SplitView.preferredWidth: 720
+            SplitView.preferredWidth: 820
             SplitView.fillWidth: true
         }
 
@@ -63,8 +88,7 @@ ApplicationWindow {
             padding: 0
 
             SplitView.minimumWidth: 420
-            SplitView.preferredWidth: 660
-            SplitView.fillWidth: true
+            SplitView.preferredWidth: 640
 
             ColumnLayout {
                 anchors.fill: parent
