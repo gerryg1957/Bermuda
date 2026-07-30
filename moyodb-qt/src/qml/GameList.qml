@@ -9,29 +9,26 @@ Kirigami.AbstractCard {
 
     signal gameSelected(var game)
 
-    property string projectPath: ""
+        property string projectPath: ""
     property int selectedRow: -1
-    property bool databaseLoaded: false
+    property bool projectLoaded: false
 
     padding: 0
 
-    function loadDatabase() {
+    function loadProject() {
         selectedRow = -1
 
-       
-       if (projectPath.length === 0) {
-            databaseLoaded = false
+        if (projectPath.length === 0) {
+            projectLoaded = false
             return
         }
 
-        databaseLoaded = gameModel.loadDatabase(projectPath)
-
+        projectLoaded = gameModel.loadProject(projectPath)
     }
 
-    onProjectPathChanged: loadDatabase()
+    onProjectPathChanged: loadProject()
 
-    Component.onCompleted: loadDatabase()
-
+    Component.onCompleted: loadProject()
     GameListModel {
         id: gameModel
     }
@@ -193,20 +190,20 @@ Kirigami.AbstractCard {
                 visible: gameView.count === 0
 
                 text: {
-                    if (root.projectPath.length === 0) {
-                        return qsTr("No database selected")
+                                     if (root.projectPath.length === 0) {
+                        return qsTr("No project selected")
                     }
 
-                    if (!root.databaseLoaded
+                    if (!root.projectLoaded
                             && gameModel.error_message.length > 0) {
-                        return qsTr("Could not load database")
+                        return qsTr("Could not load project")
                     }
 
                     return qsTr("No games found")
                 }
 
                 explanation: {
-                    if (!root.databaseLoaded) {
+                                       if (!root.projectLoaded) {
                         return gameModel.error_message
                     }
 

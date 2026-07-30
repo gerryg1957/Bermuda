@@ -1,13 +1,9 @@
 use cxx_qt::CxxQtType;
-use std::fmt::Display;
 use std::{path::Path, pin::Pin};
 
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
-use moyodb::{
-    database,
-    game_list::{self, GameListQuery},
-};
+use moyodb::{game_list::GameListQuery, project_manager::ProjectManager};
 
 type QHash_i32_QByteArray = QHash<QHashPair_i32_QByteArray>;
 
@@ -73,7 +69,8 @@ mod ffi {
         type GameListModel = super::GameListModelRust;
 
         #[qinvokable]
-        fn load_database(self: Pin<&mut GameListModel>, database_path: &QString);
+        #[cxx_name = "loadProject"]
+        fn load_project(self: Pin<&mut GameListModel>, project_path: &QString) -> bool;
 
         #[cxx_override]
         #[cxx_name = "rowCount"]
@@ -93,7 +90,6 @@ mod ffi {
         #[inherit]
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut GameListModel>);
-
     }
 }
 
@@ -153,7 +149,7 @@ impl ffi::GameListModel {
         roles
     }
 
-    fn load_database(mut self: Pin<&mut Self>, database_path: &QString) {
+    fn load_project(mut self: Pin<&mut Self>, project_path: &QString) -> bool {
         self.as_mut().begin_reset_model();
 
         {
@@ -162,17 +158,19 @@ impl ffi::GameListModel {
             rust.error_message = QString::default();
         }
 
-        let path = database_path.to_string();
+        let path = project_path.to_string();
 
         if path.trim().is_empty() {
             self.as_mut().end_reset_model();
-            return;
+            return false;
         }
 
-        let result = database::open(Path::new(&path))
-            .and_then(|connection| game_list::list_games(&connection, &GameListQuery::default()));
+        let result = ProjectManager::new()
+            .open(Path::new(&path))
+            .and_then(|project| project.catalogue())
+            .and_then(|catalogue| catalogue.list(&GameListQuery::default()));
 
-        match result {
+        let loaded = match result {
             Ok(games) => {
                 let rows = games
                     .into_iter()
@@ -190,30 +188,22 @@ impl ffi::GameListModel {
                     })
                     .collect();
 
-                let mut rust = self.as_mut().rust_mut();
-                rust.rows = rows;
+                self.as_mut().rust_mut().rows = rows;
+                true
             }
 
             Err(error) => {
-                let mut rust = self.as_mut().rust_mut();
-                rust.error_message = QString::from(error.to_string());
+                self.as_mut().rust_mut().error_message = QString::from(error.to_string());
+                false
             }
-        }
+        };
 
         self.as_mut().end_reset_model();
+
+        loaded
     }
 }
 
 fn optional_text(value: &Option<String>) -> QString {
     QString::from(value.as_deref().unwrap_or(""))
-}
-
-fn optional_number<T>(value: &Option<T>) -> QString
-where
-    T: Display,
-{
-    match value {
-        Some(value) => QString::from(value.to_string()),
-        None => QString::default(),
-    }
 }
