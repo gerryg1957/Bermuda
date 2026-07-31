@@ -34,8 +34,6 @@ The game tree, pattern tools, match preview and other secondary information can 
 
 ## 2. Bottom row of the MGS display
 
-The screenshot also contained a KDE control panel. This does not affect the review.
-
 ### Good-move and bad-move indicators
 
 MGS included controls that attempted to identify good and bad moves.
@@ -357,7 +355,32 @@ The ownership display should probably be called an **ownership map** rather than
 
 ---
 
-## 9. Features explicitly omitted
+## 9. Game tree and joseki dictionary
+
+The permanently visible game tree in MGS was mainly useful for its bundled joseki dictionary, where one position could lead to several alternative continuations.
+
+For the professional game records that MoyoDB is intended to study, the game tree would normally contain only the main line. It would therefore consume valuable screen space without adding useful information.
+
+A modern joseki dictionary could be valuable, but there is no known current, maintainable source available for inclusion. An old pre-AI joseki dictionary would be of little use and could be actively misleading.
+
+**Decision:**
+
+- Do not include a permanently visible game tree.
+- Do not reproduce the old MGS joseki dictionary.
+- Reconsider a joseki feature only if a trustworthy modern source becomes available.
+- If a directly opened SGF genuinely contains variations, show a contextual variation chooser or tree only while it is needed.
+
+This further supports the simplified main layout:
+
+```text
+All games / Pattern matches | Main board
+                            | Game information
+                            | Move controls
+```
+
+---
+
+## 10. Features explicitly omitted
 
 The following MGS features should not be reproduced by default:
 
@@ -370,11 +393,13 @@ The following MGS features should not be reproduced by default:
 - duplicate pattern-selection methods;
 - separate fuseki-frequency controls;
 - a dedicated fuseki subsystem without a clear use;
-- miscellaneous toolbar controls that were unhelpful or duplicated elsewhere.
+- miscellaneous toolbar controls that were unhelpful or duplicated elsewhere;
+- a permanently visible game tree;
+- the obsolete MGS joseki dictionary.
 
 ---
 
-## 10. Emerging MoyoDB pattern-search workflow
+## 11. Emerging MoyoDB pattern-search workflow
 
 ```text
 Select a pattern on the main board
@@ -397,7 +422,7 @@ a next-move heat map, or an ownership map
 
 ---
 
-## 11. Current priorities suggested by the review
+## 12. Current priorities suggested by the review
 
 The next uncomplicated improvements to the existing game viewer are:
 
@@ -415,13 +440,11 @@ The larger design work after that should concentrate on:
 
 ---
 
-## 12. Open questions for the next discussion
+## 13. Open questions for the next discussion
 
 The review has not yet covered the whole MGS interface. Topics still to discuss include:
 
 - the remaining top-left controls and menus;
-- the upper-left game tree;
-- whether and how variations should appear;
 - opening SGF files directly for analysis;
 - pattern-definition controls;
 - search-scope controls;
