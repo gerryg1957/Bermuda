@@ -3,7 +3,10 @@ use std::{fmt::Display, path::Path, pin::Pin};
 
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
-use moyodb::{game_list::GameListQuery, project_manager::ProjectManager};
+use moyodb::{
+    game_list::{GameColumn, GameListQuery, SortField},
+    project_manager::ProjectManager,
+};
 
 type QHash_i32_QByteArray = QHash<QHashPair_i32_QByteArray>;
 
@@ -71,6 +74,15 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "loadProject"]
         fn load_project(self: Pin<&mut GameListModel>, project_path: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "loadSortedProject"]
+        fn load_sorted_project(
+            self: Pin<&mut GameListModel>,
+            project_path: &QString,
+            column: &QString,
+            ascending: bool,
+        ) -> bool;
 
         #[cxx_override]
         #[cxx_name = "rowCount"]
@@ -150,6 +162,50 @@ impl ffi::GameListModel {
     }
 
     fn load_project(mut self: Pin<&mut Self>, project_path: &QString) -> bool {
+        self.as_mut()
+            .load_with_query(project_path, GameListQuery::default())
+    }
+
+    fn load_sorted_project(
+        mut self: Pin<&mut Self>,
+        project_path: &QString,
+        column: &QString,
+        ascending: bool,
+    ) -> bool {
+        let column_name = column.to_string();
+
+        let game_column = match column_name.as_str() {
+            "black" => GameColumn::BlackPlayer,
+            "white" => GameColumn::WhitePlayer,
+            "date" => GameColumn::Date,
+            "result" => GameColumn::Result,
+            "event" => GameColumn::Event,
+
+            _ => {
+                self.as_mut().rust_mut().error_message =
+                    QString::from(format!("unknown sort column: {column_name}"));
+
+                return false;
+            }
+        };
+
+        let primary_sort = if ascending {
+            SortField::ascending(game_column)
+        } else {
+            SortField::descending(game_column)
+        };
+
+        let mut query = GameListQuery::default();
+        query.sort_fields = vec![primary_sort];
+
+        self.as_mut().load_with_query(project_path, query)
+    }
+
+    fn load_with_query(
+        mut self: Pin<&mut Self>,
+        project_path: &QString,
+        query: GameListQuery,
+    ) -> bool {
         self.as_mut().begin_reset_model();
 
         {
@@ -168,7 +224,7 @@ impl ffi::GameListModel {
         let result = ProjectManager::new()
             .open(Path::new(&path))
             .and_then(|project| project.catalogue())
-            .and_then(|catalogue| catalogue.list(&GameListQuery::default()));
+            .and_then(|catalogue| catalogue.list(&query));
 
         let loaded = match result {
             Ok(games) => {
@@ -194,6 +250,7 @@ impl ffi::GameListModel {
 
             Err(error) => {
                 self.as_mut().rust_mut().error_message = QString::from(error.to_string());
+
                 false
             }
         };

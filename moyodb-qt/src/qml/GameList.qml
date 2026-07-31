@@ -13,9 +13,11 @@ Kirigami.AbstractCard {
     property int selectedRow: -1
     property bool projectLoaded: false
 
+    property string sortColumn: "date"
+    property bool sortAscending: false
     padding: 0
 
-    function loadProject() {
+        function loadProject() {
         selectedRow = -1
 
         if (projectPath.length === 0) {
@@ -23,8 +25,29 @@ Kirigami.AbstractCard {
             return
         }
 
-        projectLoaded = gameModel.loadProject(projectPath)
+        projectLoaded = gameModel.loadSortedProject(
+                    projectPath,
+                    sortColumn,
+                    sortAscending)
     }
+
+    function sortBy(column, firstAscending) {
+        if (sortColumn === column) {
+            sortAscending = !sortAscending
+        } else {
+            sortColumn = column
+            sortAscending = firstAscending
+        }
+
+        loadProject()
+    }
+
+    function sortHeaderText(column, title) {
+    if (sortColumn !== column)
+        return title + " ↕"
+
+    return title + (sortAscending ? " ▲" : " ▼")
+}
 
     onProjectPathChanged: loadProject()
 
@@ -60,55 +83,154 @@ Kirigami.AbstractCard {
             implicitHeight: headerRow.implicitHeight
             color: Kirigami.Theme.alternateBackgroundColor
 
-            RowLayout {
-                id: headerRow
+          RowLayout {
+    id: headerRow
 
-                anchors.fill: parent
-                spacing: 0
+    anchors.fill: parent
+    spacing: 0
 
-            Label {
-                text: qsTr("Black")
-                Layout.preferredWidth: 150
-                padding: Kirigami.Units.smallSpacing
-                font.bold: true
-            }
+    Label {
+        id: blackHeader
 
-            Label {
-                text: qsTr("White")
-                Layout.preferredWidth: 150
-                padding: Kirigami.Units.smallSpacing
-                font.bold: true
-            }
+        text: root.sortHeaderText(
+                  "black",
+                  qsTr("Black"))
 
-            Label {
-                text: qsTr("Date")
-                Layout.preferredWidth: 105
-                padding: Kirigami.Units.smallSpacing
-                font.bold: true
-            }
+        Layout.preferredWidth: 150
+        padding: Kirigami.Units.smallSpacing
+        font.bold: true
 
-            Label {
-                text: qsTr("Result")
-                Layout.preferredWidth: 80
-                padding: Kirigami.Units.smallSpacing
-                font.bold: true
-            }
+        color: blackSortArea.containsMouse
+               ? Kirigami.Theme.highlightColor
+               : Kirigami.Theme.textColor
 
-            Label {
-                text: qsTr("Komi")
-                Layout.preferredWidth: 60
-                padding: Kirigami.Units.smallSpacing
-                horizontalAlignment: Text.AlignHCenter
-                font.bold: true
-            }
+        MouseArea {
+            id: blackSortArea
 
-            Label {
-                text: qsTr("Event")
-                Layout.fillWidth: true
-                padding: Kirigami.Units.smallSpacing
-                font.bold: true
-            }
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+
+            onClicked: root.sortBy("black", true)
         }
+    }
+
+    Label {
+        id: whiteHeader
+
+        text: root.sortHeaderText(
+                  "white",
+                  qsTr("White"))
+
+        Layout.preferredWidth: 150
+        padding: Kirigami.Units.smallSpacing
+        font.bold: true
+
+        color: whiteSortArea.containsMouse
+               ? Kirigami.Theme.highlightColor
+               : Kirigami.Theme.textColor
+
+        MouseArea {
+            id: whiteSortArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+
+            onClicked: root.sortBy("white", true)
+        }
+    }
+
+    Label {
+        id: dateHeader
+
+        text: root.sortHeaderText(
+                  "date",
+                  qsTr("Date"))
+
+        Layout.preferredWidth: 105
+        padding: Kirigami.Units.smallSpacing
+        font.bold: true
+
+        color: dateSortArea.containsMouse
+               ? Kirigami.Theme.highlightColor
+               : Kirigami.Theme.textColor
+
+        MouseArea {
+            id: dateSortArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+
+            onClicked: root.sortBy("date", false)
+        }
+    }
+
+    Label {
+        id: resultHeader
+
+        text: root.sortHeaderText(
+                  "result",
+                  qsTr("Result"))
+
+        Layout.preferredWidth: 80
+        padding: Kirigami.Units.smallSpacing
+        font.bold: true
+
+        color: resultSortArea.containsMouse
+               ? Kirigami.Theme.highlightColor
+               : Kirigami.Theme.textColor
+
+        MouseArea {
+            id: resultSortArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+
+            onClicked: root.sortBy("result", true)
+        }
+    }
+
+    Label {
+        text: qsTr("Komi")
+
+        Layout.preferredWidth: 60
+        padding: Kirigami.Units.smallSpacing
+        horizontalAlignment: Text.AlignHCenter
+        font.bold: true
+    }
+
+    Label {
+        id: eventHeader
+
+        text: root.sortHeaderText(
+                  "event",
+                  qsTr("Event"))
+
+        Layout.fillWidth: true
+        padding: Kirigami.Units.smallSpacing
+        font.bold: true
+
+        color: eventSortArea.containsMouse
+               ? Kirigami.Theme.highlightColor
+               : Kirigami.Theme.textColor
+
+        MouseArea {
+            id: eventSortArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+
+            onClicked: root.sortBy("event", true)
+        }
+    }
+}
+
+
+
         }
 
         Kirigami.Separator {
@@ -143,6 +265,8 @@ Kirigami.AbstractCard {
 
                 width: gameView.width
                 height: Math.round(Kirigami.Units.gridUnit * 1.5)
+                rightPadding: verticalScrollBar.width + 4
+                clip: true
 
                 highlighted: root.selectedRow === index
 
@@ -201,12 +325,18 @@ Kirigami.AbstractCard {
                     Label {
                         text: rowDelegate.playedDate
                         Layout.preferredWidth: 105
+                        Layout.maximumWidth: 105
+                        elide: Text.ElideRight
+                        clip: true
                         leftPadding: Kirigami.Units.smallSpacing
                     }
 
                     Label {
                         text: rowDelegate.result
                         Layout.preferredWidth: 80
+                        Layout.maximumWidth: 80
+                        elide: Text.ElideRight
+                        clip: true
                         leftPadding: Kirigami.Units.smallSpacing
                     }
 
@@ -216,10 +346,12 @@ Kirigami.AbstractCard {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    Label {
+                   Label {
                         text: rowDelegate.event
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         elide: Text.ElideRight
+                        clip: true
                         leftPadding: Kirigami.Units.smallSpacing
                         rightPadding: Kirigami.Units.smallSpacing
                     }
