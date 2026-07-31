@@ -13,9 +13,15 @@ Kirigami.AbstractCard {
     property int selectedRow: -1
     property bool projectLoaded: false
 
+    readonly property bool searchResultsSelected:
+    catalogueTabs.currentIndex === 1
+
     property string sortColumn: "date"
+
     property bool sortAscending: false
     padding: 0
+
+
 
         function loadProject() {
         selectedRow = -1
@@ -56,31 +62,66 @@ Kirigami.AbstractCard {
         id: gameModel
     }
 
-    contentItem: ColumnLayout {
+   contentItem: ColumnLayout {
+    anchors.fill: parent
+    spacing: 0
+
+    Item {
+        Layout.fillWidth: true
+        Layout.preferredHeight: root.searchResultsSelected
+                                ? Kirigami.Units.gridUnit * 7
+                                : 0
+
+        visible: root.searchResultsSelected
+
+       Label {
+    anchors.centerIn: parent
+
+    text: qsTr(
+              "Search-result Go board will appear here")
+
+    font.italic: true
+    opacity: 0.55
+}
+
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
         spacing: 0
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: Kirigami.Units.smallSpacing
-            Layout.rightMargin: Kirigami.Units.smallSpacing
-            Layout.topMargin: 2
-            Layout.bottomMargin: 2
+        TabBar {
+            id: catalogueTabs
 
-            Kirigami.Heading {
-                text: qsTr("Games")
-                level: 2
-                Layout.fillWidth: true
+            TabButton {
+                text: qsTr("Game database")
             }
 
-            Label {
-                text: qsTr("%1 games").arg(gameView.count)
-                opacity: 0.7
+            TabButton {
+                text: qsTr("Search results")
             }
         }
+
+        Item {
+            Layout.fillWidth: true
+        }
+
+        Label {
+            Layout.rightMargin:
+                Kirigami.Units.smallSpacing
+
+            text: root.searchResultsSelected
+                  ? qsTr("0 matching games")
+                  : qsTr("%1 games").arg(gameView.count)
+
+            opacity: 0.7
+        }
+    }
 
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: headerRow.implicitHeight
+            visible: catalogueTabs.currentIndex === 0
             color: Kirigami.Theme.alternateBackgroundColor
 
           RowLayout {
@@ -235,6 +276,7 @@ Kirigami.AbstractCard {
 
         Kirigami.Separator {
             Layout.fillWidth: true
+            visible: catalogueTabs.currentIndex === 0
         }
 
         ListView {
@@ -242,6 +284,8 @@ Kirigami.AbstractCard {
 
             Layout.fillWidth: true
             Layout.fillHeight: true
+
+            visible: catalogueTabs.currentIndex === 0
 
             clip: true
             model: gameModel
@@ -264,7 +308,7 @@ Kirigami.AbstractCard {
                 required property string komi
 
                 width: gameView.width
-                height: Math.round(Kirigami.Units.gridUnit * 1.5)
+                height: Math.round(Kirigami.Units.gridUnit * 1.75)
                 rightPadding: verticalScrollBar.width + 4
                 clip: true
 
@@ -275,7 +319,6 @@ Kirigami.AbstractCard {
                         left: parent.left
                         right: parent.right
                         verticalCenter: parent.verticalCenter
-                        verticalCenterOffset: 6
                         leftMargin: 4
                         rightMargin: verticalScrollBar.width + 4
                     }
@@ -383,6 +426,15 @@ Kirigami.AbstractCard {
                     return ""
                 }
             }
+        }
+
+        Kirigami.PlaceholderMessage {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            visible: catalogueTabs.currentIndex === 1
+
+            text: qsTr("No search has been run")
         }
     }
 }

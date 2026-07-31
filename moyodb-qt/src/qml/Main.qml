@@ -48,22 +48,6 @@ ApplicationWindow {
         uiSettings.splitViewState = mainSplitView.saveState()
     }
 
-
-    header: ToolBar {
-        implicitHeight: 52
-
-        Label {
-            anchors {
-                left: parent.left
-                leftMargin: 18
-                verticalCenter: parent.verticalCenter
-            }
-
-            text: qsTr("Game Database")
-            font.pixelSize: 24
-        }
-    }
-
     SplitView {
         id: mainSplitView
 
@@ -179,10 +163,12 @@ ApplicationWindow {
                             Layout.fillWidth: true
 
                             text: boardPane.selectedGame
-                                ? qsTr("%1 — %2")
-                                      .arg(boardPane.selectedGame.black)
-                                      .arg(boardPane.selectedGame.white)
-                                : qsTr("No game selected")
+                            ? qsTr("%1 — %2")
+                            .arg(boardPane.selectedGame.black)
+                            .arg(boardPane.selectedGame.white)
+                            : gameList.searchResultsSelected
+                            ? qsTr("No search result selected")
+                            : qsTr("No game selected")
 
                             font.pixelSize: 20
                             elide: Text.ElideRight
@@ -193,9 +179,10 @@ ApplicationWindow {
 
                             text: {
                                 if (!boardPane.selectedGame) {
-                                    return qsTr(
-                                                "Select a game from the catalogue")
-                                }
+                                return gameList.searchResultsSelected
+                                ? qsTr("Run a search, then select a matching game")
+                                : qsTr("Select a game from the catalogue")
+                            }
 
                                 let details = []
 
