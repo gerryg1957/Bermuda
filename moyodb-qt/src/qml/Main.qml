@@ -229,6 +229,32 @@ ApplicationWindow {
                             elide: Text.ElideRight
                         }
 
+                        Slider {
+    id: moveSlider
+
+    Layout.fillWidth: true
+
+    from: 0
+    to: Math.max(0, gameController.move_count)
+    value: gameController.move_number
+
+    stepSize: 1
+    snapMode: Slider.SnapAlways
+
+    enabled: boardPane.selectedGame
+             && gameController.move_count > 0
+
+    onMoved: {
+        const requestedMove = Math.round(value)
+
+        if (requestedMove !== gameController.move_number)
+            boardPane.showMove(requestedMove)
+    }
+
+    ToolTip.visible: hovered || pressed
+    ToolTip.text: qsTr("Move %1").arg(Math.round(value))
+}
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 4
