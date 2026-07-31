@@ -89,6 +89,9 @@ ApplicationWindow {
                     boardPane.applyLoadedPosition()
                 } else {
                     goBoard.stones = []
+                    goBoard.lastMoveX = -1
+                    goBoard.lastMoveY = -1
+                    goBoard.lastMoveNumber = 0
                     console.warn(gameController.error_message)
                 }
             }
@@ -108,6 +111,10 @@ ApplicationWindow {
                 goBoard.boardSize = gameController.board_size
                 goBoard.stones = JSON.parse(
                             gameController.stones_json)
+
+                goBoard.lastMoveX = gameController.last_move_x
+                goBoard.lastMoveY = gameController.last_move_y
+                goBoard.lastMoveNumber = gameController.move_number
             }
 
             function showMove(moveNumber) {
@@ -122,6 +129,9 @@ ApplicationWindow {
                     applyLoadedPosition()
                 } else {
                     goBoard.stones = []
+                    goBoard.lastMoveX = -1
+                    goBoard.lastMoveY = -1
+                    goBoard.lastMoveNumber = 0
                     console.warn(gameController.error_message)
                 }
             }

@@ -19,6 +19,8 @@ mod ffi {
         #[qproperty(QString, stones_json)]
         #[qproperty(i32, move_number)]
         #[qproperty(i32, move_count)]
+        #[qproperty(i32, last_move_x)]
+        #[qproperty(i32, last_move_y)]
         #[qproperty(QString, error_message)]
         type MoyoDbApp = super::MoyoDbAppRust;
 
@@ -42,6 +44,8 @@ pub struct MoyoDbAppRust {
     stones_json: QString,
     move_number: i32,
     move_count: i32,
+    last_move_x: i32,
+    last_move_y: i32,
     error_message: QString,
 
     cached_project_path: String,
@@ -51,11 +55,13 @@ pub struct MoyoDbAppRust {
 
 impl Default for MoyoDbAppRust {
     fn default() -> Self {
-               Self {
+        Self {
             board_size: 19,
             stones_json: QString::from("[]"),
             move_number: 0,
             move_count: 0,
+            last_move_x: -1,
+            last_move_y: -1,
             error_message: QString::default(),
 
             cached_project_path: String::new(),
@@ -66,11 +72,7 @@ impl Default for MoyoDbAppRust {
 }
 
 impl ffi::MoyoDbApp {
-    fn load_game(
-        mut self: Pin<&mut Self>,
-        project_path: &QString,
-        game_id: i64,
-    ) -> bool {
+    fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {
         let path = project_path.to_string();
 
         let positions = match load_game_positions(&path, game_id) {
@@ -85,8 +87,7 @@ impl ffi::MoyoDbApp {
                 }
 
                 self.as_mut().reset_position_display();
-                self.as_mut()
-                    .set_error_message(QString::from(error));
+                self.as_mut().set_error_message(QString::from(error));
 
                 return false;
             }
@@ -111,10 +112,10 @@ impl ffi::MoyoDbApp {
         let path = project_path.to_string();
 
         let cache_matches = {
-            let rust = self.as_ref().rust();
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
 
-            rust.cached_game_id == Some(game_id)
-                && rust.cached_project_path == path
+            rust.cached_game_id == Some(game_id) && rust.cached_project_path == path
         };
 
         if !cache_matches {
@@ -130,8 +131,7 @@ impl ffi::MoyoDbApp {
                     }
 
                     self.as_mut().reset_position_display();
-                    self.as_mut()
-                        .set_error_message(QString::from(error));
+                    self.as_mut().set_error_message(QString::from(error));
 
                     return false;
                 }
@@ -148,20 +148,15 @@ impl ffi::MoyoDbApp {
         self.as_mut().show_cached_position(move_number)
     }
 
-    fn show_cached_position(
-        mut self: Pin<&mut Self>,
-        move_number: i32,
-    ) -> bool {
-        self.as_mut()
-            .set_error_message(QString::default());
+    fn show_cached_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
 
         let result = {
-            let rust = self.as_ref().rust();
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
 
             match rust.cached_game_id {
-                Some(game_id) => {
-                    position_data(&rust.positions, game_id, move_number)
-                }
+                Some(game_id) => position_data(&rust.positions, game_id, move_number),
 
                 None => Err("no game is loaded".to_owned()),
             }
@@ -169,24 +164,22 @@ impl ffi::MoyoDbApp {
 
         match result {
             Ok(position) => {
-                self.as_mut()
-                    .set_board_size(position.board_size);
+                self.as_mut().set_board_size(position.board_size);
 
-                self.as_mut()
-                    .set_stones_json(position.stones_json);
+                self.as_mut().set_stones_json(position.stones_json);
 
-                self.as_mut()
-                    .set_move_number(position.move_number);
+                self.as_mut().set_move_number(position.move_number);
 
-                self.as_mut()
-                    .set_move_count(position.move_count);
+                self.as_mut().set_move_count(position.move_count);
+
+                self.as_mut().set_last_move_x(position.last_move_x);
+                self.as_mut().set_last_move_y(position.last_move_y);
 
                 true
             }
 
             Err(error) => {
-                self.as_mut()
-                    .set_error_message(QString::from(error));
+                self.as_mut().set_error_message(QString::from(error));
 
                 false
             }
@@ -195,10 +188,11 @@ impl ffi::MoyoDbApp {
 
     fn reset_position_display(mut self: Pin<&mut Self>) {
         self.as_mut().set_board_size(19);
-        self.as_mut()
-            .set_stones_json(QString::from("[]"));
+        self.as_mut().set_stones_json(QString::from("[]"));
         self.as_mut().set_move_number(0);
         self.as_mut().set_move_count(0);
+        self.as_mut().set_last_move_x(-1);
+        self.as_mut().set_last_move_y(-1);
     }
 }
 
@@ -207,23 +201,18 @@ struct LoadedPosition {
     stones_json: QString,
     move_number: i32,
     move_count: i32,
+    last_move_x: i32,
+    last_move_y: i32,
 }
 
-fn load_game_positions(
-    project_path: &str,
-    game_id: i64,
-) -> Result<Vec<PositionState>, String> {
+fn load_game_positions(project_path: &str, game_id: i64) -> Result<Vec<PositionState>, String> {
     let project = ProjectManager::new()
         .open(Path::new(project_path))
         .map_err(|error| error.to_string())?;
 
-    let store = project
-        .game_store()
-        .map_err(|error| error.to_string())?;
+    let store = project.game_store().map_err(|error| error.to_string())?;
 
-    store
-        .positions(game_id)
-        .map_err(|error| error.to_string())
+    store.positions(game_id).map_err(|error| error.to_string())
 }
 
 fn position_data(
@@ -231,8 +220,8 @@ fn position_data(
     game_id: i64,
     move_number: i32,
 ) -> Result<LoadedPosition, String> {
-    let requested_move = usize::try_from(move_number)
-        .map_err(|_| "move number cannot be negative".to_owned())?;
+    let requested_move =
+        usize::try_from(move_number).map_err(|_| "move number cannot be negative".to_owned())?;
 
     let move_count_usize = positions.len().saturating_sub(1);
 
@@ -245,20 +234,29 @@ fn position_data(
 
     let board_size = i32::from(position.board.size());
 
-    let current_move =
-        i32::try_from(position.occurrence.move_number).map_err(|_| {
-            "move number is too large for the Qt interface".to_owned()
-        })?;
+    let (last_move_x, last_move_y) = match position.last_move.and_then(|mv| mv.point) {
+        Some(point) => {
+            let size = u16::from(position.board.size());
 
-    let move_count = i32::try_from(move_count_usize).map_err(|_| {
-        "game contains too many moves for the Qt interface".to_owned()
-    })?;
+            (i32::from(point % size), i32::from(point / size))
+        }
+
+        None => (-1, -1),
+    };
+
+    let current_move = i32::try_from(position.occurrence.move_number)
+        .map_err(|_| "move number is too large for the Qt interface".to_owned())?;
+
+    let move_count = i32::try_from(move_count_usize)
+        .map_err(|_| "game contains too many moves for the Qt interface".to_owned())?;
 
     Ok(LoadedPosition {
         board_size,
         stones_json: board_stones_json(&position.board),
         move_number: current_move,
         move_count,
+        last_move_x,
+        last_move_y,
     })
 }
 

@@ -6,8 +6,13 @@ Item {
 
     signal pointClicked(int x, int y)
 
-    property int boardSize: 19
+        property int boardSize: 19
     property var stones: []
+
+    property bool showCoordinates: true
+    property int lastMoveX: -1
+    property int lastMoveY: -1
+    property int lastMoveNumber: 0
     property int hoverX: -1
     property int hoverY: -1
     property bool hoverValid: false
@@ -60,9 +65,46 @@ Item {
             }
 
             drawStarPoints(ctx, left, top, spacing)
+            drawCoordinates(ctx, left, top, usable, spacing)
             drawStones(ctx, left, top, spacing)
+            drawLastMoveNumber(ctx, left, top, spacing)
             drawHoverMarker(ctx, left, top, spacing)
         }
+
+                function coordinateLetter(index) {
+            const skippedI = index >= 8 ? 1 : 0
+            return String.fromCharCode(
+                        "A".charCodeAt(0) + index + skippedI)
+        }
+
+        function drawCoordinates(ctx, left, top, usable, spacing) {
+            if (!root.showCoordinates)
+                return
+
+            const offset = root.boardPadding * 0.52
+
+            ctx.fillStyle = root.lineColor
+            ctx.font = Math.max(10, spacing * 0.36)
+                    + "px sans-serif"
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+
+            for (let index = 0;
+                 index < root.boardSize;
+                 ++index) {
+                const x = left + index * spacing
+                const y = top + index * spacing
+                const letter = coordinateLetter(index)
+                const number = root.boardSize - index
+
+                ctx.fillText(letter, x, top - offset)
+                ctx.fillText(letter, x, top + usable + offset)
+
+                ctx.fillText(number, left - offset, y)
+                ctx.fillText(number, left + usable + offset, y)
+            }
+        }
+
 
         function drawStarPoints(ctx, left, top, spacing) {
             if (root.boardSize !== 19)
@@ -128,6 +170,54 @@ Item {
                 ctx.fill()
                 ctx.stroke()
             }
+        }
+
+                function drawLastMoveNumber(ctx, left, top, spacing) {
+            if (root.lastMoveNumber <= 0
+                    || root.lastMoveX < 0
+                    || root.lastMoveY < 0) {
+                return
+            }
+
+            let stoneColor = ""
+
+            for (const stone of root.stones) {
+                if (stone.x === root.lastMoveX
+                        && stone.y === root.lastMoveY) {
+                    stoneColor = stone.color
+                    break
+                }
+            }
+
+            if (stoneColor.length === 0)
+                return
+
+            const x = left + root.lastMoveX * spacing
+            const y = top + root.lastMoveY * spacing
+            const digits = root.lastMoveNumber.toString().length
+
+            let fontScale = 0.50
+
+            if (digits === 2)
+                fontScale = 0.42
+            else if (digits >= 3)
+                fontScale = 0.34
+
+            ctx.fillStyle = stoneColor === "black"
+                    ? "#ffffff"
+                    : "#000000"
+
+            ctx.font = "bold "
+                    + Math.max(9, spacing * fontScale)
+                    + "px sans-serif"
+
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+
+            ctx.fillText(
+                        root.lastMoveNumber.toString(),
+                        x,
+                        y)
         }
 
         function drawHoverMarker(ctx, left, top, spacing) {
@@ -259,5 +349,22 @@ Item {
         function onBoardSizeChanged() {
             boardCanvas.requestPaint()
         }
+
+                function onShowCoordinatesChanged() {
+            boardCanvas.requestPaint()
+        }
+
+        function onLastMoveXChanged() {
+            boardCanvas.requestPaint()
+        }
+
+        function onLastMoveYChanged() {
+            boardCanvas.requestPaint()
+        }
+
+        function onLastMoveNumberChanged() {
+            boardCanvas.requestPaint()
+        }
+
     }
 }
