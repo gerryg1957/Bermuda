@@ -2,6 +2,7 @@ import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import org.moyodb.app
 
 ApplicationWindow {
@@ -23,6 +24,60 @@ ApplicationWindow {
     MoyoDbApp {
         id: gameController
     }
+
+  FileDialog {
+    id: openSgfDialog
+
+    title: qsTr("Open SGF")
+    fileMode: FileDialog.OpenFile
+
+    nameFilters: [
+        qsTr("SGF files (*.sgf)"),
+        qsTr("All files (*)")
+    ]
+
+    onAccepted: {
+        const fileUrl = new URL(selectedFile)
+        const filePath = decodeURIComponent(fileUrl.pathname)
+        const fileName = filePath.substring(
+                           filePath.lastIndexOf("/") + 1)
+
+        if (gameController.loadSgf(filePath)) {
+            boardPane.selectedGame = {
+                gameId: -1,
+                black: qsTr("External SGF"),
+                white: fileName,
+                gameDate: "",
+                result: "",
+                eventName: "",
+                komi: ""
+            }
+
+            boardPane.applyLoadedPosition()
+        } else {
+            boardPane.selectedGame = null
+
+            goBoard.stones = []
+            goBoard.lastMoveX = -1
+            goBoard.lastMoveY = -1
+            goBoard.lastMoveNumber = 0
+
+            console.warn(gameController.error_message)
+        }
+    }
+}
+
+menuBar: MenuBar {
+    Menu {
+        title: qsTr("&File")
+
+        Action {
+            text: qsTr("&Open SGF…")
+
+            onTriggered: openSgfDialog.open()
+        }
+    }
+}
 
     Settings {
         id: uiSettings
@@ -106,10 +161,7 @@ ApplicationWindow {
                     return
                 }
 
-                if (gameController.showPosition(
-                            root.projectPath,
-                            selectedGame.gameId,
-                            moveNumber)) {
+                if (gameController.showPosition(moveNumber)) {
                     applyLoadedPosition()
                 } else {
                     goBoard.stones = []

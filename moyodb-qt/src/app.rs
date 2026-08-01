@@ -1,8 +1,11 @@
-use std::{fmt::Write as _, path::Path, pin::Pin};
+use std::{fmt::Write as _, fs, path::Path, pin::Pin};
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use moyodb::{Board, Colour, PositionState, project_manager::ProjectManager};
+use moyodb::{
+    Board, Colour, PositionState, extract_main_variation, parse_collection,
+    project_manager::ProjectManager, replay_positions,
+};
 
 #[cxx_qt::bridge]
 mod ffi {
@@ -29,14 +32,18 @@ mod ffi {
         fn load_game(self: Pin<&mut MoyoDbApp>, project_path: &QString, game_id: i64) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "loadSgf"]
+        fn load_sgf(self: Pin<&mut MoyoDbApp>, sgf_path: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "showPosition"]
-        fn show_position(
-            self: Pin<&mut MoyoDbApp>,
-            project_path: &QString,
-            game_id: i64,
-            move_number: i32,
-        ) -> bool;
+        fn show_position(self: Pin<&mut MoyoDbApp>, move_number: i32) -> bool;
     }
+}
+
+struct LoadedDocument {
+    description: String,
+    positions: Vec<PositionState>,
 }
 
 pub struct MoyoDbAppRust {
@@ -48,9 +55,7 @@ pub struct MoyoDbAppRust {
     last_move_y: i32,
     error_message: QString,
 
-    cached_project_path: String,
-    cached_game_id: Option<i64>,
-    positions: Vec<PositionState>,
+    loaded_document: Option<LoadedDocument>,
 }
 
 impl Default for MoyoDbAppRust {
@@ -64,9 +69,7 @@ impl Default for MoyoDbAppRust {
             last_move_y: -1,
             error_message: QString::default(),
 
-            cached_project_path: String::new(),
-            cached_game_id: None,
-            positions: Vec::new(),
+            loaded_document: None,
         }
     }
 }
@@ -75,16 +78,11 @@ impl ffi::MoyoDbApp {
     fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {
         let path = project_path.to_string();
 
-        let positions = match load_game_positions(&path, game_id) {
-            Ok(positions) => positions,
+        let document = match load_game_document(&path, game_id) {
+            Ok(document) => document,
 
             Err(error) => {
-                {
-                    let mut rust = self.as_mut().rust_mut();
-                    rust.cached_project_path.clear();
-                    rust.cached_game_id = None;
-                    rust.positions.clear();
-                }
+                self.as_mut().rust_mut().loaded_document = None;
 
                 self.as_mut().reset_position_display();
                 self.as_mut().set_error_message(QString::from(error));
@@ -93,58 +91,33 @@ impl ffi::MoyoDbApp {
             }
         };
 
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.cached_project_path = path;
-            rust.cached_game_id = Some(game_id);
-            rust.positions = positions;
-        }
+        self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
     }
 
-    fn show_position(
-        mut self: Pin<&mut Self>,
-        project_path: &QString,
-        game_id: i64,
-        move_number: i32,
-    ) -> bool {
-        let path = project_path.to_string();
+    fn load_sgf(mut self: Pin<&mut Self>, sgf_path: &QString) -> bool {
+        let path = sgf_path.to_string();
 
-        let cache_matches = {
-            let self_ref = self.as_ref();
-            let rust = self_ref.rust();
+        let document = match load_sgf_document(&path) {
+            Ok(document) => document,
 
-            rust.cached_game_id == Some(game_id) && rust.cached_project_path == path
+            Err(error) => {
+                self.as_mut().rust_mut().loaded_document = None;
+
+                self.as_mut().reset_position_display();
+                self.as_mut().set_error_message(QString::from(error));
+
+                return false;
+            }
         };
 
-        if !cache_matches {
-            let positions = match load_game_positions(&path, game_id) {
-                Ok(positions) => positions,
+        self.as_mut().rust_mut().loaded_document = Some(document);
 
-                Err(error) => {
-                    {
-                        let mut rust = self.as_mut().rust_mut();
-                        rust.cached_project_path.clear();
-                        rust.cached_game_id = None;
-                        rust.positions.clear();
-                    }
+        self.as_mut().show_cached_position(0)
+    }
 
-                    self.as_mut().reset_position_display();
-                    self.as_mut().set_error_message(QString::from(error));
-
-                    return false;
-                }
-            };
-
-            {
-                let mut rust = self.as_mut().rust_mut();
-                rust.cached_project_path = path;
-                rust.cached_game_id = Some(game_id);
-                rust.positions = positions;
-            }
-        }
-
+    fn show_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
         self.as_mut().show_cached_position(move_number)
     }
 
@@ -155,8 +128,10 @@ impl ffi::MoyoDbApp {
             let self_ref = self.as_ref();
             let rust = self_ref.rust();
 
-            match rust.cached_game_id {
-                Some(game_id) => position_data(&rust.positions, game_id, move_number),
+            match rust.loaded_document.as_ref() {
+                Some(document) => {
+                    position_data(&document.positions, &document.description, move_number)
+                }
 
                 None => Err("no game is loaded".to_owned()),
             }
@@ -205,19 +180,50 @@ struct LoadedPosition {
     last_move_y: i32,
 }
 
-fn load_game_positions(project_path: &str, game_id: i64) -> Result<Vec<PositionState>, String> {
+fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument, String> {
     let project = ProjectManager::new()
         .open(Path::new(project_path))
         .map_err(|error| error.to_string())?;
 
     let store = project.game_store().map_err(|error| error.to_string())?;
 
-    store.positions(game_id).map_err(|error| error.to_string())
+    let positions = store
+        .positions(game_id)
+        .map_err(|error| error.to_string())?;
+
+    Ok(LoadedDocument {
+        description: format!("game {game_id}"),
+        positions,
+    })
+}
+
+fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
+    let path = Path::new(sgf_path);
+
+    let bytes = fs::read(path).map_err(|error| format!("reading {}: {error}", path.display()))?;
+
+    let collection =
+        parse_collection(&bytes).map_err(|error| format!("parsing {}: {error}", path.display()))?;
+
+    let record = extract_main_variation(&collection).map_err(|error| {
+        format!(
+            "extracting the main variation from {}: {error}",
+            path.display()
+        )
+    })?;
+
+    let positions = replay_positions(&record)
+        .map_err(|error| format!("replaying {}: {error}", path.display()))?;
+
+    Ok(LoadedDocument {
+        description: format!("SGF {}", path.display()),
+        positions,
+    })
 }
 
 fn position_data(
     positions: &[PositionState],
-    game_id: i64,
+    document_description: &str,
     move_number: i32,
 ) -> Result<LoadedPosition, String> {
     let requested_move =
@@ -227,8 +233,8 @@ fn position_data(
 
     let position = positions.get(requested_move).ok_or_else(|| {
         format!(
-            "requested move {move_number}, but game {game_id} contains only \
-             {move_count_usize} moves"
+            "requested move {move_number}, but {document_description} contains only \
+     {move_count_usize} moves"
         )
     })?;
 
