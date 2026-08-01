@@ -3,8 +3,8 @@ use std::{fmt::Write as _, fs, path::Path, pin::Pin};
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 use moyodb::{
-    Board, Colour, PositionState, extract_main_variation, parse_collection,
-    project_manager::ProjectManager, replay_positions,
+    Board, Colour, PositionOccurrence, PositionState, extract_main_variation, parse_collection,
+    position_fingerprint, project_manager::ProjectManager, replay_positions,
 };
 
 #[cxx_qt::bridge]
@@ -36,6 +36,14 @@ mod ffi {
         fn load_sgf(self: Pin<&mut MoyoDbApp>, sgf_path: &QString) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "newPosition"]
+        fn new_position(self: Pin<&mut MoyoDbApp>, board_size: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "editPositionPoint"]
+        fn edit_position_point(self: Pin<&mut MoyoDbApp>, x: i32, y: i32, tool: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "showPosition"]
         fn show_position(self: Pin<&mut MoyoDbApp>, move_number: i32) -> bool;
     }
@@ -44,6 +52,7 @@ mod ffi {
 struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
+    editable: bool,
 }
 
 pub struct MoyoDbAppRust {
@@ -115,6 +124,50 @@ impl ffi::MoyoDbApp {
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
+    }
+
+    fn new_position(mut self: Pin<&mut Self>, board_size: i32) -> bool {
+        let document = match new_position_document(board_size) {
+            Ok(document) => document,
+
+            Err(error) => {
+                self.as_mut().rust_mut().loaded_document = None;
+
+                self.as_mut().reset_position_display();
+                self.as_mut().set_error_message(QString::from(error));
+
+                return false;
+            }
+        };
+
+        self.as_mut().rust_mut().loaded_document = Some(document);
+
+        self.as_mut().show_cached_position(0)
+    }
+
+    fn edit_position_point(mut self: Pin<&mut Self>, x: i32, y: i32, tool: &QString) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let tool = tool.to_string();
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => edit_document_position(document, x, y, &tool),
+
+                None => Err("no position is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(()) => self.as_mut().show_cached_position(0),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
     }
 
     fn show_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
@@ -194,6 +247,7 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
     Ok(LoadedDocument {
         description: format!("game {game_id}"),
         positions,
+        editable: false,
     })
 }
 
@@ -218,7 +272,93 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
     Ok(LoadedDocument {
         description: format!("SGF {}", path.display()),
         positions,
+        editable: false,
     })
+}
+
+fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
+    let board_size =
+        u8::try_from(board_size).map_err(|_| format!("invalid board size {board_size}"))?;
+
+    let board = Board::new(board_size).map_err(|error| error.to_string())?;
+
+    Ok(LoadedDocument {
+        description: "untitled position".to_owned(),
+        positions: vec![editable_position_state(board)],
+        editable: true,
+    })
+}
+
+fn editable_position_state(board: Board) -> PositionState {
+    let side_to_move = Colour::Black;
+
+    let occurrence = PositionOccurrence {
+        move_number: 0,
+        side_to_move,
+        ko_point: board.ko_point(),
+        fingerprint: position_fingerprint(&board, side_to_move),
+    };
+
+    PositionState {
+        board,
+        occurrence,
+        last_move: None,
+    }
+}
+
+fn edit_document_position(
+    document: &mut LoadedDocument,
+    x: i32,
+    y: i32,
+    tool: &str,
+) -> Result<(), String> {
+    if !document.editable {
+        return Err("the loaded document is read-only".to_owned());
+    }
+
+    let position = document
+        .positions
+        .first_mut()
+        .ok_or_else(|| "the editable position is missing".to_owned())?;
+
+    let x = u8::try_from(x).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+    let y = u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+    let point = position
+        .board
+        .point(x, y)
+        .map_err(|error| error.to_string())?;
+
+    match tool {
+        "black" => position
+            .board
+            .set_setup(Colour::Black, point)
+            .map_err(|error| error.to_string())?,
+
+        "white" => position
+            .board
+            .set_setup(Colour::White, point)
+            .map_err(|error| error.to_string())?,
+
+        "erase" => position
+            .board
+            .clear_setup(point)
+            .map_err(|error| error.to_string())?,
+
+        _ => {
+            return Err(format!("unknown position-editing tool {tool:?}"));
+        }
+    }
+
+    position.occurrence.ko_point = position.board.ko_point();
+
+    position.occurrence.fingerprint =
+        position_fingerprint(&position.board, position.occurrence.side_to_move);
+
+    position.last_move = None;
+
+    Ok(())
 }
 
 fn position_data(

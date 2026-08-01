@@ -43,6 +43,9 @@ ApplicationWindow {
                            filePath.lastIndexOf("/") + 1)
 
         if (gameController.loadSgf(filePath)) {
+
+            boardPane.editingPosition = false
+
             boardPane.selectedGame = {
                 gameId: -1,
                 black: qsTr("External SGF"),
@@ -70,6 +73,39 @@ ApplicationWindow {
 menuBar: MenuBar {
     Menu {
         title: qsTr("&File")
+
+        Action {
+            text: qsTr("&New Position")
+
+            onTriggered: {
+                if (gameController.newPosition(19)) {
+                    boardPane.editingPosition = true
+                    boardPane.editTool = "black"
+
+                    boardPane.selectedGame = {
+                        gameId: -1,
+                        black: qsTr("Untitled position"),
+                        white: "",
+                        gameDate: "",
+                        result: "",
+                        eventName: "",
+                        komi: ""
+                    }
+
+                    boardPane.applyLoadedPosition()
+                } else {
+                    boardPane.editingPosition = false
+                    boardPane.selectedGame = null
+
+                    goBoard.stones = []
+                    goBoard.lastMoveX = -1
+                    goBoard.lastMoveY = -1
+                    goBoard.lastMoveNumber = 0
+
+                    console.warn(gameController.error_message)
+                }
+            }
+        }
 
         Action {
             text: qsTr("&Open SGF…")
@@ -120,6 +156,7 @@ menuBar: MenuBar {
             projectPath: root.projectPath
 
                        onGameSelected: function(game) {
+                boardPane.editingPosition = false
                 boardPane.selectedGame = game
 
                 if (gameController.loadGame(
@@ -145,6 +182,10 @@ menuBar: MenuBar {
             id: boardPane
 
             property var selectedGame: null
+
+            property bool editingPosition: false
+
+            property string editTool: "black"
 
             function applyLoadedPosition() {
                 goBoard.boardSize = gameController.board_size
@@ -191,14 +232,75 @@ menuBar: MenuBar {
                     Layout.fillHeight: true
                     padding: 4
 
-                    GoBoard {
-                        id: goBoard
-                        anchors.fill: parent
-                    }
-                }
+                      GoBoard {
+                          id: goBoard
+                          anchors.fill: parent
 
-                              Frame {
-                    id: gameDetailsFrame
+                          onPointClicked: function(x, y) {
+                              if (!boardPane.editingPosition)
+                                  return
+
+                              if (gameController.editPositionPoint(
+                                          x,
+                                          y,
+                                          boardPane.editTool)) {
+                                  boardPane.applyLoadedPosition()
+                              } else {
+                                  console.warn(
+                                              gameController.error_message)
+                              }
+                          }
+                      }
+                  }
+
+                  RowLayout {
+                      Layout.fillWidth: true
+                      Layout.leftMargin: 8
+                      Layout.rightMargin: 8
+                      spacing: 4
+
+                      visible: boardPane.editingPosition
+
+                      Label {
+                          text: qsTr("Place:")
+                      }
+
+                      ToolButton {
+                          text: qsTr("Black")
+                          checkable: true
+                          checked: boardPane.editTool === "black"
+
+                          onClicked: boardPane.editTool = "black"
+                      }
+
+                      ToolButton {
+                          text: qsTr("White")
+                          checkable: true
+                          checked: boardPane.editTool === "white"
+
+                          onClicked: boardPane.editTool = "white"
+                      }
+
+                      ToolButton {
+                          text: qsTr("Erase")
+                          checkable: true
+                          checked: boardPane.editTool === "erase"
+
+                          onClicked: boardPane.editTool = "erase"
+                      }
+
+                      Item {
+                          Layout.fillWidth: true
+                      }
+
+                      Label {
+                          text: qsTr("Click an intersection to edit")
+                          opacity: 0.75
+                      }
+                  }
+
+                  Frame {
+                      id: gameDetailsFrame
 
                     Layout.fillWidth: true
                     Layout.minimumHeight: 112
@@ -214,13 +316,21 @@ menuBar: MenuBar {
                         Label {
                             Layout.fillWidth: true
 
-                            text: boardPane.selectedGame
-                            ? qsTr("%1 — %2")
-                            .arg(boardPane.selectedGame.black)
-                            .arg(boardPane.selectedGame.white)
-                            : gameList.searchResultsSelected
-                            ? qsTr("No search result selected")
-                            : qsTr("No game selected")
+                            text: {
+                                if (boardPane.selectedGame) {
+                                    if (boardPane.selectedGame.white.length > 0) {
+                                        return qsTr("%1 — %2")
+                                            .arg(boardPane.selectedGame.black)
+                                            .arg(boardPane.selectedGame.white)
+                                    }
+
+                                    return boardPane.selectedGame.black
+                                }
+
+                                return gameList.searchResultsSelected
+                                    ? qsTr("No search result selected")
+                                    : qsTr("No game selected")
+                            }
 
                             font.pixelSize: 20
                             elide: Text.ElideRight
@@ -339,11 +449,18 @@ menuBar: MenuBar {
                             Label {
                                 Layout.fillWidth: true
 
-                                text: boardPane.selectedGame
-                                    ? qsTr("Move %1 of %2")
-                                          .arg(gameController.move_number)
-                                          .arg(gameController.move_count)
-                                    : qsTr("Move 0 of 0")
+                                text: {
+                                    if (boardPane.editingPosition)
+                                        return qsTr("Editing position")
+
+                                    if (boardPane.selectedGame) {
+                                        return qsTr("Move %1 of %2")
+                                            .arg(gameController.move_number)
+                                            .arg(gameController.move_count)
+                                    }
+
+                                    return qsTr("Move 0 of 0")
+                                }
 
                                 horizontalAlignment: Text.AlignHCenter
                             }
