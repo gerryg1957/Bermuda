@@ -1,10 +1,12 @@
-use crate::{Pattern, indexer::PositionIndexer};
+use crate::{Colour, Pattern, indexer::PositionIndexer};
 use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatternMatch {
     pub game_id: i64,
     pub move_number: usize,
+    pub side_to_move: Colour,
+    pub ko_point: Option<u16>,
     pub left: u8,
     pub bottom: u8,
 }
@@ -32,6 +34,8 @@ impl PatternSearcher {
     fn search_position(
         game_id: i64,
         move_number: usize,
+        side_to_move: Colour,
+        ko_point: Option<u16>,
         board: &crate::Board,
         pattern: &Pattern,
     ) -> Result<Vec<PatternMatch>> {
@@ -50,6 +54,8 @@ impl PatternSearcher {
                     matches.push(PatternMatch {
                         game_id,
                         move_number,
+                        side_to_move,
+                        ko_point,
                         left,
                         bottom,
                     });
@@ -84,6 +90,8 @@ impl PatternSearcher {
             matches.extend(Self::search_position(
                 game_id,
                 state.occurrence.move_number,
+                state.occurrence.side_to_move,
+                state.occurrence.ko_point,
                 &state.board,
                 pattern,
             )?);

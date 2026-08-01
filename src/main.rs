@@ -943,16 +943,22 @@ fn search_pattern(request: SingleGamePatternSearchRequest) -> Result<()> {
         scope: PatternSearchScope::Game(search_game_id),
     };
 
-    let search_engine = SearchEngine::new(&indexer);
-    let matches = search_engine.search_pattern(&query)?;
+    let search_engine = SearchEngine::new(&project)?;
+    let results = search_engine.search_pattern(&query)?;
 
-    println!("Found {} matches", matches.len());
+    let match_count: usize = results.iter().map(|result| result.occurrences.len()).sum();
 
-    for found in matches {
-        println!(
-            "Game {}, move {}, left {}, bottom {}",
-            found.game_id, found.move_number, found.left, found.bottom
-        );
+    println!("Found {match_count} matches in {} games", results.len());
+
+    for result in results {
+        for occurrence in result.occurrences {
+            if let (Some(left), Some(bottom)) = (occurrence.left, occurrence.bottom) {
+                println!(
+                    "Game {}, move {}, left {}, bottom {}",
+                    result.game_id, occurrence.move_number, left, bottom
+                );
+            }
+        }
     }
 
     Ok(())
@@ -980,16 +986,22 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
         scope: PatternSearchScope::Project,
     };
 
-    let search_engine = SearchEngine::new(&indexer);
-    let matches = search_engine.search_pattern(&query)?;
+    let search_engine = SearchEngine::new(&project)?;
+    let results = search_engine.search_pattern(&query)?;
 
-    println!("Found {} matches", matches.len());
+    let match_count: usize = results.iter().map(|result| result.occurrences.len()).sum();
 
-    for found in matches {
-        println!(
-            "Game {}, move {}, left {}, bottom {}",
-            found.game_id, found.move_number, found.left, found.bottom
-        );
+    println!("Found {match_count} matches in {} games", results.len());
+
+    for result in results {
+        for occurrence in result.occurrences {
+            if let (Some(left), Some(bottom)) = (occurrence.left, occurrence.bottom) {
+                println!(
+                    "Game {}, move {}, left {}, bottom {}",
+                    result.game_id, occurrence.move_number, left, bottom
+                );
+            }
+        }
     }
 
     Ok(())
