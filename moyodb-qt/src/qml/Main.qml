@@ -43,6 +43,7 @@ ApplicationWindow {
                            filePath.lastIndexOf("/") + 1)
 
         if (gameController.loadSgf(filePath)) {
+            boardPane.resetPatternSelection()
 
             boardPane.editingPosition = false
 
@@ -79,6 +80,7 @@ menuBar: MenuBar {
 
             onTriggered: {
                 if (gameController.newPosition(19)) {
+                    boardPane.resetPatternSelection()
                     boardPane.editingPosition = true
                     boardPane.editTool = "black"
 
@@ -156,6 +158,7 @@ menuBar: MenuBar {
             projectPath: root.projectPath
 
                        onGameSelected: function(game) {
+                           boardPane.resetPatternSelection()
                 boardPane.editingPosition = false
                 boardPane.selectedGame = game
 
@@ -186,6 +189,26 @@ menuBar: MenuBar {
             property bool editingPosition: false
 
             property string editTool: "black"
+            property bool selectingPattern: false
+            property int patternLeft: -1
+            property int patternTop: -1
+            property int patternRight: -1
+            property int patternBottom: -1
+
+
+            function clearPatternSelection() {
+                patternLeft = -1
+                patternTop = -1
+                patternRight = -1
+                patternBottom = -1
+
+                goBoard.clearPatternSelection()
+            }
+
+            function resetPatternSelection() {
+                selectingPattern = false
+                clearPatternSelection()
+            }
 
             function applyLoadedPosition() {
                 goBoard.boardSize = gameController.board_size
@@ -236,6 +259,8 @@ menuBar: MenuBar {
                           id: goBoard
                           anchors.fill: parent
 
+                          patternSelectionEnabled: boardPane.selectingPattern
+
                           onPointClicked: function(x, y) {
                               if (!boardPane.editingPosition)
                                   return
@@ -250,6 +275,13 @@ menuBar: MenuBar {
                                               gameController.error_message)
                               }
                           }
+
+                          onPatternSelected: function(left, top, right, bottom) {
+                              boardPane.patternLeft = left
+                              boardPane.patternTop = top
+                              boardPane.patternRight = right
+                              boardPane.patternBottom = bottom
+                          }
                       }
                   }
 
@@ -259,7 +291,57 @@ menuBar: MenuBar {
                       Layout.rightMargin: 8
                       spacing: 4
 
-                      visible: boardPane.editingPosition
+                      visible: boardPane.selectedGame !== null
+
+                      ToolButton {
+                          text: qsTr("Select Pattern")
+                          checkable: true
+                          checked: boardPane.selectingPattern
+
+                          onToggled: {
+                              boardPane.selectingPattern = checked
+
+                              if (checked)
+                                  goBoard.hoverValid = false
+                          }
+                      }
+
+                      ToolButton {
+                          text: qsTr("Clear Selection")
+                          enabled: goBoard.patternSelectionValid
+
+                          onClicked: boardPane.clearPatternSelection()
+                      }
+
+                      Item {
+                          Layout.fillWidth: true
+                      }
+
+                      Label {
+                          text: {
+                              if (goBoard.patternSelectionValid) {
+                                  return qsTr("%1 × %2 intersections")
+                                      .arg(boardPane.patternRight
+                                           - boardPane.patternLeft + 1)
+                                      .arg(boardPane.patternBottom
+                                           - boardPane.patternTop + 1)
+                              }
+
+                              return boardPane.selectingPattern
+                                  ? qsTr("Drag over the board")
+                                  : ""
+                          }
+                          opacity: 0.75
+                      }
+                  }
+
+                  RowLayout {
+                      Layout.fillWidth: true
+                      Layout.leftMargin: 8
+                      Layout.rightMargin: 8
+                      spacing: 4
+
+                      visible: boardPane.editingPosition && !boardPane.selectingPattern
 
                       Label {
                           text: qsTr("Place:")

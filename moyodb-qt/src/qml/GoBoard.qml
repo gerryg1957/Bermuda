@@ -5,6 +5,8 @@ Item {
     id: root
 
     signal pointClicked(int x, int y)
+    signal patternSelected(int left, int top,
+                           int right, int bottom)
 
         property int boardSize: 19
     property var stones: []
@@ -17,12 +19,35 @@ Item {
     property int hoverY: -1
     property bool hoverValid: false
 
+    property bool patternSelectionEnabled: false
+    property bool patternSelectionDragging: false
+    property int patternStartX: -1
+    property int patternStartY: -1
+    property int patternEndX: -1
+    property int patternEndY: -1
+
+    readonly property bool patternSelectionValid:
+        patternStartX >= 0
+        && patternStartY >= 0
+        && patternEndX >= 0
+        && patternEndY >= 0
+
     property real boardPadding: Kirigami.Units.gridUnit * 1.5
     property color boardColor: "#d8a45b"
     property color lineColor: "#30251a"
 
     implicitWidth: Kirigami.Units.gridUnit * 28
     implicitHeight: implicitWidth
+
+    function clearPatternSelection() {
+        patternSelectionDragging = false
+        patternStartX = -1
+        patternStartY = -1
+        patternEndX = -1
+        patternEndY = -1
+
+        boardCanvas.requestPaint()
+    }
 
     Canvas {
         id: boardCanvas
@@ -67,6 +92,7 @@ Item {
             drawStarPoints(ctx, left, top, spacing)
             drawCoordinates(ctx, left, top, usable, spacing)
             drawStones(ctx, left, top, spacing)
+            drawPatternSelection(ctx, left, top, spacing)
             drawLastMoveNumber(ctx, left, top, spacing)
             drawHoverMarker(ctx, left, top, spacing)
         }
@@ -220,6 +246,44 @@ Item {
                         y)
         }
 
+        function drawPatternSelection(ctx, left, top, spacing) {
+            if (!root.patternSelectionValid)
+                return
+
+            const firstX = Math.min(
+                root.patternStartX,
+                root.patternEndX
+            )
+
+            const firstY = Math.min(
+                root.patternStartY,
+                root.patternEndY
+            )
+
+            const lastX = Math.max(
+                root.patternStartX,
+                root.patternEndX
+            )
+
+            const lastY = Math.max(
+                root.patternStartY,
+                root.patternEndY
+            )
+
+            const halfSpacing = spacing * 0.5
+            const x = left + firstX * spacing - halfSpacing
+            const y = top + firstY * spacing - halfSpacing
+            const width = (lastX - firstX + 1) * spacing
+            const height = (lastY - firstY + 1) * spacing
+
+            ctx.fillStyle = "rgba(60, 120, 220, 0.22)"
+            ctx.strokeStyle = "rgba(25, 75, 180, 0.95)"
+            ctx.lineWidth = 2
+
+            ctx.fillRect(x, y, width, height)
+            ctx.strokeRect(x, y, width, height)
+        }
+
         function drawHoverMarker(ctx, left, top, spacing) {
             if (!root.hoverValid)
                 return
@@ -258,6 +322,32 @@ Item {
                 "left": left,
                 "top": top,
                 "spacing": spacing
+            }
+        }
+
+        function nearestPointAt(mouseX, mouseY) {
+            const geometry = boardGeometry()
+
+            const boardX = Math.round(
+                (mouseX - geometry.left) / geometry.spacing
+            )
+
+            const boardY = Math.round(
+                (mouseY - geometry.top) / geometry.spacing
+            )
+
+            if (
+                boardX < 0 ||
+                boardY < 0 ||
+                boardX >= root.boardSize ||
+                boardY >= root.boardSize
+            ) {
+                return null
+            }
+
+            return {
+                "x": boardX,
+                "y": boardY
             }
         }
 
@@ -304,7 +394,42 @@ Item {
             }
         }
 
+        cursorShape: root.patternSelectionEnabled
+            ? Qt.CrossCursor
+            : Qt.ArrowCursor
+
+        onPressed: mouse => {
+            if (!root.patternSelectionEnabled)
+                return
+
+            const point = nearestPointAt(mouse.x, mouse.y)
+
+            if (point === null)
+                return
+
+            root.patternSelectionDragging = true
+            root.patternStartX = point.x
+            root.patternStartY = point.y
+            root.patternEndX = point.x
+            root.patternEndY = point.y
+            root.hoverValid = false
+
+            boardCanvas.requestPaint()
+        }
+
         onPositionChanged: mouse => {
+            if (root.patternSelectionDragging) {
+                const point = nearestPointAt(mouse.x, mouse.y)
+
+                if (point !== null) {
+                    root.patternEndX = point.x
+                    root.patternEndY = point.y
+                }
+
+                boardCanvas.requestPaint()
+                return
+            }
+
             const point = pointAt(mouse.x, mouse.y)
 
             if (point === null) {
@@ -318,12 +443,57 @@ Item {
             boardCanvas.requestPaint()
         }
 
+        onReleased: mouse => {
+            if (!root.patternSelectionDragging)
+                return
+
+            const point = nearestPointAt(mouse.x, mouse.y)
+
+            if (point !== null) {
+                root.patternEndX = point.x
+                root.patternEndY = point.y
+            }
+
+            root.patternSelectionDragging = false
+
+            const left = Math.min(
+                root.patternStartX,
+                root.patternEndX
+            )
+
+            const top = Math.min(
+                root.patternStartY,
+                root.patternEndY
+            )
+
+            const right = Math.max(
+                root.patternStartX,
+                root.patternEndX
+            )
+
+            const bottom = Math.max(
+                root.patternStartY,
+                root.patternEndY
+            )
+
+            root.patternSelected(left, top, right, bottom)
+            boardCanvas.requestPaint()
+        }
+
+        onCanceled: {
+            root.patternSelectionDragging = false
+            boardCanvas.requestPaint()
+        }
+
         onExited: {
             root.hoverValid = false
             boardCanvas.requestPaint()
         }
 
         onClicked: mouse => {
+            if (root.patternSelectionEnabled)
+                return
+
             const point = pointAt(mouse.x, mouse.y)
 
             if (point !== null)
