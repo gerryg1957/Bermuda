@@ -43,6 +43,8 @@ ApplicationWindow {
                            filePath.lastIndexOf("/") + 1)
 
         if (gameController.loadSgf(filePath)) {
+            gameList.clearSearchResults()
+            boardPane.clearMatchNavigation()
             boardPane.resetPatternSelection()
 
             boardPane.editingPosition = false
@@ -80,6 +82,8 @@ menuBar: MenuBar {
 
             onTriggered: {
                 if (gameController.newPosition(19)) {
+                    gameList.clearSearchResults()
+                    boardPane.clearMatchNavigation()
                     boardPane.resetPatternSelection()
                     boardPane.editingPosition = true
                     boardPane.editTool = "black"
@@ -158,14 +162,29 @@ menuBar: MenuBar {
             projectPath: root.projectPath
 
                        onGameSelected: function(game) {
-                           boardPane.resetPatternSelection()
+                if (!game.fromSearchResults)
+                    gameList.clearSearchResults()
+
+                boardPane.clearMatchNavigation()
+                boardPane.resetPatternSelection()
                 boardPane.editingPosition = false
                 boardPane.selectedGame = game
 
                 if (gameController.loadGame(
                             root.projectPath,
                             game.gameId)) {
-                    boardPane.applyLoadedPosition()
+                    if (game.fromSearchResults
+                            && game.matchOccurrences !== undefined
+                            && game.matchOccurrences.length > 0) {
+                        boardPane.matchOccurrences =
+                            game.matchOccurrences
+
+                        boardPane.matchWidth = game.matchWidth
+                        boardPane.matchHeight = game.matchHeight
+                        boardPane.showMatch(0)
+                    } else {
+                        boardPane.applyLoadedPosition()
+                    }
                 } else {
                     goBoard.stones = []
                     goBoard.lastMoveX = -1
@@ -195,8 +214,15 @@ menuBar: MenuBar {
             property int patternRight: -1
             property int patternBottom: -1
 
+            property var matchOccurrences: []
+            property int matchIndex: -1
+            property int matchWidth: 0
+            property int matchHeight: 0
+
 
             function clearPatternSelection() {
+                selectingPattern = false
+
                 patternLeft = -1
                 patternTop = -1
                 patternRight = -1
@@ -208,6 +234,49 @@ menuBar: MenuBar {
             function resetPatternSelection() {
                 selectingPattern = false
                 clearPatternSelection()
+            }
+
+            function clearMatchNavigation() {
+                matchOccurrences = []
+                matchIndex = -1
+                matchWidth = 0
+                matchHeight = 0
+
+                clearPatternSelection()
+            }
+
+            function showMatch(index) {
+                if (index < 0 || index >= matchOccurrences.length)
+                    return
+
+                const occurrence = matchOccurrences[index]
+
+                if (!gameController.showPosition(occurrence.move)) {
+                    console.warn(gameController.error_message)
+                    return
+                }
+
+                applyLoadedPosition()
+                matchIndex = index
+
+                const left = occurrence.left
+                const right = left + matchWidth - 1
+
+                const bottom =
+                    goBoard.boardSize - 1 - occurrence.bottom
+
+                const top = bottom - matchHeight + 1
+
+                patternLeft = left
+                patternTop = top
+                patternRight = right
+                patternBottom = bottom
+
+                goBoard.setPatternSelection(
+                            left,
+                            top,
+                            right,
+                            bottom)
             }
 
             function applyLoadedPosition() {
@@ -224,6 +293,8 @@ menuBar: MenuBar {
                 if (!selectedGame) {
                     return
                 }
+
+                clearMatchNavigation()
 
                 if (gameController.showPosition(moveNumber)) {
                     applyLoadedPosition()
@@ -269,6 +340,7 @@ menuBar: MenuBar {
                                           x,
                                           y,
                                           boardPane.editTool)) {
+                                  gameList.clearSearchResults()
                                   boardPane.applyLoadedPosition()
                               } else {
                                   console.warn(
@@ -281,6 +353,8 @@ menuBar: MenuBar {
                               boardPane.patternTop = top
                               boardPane.patternRight = right
                               boardPane.patternBottom = bottom
+
+                              boardPane.selectingPattern = false
                           }
                       }
                   }
@@ -296,13 +370,16 @@ menuBar: MenuBar {
                       ToolButton {
                           text: qsTr("Select Pattern")
                           checkable: true
-                          checked: boardPane.selectingPattern
+
+                              checked: boardPane.selectingPattern
 
                           onToggled: {
                               boardPane.selectingPattern = checked
 
-                              if (checked)
+                              if (checked) {
+                                  gameList.clearSearchResults()
                                   goBoard.hoverValid = false
+                              }
                           }
                       }
 
@@ -311,6 +388,36 @@ menuBar: MenuBar {
                           enabled: goBoard.patternSelectionValid
 
                           onClicked: boardPane.clearPatternSelection()
+                      }
+
+                      ToolButton {
+                          text: qsTr("Search Database")
+
+                          enabled: goBoard.patternSelectionValid
+                                   && boardPane.selectedGame !== null
+                                   && root.projectPath.length > 0
+
+                          onClicked: {
+                              const width =
+                                  boardPane.patternRight
+                                  - boardPane.patternLeft + 1
+
+                              const height =
+                                  boardPane.patternBottom
+                                  - boardPane.patternTop + 1
+
+                              const bottom =
+                                  goBoard.boardSize - 1
+                                  - boardPane.patternBottom
+
+                              gameList.searchProject(
+                                          gameController.board_size,
+                                          gameController.stones_json,
+                                          boardPane.patternLeft,
+                                          bottom,
+                                          width,
+                                          height)
+                          }
                       }
 
                       Item {
@@ -458,6 +565,57 @@ menuBar: MenuBar {
                             opacity: 0.75
                             font.pixelSize: 16
                             elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            visible:
+                                boardPane.matchOccurrences.length > 0
+
+                            ToolButton {
+                                text: qsTr("Previous Match")
+
+                                enabled: boardPane.matchIndex > 0
+
+                                onClicked: boardPane.showMatch(
+                                               boardPane.matchIndex - 1)
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+
+                                text: {
+                                    if (boardPane.matchIndex < 0)
+                                        return ""
+
+                                    const occurrence =
+                                        boardPane.matchOccurrences[
+                                            boardPane.matchIndex]
+
+                                    return qsTr(
+                                                "Match %1 of %2 · move %3")
+                                        .arg(boardPane.matchIndex + 1)
+                                        .arg(
+                                            boardPane.matchOccurrences.length)
+                                        .arg(occurrence.move)
+                                }
+
+                                horizontalAlignment:
+                                    Text.AlignHCenter
+                            }
+
+                            ToolButton {
+                                text: qsTr("Next Match")
+
+                                enabled:
+                                    boardPane.matchIndex >= 0
+                                    && boardPane.matchIndex
+                                       < boardPane.matchOccurrences.length - 1
+
+                                onClicked: boardPane.showMatch(
+                                               boardPane.matchIndex + 1)
+                            }
                         }
 
                         Slider {

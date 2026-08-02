@@ -585,6 +585,8 @@ dependencies = [
  "cxx-qt-lib",
  "cxx-qt-lib-extras",
  "moyodb",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

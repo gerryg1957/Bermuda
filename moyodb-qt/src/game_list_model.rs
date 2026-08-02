@@ -8,6 +8,8 @@ use moyodb::{
     project_manager::ProjectManager,
 };
 
+pub(crate) use crate::search_result_model::SearchResultModelRust;
+
 type QHash_i32_QByteArray = QHash<QHashPair_i32_QByteArray>;
 
 const GAME_ID_ROLE: i32 = 0x0100;
@@ -42,7 +44,7 @@ pub struct GameListModelRust {
 }
 
 #[cxx_qt::bridge]
-mod ffi {
+pub mod ffi {
     unsafe extern "C++Qt" {
         include!(<QtCore/QAbstractListModel>);
 
@@ -102,6 +104,55 @@ mod ffi {
         #[inherit]
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut GameListModel>);
+    }
+
+    unsafe extern "RustQt" {
+        #[qobject]
+        #[qml_element]
+        #[base = QAbstractListModel]
+        #[qproperty(QString, error_message)]
+        #[qproperty(i32, total_occurrences)]
+        type SearchResultModel = super::SearchResultModelRust;
+
+        #[qinvokable]
+        #[cxx_name = "searchProject"]
+        fn search_project(
+            self: Pin<&mut SearchResultModel>,
+            project_path: &QString,
+            board_size: i32,
+            stones_json: &QString,
+            left: i32,
+            bottom: i32,
+            width: i32,
+            height: i32,
+        ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "clearResults"]
+        fn clear_results(self: Pin<&mut SearchResultModel>);
+
+        #[qinvokable]
+        #[cxx_name = "occurrencesJson"]
+        fn occurrences_json(self: &SearchResultModel, row_number: i32) -> QString;
+
+        #[cxx_override]
+        #[cxx_name = "rowCount"]
+        fn row_count(self: &SearchResultModel, parent: &QModelIndex) -> i32;
+
+        #[cxx_override]
+        fn data(self: &SearchResultModel, index: &QModelIndex, role: i32) -> QVariant;
+
+        #[cxx_override]
+        #[cxx_name = "roleNames"]
+        fn role_names(self: &SearchResultModel) -> QHash_i32_QByteArray;
+
+        #[inherit]
+        #[rust_name = "begin_reset_model"]
+        fn beginResetModel(self: Pin<&mut SearchResultModel>);
+
+        #[inherit]
+        #[rust_name = "end_reset_model"]
+        fn endResetModel(self: Pin<&mut SearchResultModel>);
     }
 }
 

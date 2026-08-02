@@ -323,11 +323,13 @@ fn edit_document_position(
 
     let x = u8::try_from(x).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
 
-    let y = u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+    let qml_y = u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+    let core_y = qml_y_to_core(position.board.size(), qml_y)?;
 
     let point = position
         .board
-        .point(x, y)
+        .point(x, core_y)
         .map_err(|error| error.to_string())?;
 
     match tool {
@@ -384,7 +386,10 @@ fn position_data(
         Some(point) => {
             let size = u16::from(position.board.size());
 
-            (i32::from(point % size), i32::from(point / size))
+            let core_y = point / size;
+            let qml_y = core_y_to_qml(size, core_y);
+
+            (i32::from(point % size), i32::from(qml_y))
         }
 
         None => (-1, -1),
@@ -406,6 +411,21 @@ fn position_data(
     })
 }
 
+fn qml_y_to_core(board_size: u8, qml_y: u8) -> Result<u8, String> {
+    if qml_y >= board_size {
+        return Err(format!(
+            "board y-coordinate {qml_y} lies outside a {board_size}×{board_size} board"
+        ));
+    }
+
+    Ok(board_size - 1 - qml_y)
+}
+
+fn core_y_to_qml(board_size: u16, core_y: u16) -> u16 {
+    debug_assert!(core_y < board_size);
+    board_size - 1 - core_y
+}
+
 fn board_stones_json(board: &Board) -> QString {
     let size = u16::from(board.size());
     let point_count = size * size;
@@ -425,7 +445,8 @@ fn board_stones_json(board: &Board) -> QString {
         first = false;
 
         let x = point % size;
-        let y = point / size;
+        let core_y = point / size;
+        let y = core_y_to_qml(size, core_y);
 
         let colour_name = match colour {
             Colour::Black => "black",

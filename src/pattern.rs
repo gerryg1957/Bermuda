@@ -194,6 +194,92 @@ mod tests {
     }
 
     #[test]
+    fn edge_pattern_does_not_match_interior_location() {
+        let mut board = Board::new(19).unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(0, 0).unwrap())
+            .unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(5, 5).unwrap())
+            .unwrap();
+
+        let pattern = Pattern::extract(
+            &board,
+            PatternRect {
+                left: 0,
+                bottom: 0,
+                width: 1,
+                height: 1,
+            },
+        )
+        .unwrap();
+
+        assert!(pattern.matches_at(&board, 0, 0).unwrap());
+        assert!(!pattern.matches_at(&board, 5, 5).unwrap());
+    }
+
+    #[test]
+    fn interior_pattern_does_not_match_edge_location() {
+        let mut board = Board::new(19).unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(0, 0).unwrap())
+            .unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(5, 5).unwrap())
+            .unwrap();
+
+        let pattern = Pattern::extract(
+            &board,
+            PatternRect {
+                left: 5,
+                bottom: 5,
+                width: 1,
+                height: 1,
+            },
+        )
+        .unwrap();
+
+        assert!(pattern.matches_at(&board, 5, 5).unwrap());
+        assert!(!pattern.matches_at(&board, 0, 0).unwrap());
+    }
+
+    #[test]
+    fn top_right_corner_pattern_only_matches_top_right_corner() {
+        let mut board = Board::new(19).unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(18, 18).unwrap())
+            .unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(0, 18).unwrap())
+            .unwrap();
+
+        board
+            .set_setup(Colour::Black, board.point(18, 0).unwrap())
+            .unwrap();
+
+        let pattern = Pattern::extract(
+            &board,
+            PatternRect {
+                left: 18,
+                bottom: 18,
+                width: 1,
+                height: 1,
+            },
+        )
+        .unwrap();
+
+        assert!(pattern.matches_at(&board, 18, 18).unwrap());
+        assert!(!pattern.matches_at(&board, 0, 18).unwrap());
+        assert!(!pattern.matches_at(&board, 18, 0).unwrap());
+    }
+
+    #[test]
     fn rejects_empty_rectangle() {
         let board = Board::new(19).unwrap();
 

@@ -11,10 +11,18 @@ Kirigami.AbstractCard {
 
     property string projectPath: ""
     property int selectedRow: -1
+    property int selectedSearchRow: -1
     property bool projectLoaded: false
+    property bool searchHasRun: false
+    property bool searchInProgress: false
+    property int searchPatternWidth: 0
+    property int searchPatternHeight: 0
 
     readonly property bool searchResultsSelected:
     catalogueTabs.currentIndex === 1
+
+    readonly property string searchErrorMessage:
+        searchModel.error_message
 
     property string sortColumn: "date"
 
@@ -55,11 +63,61 @@ Kirigami.AbstractCard {
     return title + (sortAscending ? " ▲" : " ▼")
 }
 
-    onProjectPathChanged: loadProject()
+    function clearSearchResults() {
+        selectedSearchRow = -1
+        searchHasRun = false
+        searchInProgress = false
+        searchPatternWidth = 0
+        searchPatternHeight = 0
+        searchModel.clearResults()
+    }
+
+    function searchProject(boardSize,
+                           stonesJson,
+                           left,
+                           bottom,
+                           width,
+                           height) {
+        selectedSearchRow = -1
+        searchHasRun = true
+        searchInProgress = true
+        searchPatternWidth = width
+        searchPatternHeight = height
+
+        searchModel.clearResults()
+        catalogueTabs.currentIndex = 1
+
+        // Allow Qt to repaint the cleared result list before the
+        // synchronous database search begins.
+        Qt.callLater(function() {
+            const succeeded = searchModel.searchProject(
+                                projectPath,
+                                boardSize,
+                                stonesJson,
+                                left,
+                                bottom,
+                                width,
+                                height)
+
+            searchInProgress = false
+
+            if (!succeeded)
+                console.warn(searchModel.error_message)
+        })
+    }
+
+    onProjectPathChanged: {
+        clearSearchResults()
+        loadProject()
+    }
 
     Component.onCompleted: loadProject()
     GameListModel {
         id: gameModel
+    }
+
+    SearchResultModel {
+        id: searchModel
     }
 
    contentItem: ColumnLayout {
@@ -110,9 +168,20 @@ Kirigami.AbstractCard {
             Layout.rightMargin:
                 Kirigami.Units.smallSpacing
 
-            text: root.searchResultsSelected
-                  ? qsTr("0 matching games")
-                  : qsTr("%1 games").arg(gameView.count)
+            text: {
+                if (!root.searchResultsSelected)
+                    return qsTr("%1 games").arg(gameView.count)
+
+                if (root.searchInProgress)
+                    return qsTr("Searching…")
+
+                if (!root.searchHasRun)
+                    return ""
+
+                return qsTr("%1 matching games · %2 occurrences")
+                    .arg(searchView.count)
+                    .arg(searchModel.total_occurrences)
+            }
 
             opacity: 0.7
         }
@@ -279,6 +348,226 @@ Kirigami.AbstractCard {
             visible: catalogueTabs.currentIndex === 0
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: searchHeaderRow.implicitHeight
+            visible: catalogueTabs.currentIndex === 1
+            color: Kirigami.Theme.alternateBackgroundColor
+
+            RowLayout {
+                id: searchHeaderRow
+
+                anchors.fill: parent
+                spacing: 0
+
+                Label {
+                    text: qsTr("Black")
+                    Layout.preferredWidth: 150
+                    padding: Kirigami.Units.smallSpacing
+                    font.bold: true
+                }
+
+                Label {
+                    text: qsTr("White")
+                    Layout.preferredWidth: 150
+                    padding: Kirigami.Units.smallSpacing
+                    font.bold: true
+                }
+
+                Label {
+                    text: qsTr("Date")
+                    Layout.preferredWidth: 105
+                    padding: Kirigami.Units.smallSpacing
+                    font.bold: true
+                }
+
+                Label {
+                    text: qsTr("Result")
+                    Layout.preferredWidth: 80
+                    padding: Kirigami.Units.smallSpacing
+                    font.bold: true
+                }
+
+                Label {
+                    text: qsTr("Matches")
+                    Layout.preferredWidth: 80
+                    padding: Kirigami.Units.smallSpacing
+                    horizontalAlignment: Text.AlignHCenter
+                    font.bold: true
+                }
+
+                Label {
+                    text: qsTr("Event")
+                    Layout.fillWidth: true
+                    padding: Kirigami.Units.smallSpacing
+                    font.bold: true
+                }
+            }
+        }
+
+        Kirigami.Separator {
+            Layout.fillWidth: true
+            visible: catalogueTabs.currentIndex === 1
+        }
+
+        ListView {
+            id: searchView
+
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            visible: catalogueTabs.currentIndex === 1
+
+            clip: true
+            model: searchModel
+            currentIndex: root.selectedSearchRow
+
+            ScrollBar.vertical: ScrollBar {
+                id: searchVerticalScrollBar
+            }
+
+            delegate: ItemDelegate {
+                id: searchRowDelegate
+
+                required property int index
+                required property var gameId
+                required property string blackPlayer
+                required property string whitePlayer
+                required property string playedDate
+                required property string result
+                required property string event
+                required property string komi
+                required property int matchCount
+                required property int firstMatchMove
+                required property int firstMatchLeft
+                required property int firstMatchBottom
+
+                width: searchView.width
+                height: Math.round(Kirigami.Units.gridUnit * 1.75)
+                rightPadding: searchVerticalScrollBar.width + 4
+                clip: true
+
+                highlighted: root.selectedSearchRow === index
+
+                background: Rectangle {
+                    anchors {
+                        left: parent.left
+                        right: parent.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: 4
+                        rightMargin: searchVerticalScrollBar.width + 4
+                    }
+
+                    height: parent.height - 4
+                    radius: 4
+
+                    color: searchRowDelegate.highlighted
+                        ? searchRowDelegate.palette.highlight
+                        : searchRowDelegate.hovered
+                            ? searchRowDelegate.palette.alternateBase
+                            : "transparent"
+                }
+
+                onClicked: {
+                    root.selectedSearchRow = index
+
+                    const occurrences = JSON.parse(
+                                          searchModel.occurrencesJson(index))
+
+                    root.gameSelected({
+                        gameId: gameId,
+                        black: blackPlayer,
+                        white: whitePlayer,
+                        gameDate: playedDate,
+                        result: result,
+                        eventName: event,
+                        komi: searchRowDelegate.komi,
+                        matchMove: firstMatchMove,
+                        matchLeft: firstMatchLeft,
+                        matchBottom: firstMatchBottom,
+                        matchOccurrences: occurrences,
+                        matchWidth: root.searchPatternWidth,
+                        matchHeight: root.searchPatternHeight,
+                        fromSearchResults: true
+                    })
+                }
+
+                contentItem: RowLayout {
+                    spacing: 0
+
+                    Label {
+                        text: searchRowDelegate.blackPlayer
+                        Layout.preferredWidth: 150
+                        elide: Text.ElideRight
+                        leftPadding: Kirigami.Units.smallSpacing
+                    }
+
+                    Label {
+                        text: searchRowDelegate.whitePlayer
+                        Layout.preferredWidth: 150
+                        elide: Text.ElideRight
+                        leftPadding: Kirigami.Units.smallSpacing
+                    }
+
+                    Label {
+                        text: searchRowDelegate.playedDate
+                        Layout.preferredWidth: 105
+                        Layout.maximumWidth: 105
+                        elide: Text.ElideRight
+                        clip: true
+                        leftPadding: Kirigami.Units.smallSpacing
+                    }
+
+                    Label {
+                        text: searchRowDelegate.result
+                        Layout.preferredWidth: 80
+                        Layout.maximumWidth: 80
+                        elide: Text.ElideRight
+                        clip: true
+                        leftPadding: Kirigami.Units.smallSpacing
+                    }
+
+                    Label {
+                        text: searchRowDelegate.matchCount
+                        Layout.preferredWidth: 80
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Label {
+                        text: searchRowDelegate.event
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideRight
+                        clip: true
+                        leftPadding: Kirigami.Units.smallSpacing
+                        rightPadding: Kirigami.Units.smallSpacing
+                    }
+                }
+            }
+
+            Kirigami.PlaceholderMessage {
+                anchors.centerIn: parent
+                visible: searchView.count === 0
+
+                text: {
+                    if (root.searchInProgress)
+                        return qsTr("Searching…")
+
+                    if (searchModel.error_message.length > 0)
+                        return qsTr("Search failed")
+
+                    if (!root.searchHasRun)
+                        return qsTr("No search has been run")
+
+                    return qsTr("No matching games")
+                }
+
+                explanation: root.searchInProgress
+                    ? qsTr("Searching the project database")
+                    : searchModel.error_message
+            }
+        }
+
         ListView {
             id: gameView
 
@@ -344,7 +633,8 @@ Kirigami.AbstractCard {
                         gameDate: playedDate,
                         result: result,
                         eventName: event,
-                        komi: rowDelegate.komi
+                        komi: rowDelegate.komi,
+                        fromSearchResults: false
                     })
                 }
 
@@ -428,13 +718,5 @@ Kirigami.AbstractCard {
             }
         }
 
-        Kirigami.PlaceholderMessage {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-
-            visible: catalogueTabs.currentIndex === 1
-
-            text: qsTr("No search has been run")
-        }
     }
 }

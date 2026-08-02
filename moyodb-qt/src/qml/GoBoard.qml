@@ -49,6 +49,16 @@ Item {
         boardCanvas.requestPaint()
     }
 
+    function setPatternSelection(left, top, right, bottom) {
+        patternSelectionDragging = false
+        patternStartX = left
+        patternStartY = top
+        patternEndX = right
+        patternEndY = bottom
+
+        boardCanvas.requestPaint()
+    }
+
     Canvas {
         id: boardCanvas
         anchors.fill: parent
