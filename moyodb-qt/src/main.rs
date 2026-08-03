@@ -1,4 +1,5 @@
 mod app;
+mod database_operation_model;
 mod game_list_model;
 mod search_result_model;
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QString, QUrl};

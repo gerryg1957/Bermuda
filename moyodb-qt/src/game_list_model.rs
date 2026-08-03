@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use cxx_qt::CxxQtType;
 use std::{fmt::Display, path::Path, pin::Pin};
 
@@ -10,6 +11,7 @@ use moyodb::{
 
 pub(crate) use crate::search_result_model::SearchResultModelRust;
 
+#[allow(non_camel_case_types)]
 type QHash_i32_QByteArray = QHash<QHashPair_i32_QByteArray>;
 
 const GAME_ID_ROLE: i32 = 0x0100;
@@ -259,8 +261,10 @@ impl ffi::GameListModel {
             SortField::descending(game_column)
         };
 
-        let mut query = GameListQuery::default();
-        query.sort_fields = vec![primary_sort];
+        let query = GameListQuery {
+            sort_fields: vec![primary_sort],
+            ..GameListQuery::default()
+        };
 
         self.as_mut().load_with_query(project_path, query)
     }

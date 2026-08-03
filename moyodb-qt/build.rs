@@ -8,6 +8,7 @@ fn main() {
             .qml_file("src/qml/GoBoard.qml"),
     )
     .file("src/app.rs")
+    .file("src/database_operation_model.rs")
     .file("src/game_list_model.rs")
     .build();
 }

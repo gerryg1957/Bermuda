@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use cxx_qt::{CxxQtType, Threading};
 
 use std::{
@@ -19,6 +20,7 @@ use moyodb::{
     project_manager::ProjectManager,
 };
 
+#[allow(non_camel_case_types)]
 type QHash_i32_QByteArray = QHash<QHashPair_i32_QByteArray>;
 
 const GAME_ID_ROLE: i32 = 0x0100;
