@@ -344,33 +344,199 @@ Item {
                 const x = left + stone.x * spacing
                 const y = top + stone.y * spacing
 
-                const gradient = ctx.createRadialGradient(
-                    x - radius * 0.35,
-                    y - radius * 0.35,
-                    radius * 0.1,
-                    x,
-                    y,
-                    radius
-                )
-
                 if (stone.color === "black") {
+                    const gradient = ctx.createRadialGradient(
+                        x - radius * 0.35,
+                        y - radius * 0.35,
+                        radius * 0.1,
+                        x,
+                        y,
+                        radius
+                    )
+
                     gradient.addColorStop(0, "#666666")
                     gradient.addColorStop(0.4, "#202020")
                     gradient.addColorStop(1, "#050505")
+
+                    ctx.fillStyle = gradient
                     ctx.strokeStyle = "#000000"
-                } else {
-                    gradient.addColorStop(0, "#ffffff")
-                    gradient.addColorStop(0.65, "#eeeeee")
-                    gradient.addColorStop(1, "#b8b8b8")
-                    ctx.strokeStyle = "#777777"
+                    ctx.lineWidth = 1
+
+                    ctx.beginPath()
+                    ctx.arc(x, y, radius, 0, Math.PI * 2)
+                    ctx.fill()
+                    ctx.stroke()
+
+                    continue
                 }
 
-                ctx.fillStyle = gradient
-                ctx.lineWidth = 1
+                /*
+                 * Warm shell body. The highlight is offset towards the
+                 * upper left, while the lower-right edge is slightly darker.
+                 */
+                const shellGradient = ctx.createRadialGradient(
+                    x - radius * 0.38,
+                    y - radius * 0.42,
+                    radius * 0.06,
+                    x + radius * 0.08,
+                    y + radius * 0.10,
+                    radius * 1.08
+                )
+
+                shellGradient.addColorStop(0.00, "#ffffff")
+                shellGradient.addColorStop(0.32, "#fbfaf5")
+                shellGradient.addColorStop(0.70, "#eeeae0")
+                shellGradient.addColorStop(1.00, "#bdb8ae")
+
+                ctx.fillStyle = shellGradient
+                ctx.strokeStyle = "#77736b"
+                ctx.lineWidth = Math.max(0.8, radius * 0.045)
 
                 ctx.beginPath()
                 ctx.arc(x, y, radius, 0, Math.PI * 2)
                 ctx.fill()
+                ctx.stroke()
+
+                /*
+                 * Everything below is clipped to the circular stone.
+                 */
+                ctx.save()
+
+                ctx.beginPath()
+                ctx.arc(
+                    x,
+                    y,
+                    radius * 0.96,
+                    0,
+                    Math.PI * 2
+                )
+                ctx.clip()
+
+                /*
+                 * A very soft pearlescent wash helps the stone look like
+                 * polished shell rather than plain white plastic.
+                 */
+                const pearlGradient = ctx.createLinearGradient(
+                    x - radius,
+                    y - radius,
+                    x + radius,
+                    y + radius
+                )
+
+                pearlGradient.addColorStop(
+                    0.00,
+                    "rgba(255, 255, 255, 0.30)"
+                )
+                pearlGradient.addColorStop(
+                    0.43,
+                    "rgba(255, 252, 241, 0.08)"
+                )
+                pearlGradient.addColorStop(
+                    0.72,
+                    "rgba(181, 173, 157, 0.06)"
+                )
+                pearlGradient.addColorStop(
+                    1.00,
+                    "rgba(110, 104, 94, 0.12)"
+                )
+
+                ctx.fillStyle = pearlGradient
+                ctx.fillRect(
+                    x - radius,
+                    y - radius,
+                    radius * 2,
+                    radius * 2
+                )
+
+                /*
+                 * Clamshell growth bands. Their small deterministic variation
+                 * means neighbouring stones do not all look identical, while
+                 * remaining stable whenever the Canvas is repainted.
+                 */
+                const phase =
+                    (stone.x * 7 + stone.y * 11) * 0.37
+
+                const bandCount = 5
+
+                for (let band = 0;
+                     band < bandCount;
+                     ++band) {
+                    const offset =
+                        (band - (bandCount - 1) / 2)
+                        * radius * 0.29
+
+                    const bend =
+                        Math.sin(phase + band * 1.23)
+                        * radius * 0.085
+
+                    ctx.strokeStyle = band % 2 === 0
+                        ? "rgba(116, 108, 94, 0.12)"
+                        : "rgba(143, 132, 112, 0.09)"
+
+                    ctx.lineWidth =
+                        Math.max(0.35, radius * 0.020)
+
+                    ctx.beginPath()
+
+                    ctx.moveTo(
+                        x - radius * 0.90,
+                        y + offset - radius * 0.10
+                    )
+
+                    ctx.bezierCurveTo(
+                        x - radius * 0.34,
+                        y + offset + bend - radius * 0.06,
+                        x + radius * 0.34,
+                        y + offset - bend + radius * 0.06,
+                        x + radius * 0.90,
+                        y + offset + radius * 0.10
+                    )
+
+                    ctx.stroke()
+
+                    /*
+                     * A neighbouring pale edge suggests light catching the
+                     * shallow ridge of the shell growth line.
+                     */
+                    ctx.strokeStyle =
+                        "rgba(255, 255, 255, 0.10)"
+
+                    ctx.lineWidth =
+                        Math.max(0.25, radius * 0.010)
+
+                    ctx.beginPath()
+
+                    ctx.moveTo(
+                        x - radius * 0.90,
+                        y + offset
+                            - radius * 0.065
+                    )
+
+                    ctx.bezierCurveTo(
+                        x - radius * 0.34,
+                        y + offset + bend
+                            - radius * 0.025,
+                        x + radius * 0.34,
+                        y + offset - bend
+                            + radius * 0.095,
+                        x + radius * 0.90,
+                        y + offset
+                            + radius * 0.135
+                    )
+
+                    ctx.stroke()
+                }
+
+                ctx.restore()
+
+                /*
+                 * Redraw a clean rim after applying the clipped texture.
+                 */
+                ctx.strokeStyle = "rgba(91, 87, 80, 0.58)"
+                ctx.lineWidth = Math.max(0.75, radius * 0.040)
+
+                ctx.beginPath()
+                ctx.arc(x, y, radius, 0, Math.PI * 2)
                 ctx.stroke()
             }
         }
