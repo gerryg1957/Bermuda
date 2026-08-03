@@ -321,6 +321,8 @@ Item {
         z: 1
         hoverEnabled: true
 
+        property bool suppressSelectionClick: false
+
         function boardGeometry() {
             const side = Math.min(width, height)
             const left = (width - side) / 2 + root.boardPadding
@@ -466,6 +468,17 @@ Item {
 
             root.patternSelectionDragging = false
 
+            // Completing a rubber-band selection also generates
+            // MouseArea.onClicked after onReleased. By then,
+            // pattern-selection mode has been switched off by
+            // Main.qml, so consume that click rather than treating
+            // it as a board-edit click.
+            suppressSelectionClick = true
+
+            Qt.callLater(function() {
+                suppressSelectionClick = false
+            })
+
             const left = Math.min(
                 root.patternStartX,
                 root.patternEndX
@@ -501,6 +514,11 @@ Item {
         }
 
         onClicked: mouse => {
+            if (suppressSelectionClick) {
+                suppressSelectionClick = false
+                return
+            }
+
             if (root.patternSelectionEnabled)
                 return
 

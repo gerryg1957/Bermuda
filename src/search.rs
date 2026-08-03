@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 
 use crate::{
-    Colour, PatternSearchQuery, PatternSearcher, game_catalogue::GameCatalogue,
-    indexer::PositionIndexer, project::Project,
+    Colour, PatternMatch, PatternSearchOutcome, PatternSearchProgress, PatternSearchQuery,
+    PatternSearcher, game_catalogue::GameCatalogue, indexer::PositionIndexer, project::Project,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +33,12 @@ pub struct SearchResult {
     pub occurrences: Vec<SearchOccurrence>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SearchPatternOutcome {
+    Completed(Vec<SearchResult>),
+    Cancelled,
+}
+
 pub struct SearchEngine {
     indexer: PositionIndexer,
     catalogue: GameCatalogue,
@@ -49,8 +55,40 @@ impl SearchEngine {
     }
 
     pub fn search_pattern(&self, query: &PatternSearchQuery) -> Result<Vec<SearchResult>> {
-        let matches = self.pattern_searcher.search(&self.indexer, query)?;
+        match self.search_pattern_with_progress(query, || false, |_| {})? {
+            SearchPatternOutcome::Completed(results) => Ok(results),
 
+            SearchPatternOutcome::Cancelled => {
+                unreachable!("an uncancellable search was cancelled")
+            }
+        }
+    }
+
+    pub fn search_pattern_with_progress<C, P>(
+        &self,
+        query: &PatternSearchQuery,
+        is_cancelled: C,
+        on_progress: P,
+    ) -> Result<SearchPatternOutcome>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(PatternSearchProgress),
+    {
+        match self.pattern_searcher.search_with_progress(
+            &self.indexer,
+            query,
+            is_cancelled,
+            on_progress,
+        )? {
+            PatternSearchOutcome::Completed(matches) => Ok(SearchPatternOutcome::Completed(
+                self.results_from_matches(matches)?,
+            )),
+
+            PatternSearchOutcome::Cancelled => Ok(SearchPatternOutcome::Cancelled),
+        }
+    }
+
+    fn results_from_matches(&self, matches: Vec<PatternMatch>) -> Result<Vec<SearchResult>> {
         let mut grouped_occurrences: BTreeMap<i64, Vec<SearchOccurrence>> = BTreeMap::new();
 
         for found in matches {

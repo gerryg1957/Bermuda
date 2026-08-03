@@ -14,7 +14,8 @@ Kirigami.AbstractCard {
     property int selectedSearchRow: -1
     property bool projectLoaded: false
     property bool searchHasRun: false
-    property bool searchInProgress: false
+    readonly property bool searchInProgress:
+        searchModel.search_in_progress
     property int searchPatternWidth: 0
     property int searchPatternHeight: 0
 
@@ -66,7 +67,6 @@ Kirigami.AbstractCard {
     function clearSearchResults() {
         selectedSearchRow = -1
         searchHasRun = false
-        searchInProgress = false
         searchPatternWidth = 0
         searchPatternHeight = 0
         searchModel.clearResults()
@@ -80,30 +80,23 @@ Kirigami.AbstractCard {
                            height) {
         selectedSearchRow = -1
         searchHasRun = true
-        searchInProgress = true
         searchPatternWidth = width
         searchPatternHeight = height
 
         searchModel.clearResults()
         catalogueTabs.currentIndex = 1
 
-        // Allow Qt to repaint the cleared result list before the
-        // synchronous database search begins.
-        Qt.callLater(function() {
-            const succeeded = searchModel.searchProject(
-                                projectPath,
-                                boardSize,
-                                stonesJson,
-                                left,
-                                bottom,
-                                width,
-                                height)
+        const started = searchModel.searchProject(
+                            projectPath,
+                            boardSize,
+                            stonesJson,
+                            left,
+                            bottom,
+                            width,
+                            height)
 
-            searchInProgress = false
-
-            if (!succeeded)
-                console.warn(searchModel.error_message)
-        })
+        if (!started)
+            console.warn(searchModel.error_message)
     }
 
     onProjectPathChanged: {
@@ -164,27 +157,6 @@ Kirigami.AbstractCard {
             Layout.fillWidth: true
         }
 
-        Label {
-            Layout.rightMargin:
-                Kirigami.Units.smallSpacing
-
-            text: {
-                if (!root.searchResultsSelected)
-                    return qsTr("%1 games").arg(gameView.count)
-
-                if (root.searchInProgress)
-                    return qsTr("Searching…")
-
-                if (!root.searchHasRun)
-                    return ""
-
-                return qsTr("%1 matching games · %2 occurrences")
-                    .arg(searchView.count)
-                    .arg(searchModel.total_occurrences)
-            }
-
-            opacity: 0.7
-        }
     }
 
         Rectangle {
@@ -545,26 +517,84 @@ Kirigami.AbstractCard {
                 }
             }
 
-            Kirigami.PlaceholderMessage {
+            ColumnLayout {
                 anchors.centerIn: parent
+                spacing: Kirigami.Units.largeSpacing
                 visible: searchView.count === 0
 
-                text: {
-                    if (root.searchInProgress)
-                        return qsTr("Searching…")
+                Kirigami.PlaceholderMessage {
+                    Layout.alignment: Qt.AlignHCenter
 
-                    if (searchModel.error_message.length > 0)
-                        return qsTr("Search failed")
+                    text: {
+                        if (root.searchInProgress) {
+                            return searchModel.cancel_requested
+                                ? qsTr("Cancelling…")
+                                : qsTr("Searching…")
+                        }
 
-                    if (!root.searchHasRun)
-                        return qsTr("No search has been run")
+                        if (searchModel.search_cancelled)
+                            return qsTr("Search cancelled")
 
-                    return qsTr("No matching games")
+                        if (searchModel.error_message.length > 0)
+                            return qsTr("Search failed")
+
+                        if (!root.searchHasRun)
+                            return qsTr("No search has been run")
+
+                        return qsTr("No matching games")
+                    }
+
+                    explanation: {
+                        if (root.searchInProgress) {
+                            if (searchModel.total_games <= 0)
+                                return qsTr(
+                                    "Preparing the project database")
+
+                            const matchingText =
+                                searchModel.matching_games === 1
+                                ? qsTr("1 matching game")
+                                : qsTr("%1 matching games")
+                                    .arg(searchModel.matching_games)
+
+                            const occurrenceText =
+                                searchModel.matches_found === 1
+                                ? qsTr("1 occurrence")
+                                : qsTr("%1 occurrences")
+                                    .arg(searchModel.matches_found)
+
+                            return qsTr(
+                                "%1 of %2 games searched\n"
+                                + "%3 · %4 found so far")
+                                .arg(searchModel.games_examined)
+                                .arg(searchModel.total_games)
+                                .arg(matchingText)
+                                .arg(occurrenceText)
+                        }
+
+                        if (searchModel.search_cancelled) {
+                            return qsTr(
+                                "Cancelled after %1 of %2 games\n"
+                                + "Partial results were discarded")
+                                .arg(searchModel.games_examined)
+                                .arg(searchModel.total_games)
+                        }
+
+                        return searchModel.error_message
+                    }
                 }
 
-                explanation: root.searchInProgress
-                    ? qsTr("Searching the project database")
-                    : searchModel.error_message
+                Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: root.searchInProgress
+
+                    text: searchModel.cancel_requested
+                        ? qsTr("Cancelling…")
+                        : qsTr("Cancel")
+
+                    enabled: !searchModel.cancel_requested
+
+                    onClicked: searchModel.cancelSearch()
+                }
             }
         }
 

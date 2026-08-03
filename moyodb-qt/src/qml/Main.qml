@@ -396,6 +396,7 @@ menuBar: MenuBar {
                           enabled: goBoard.patternSelectionValid
                                    && boardPane.selectedGame !== null
                                    && root.projectPath.length > 0
+                                   && !gameList.searchInProgress
 
                           onClicked: {
                               const width =

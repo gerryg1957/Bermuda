@@ -112,6 +112,13 @@ pub mod ffi {
         #[base = QAbstractListModel]
         #[qproperty(QString, error_message)]
         #[qproperty(i32, total_occurrences)]
+        #[qproperty(bool, search_in_progress)]
+        #[qproperty(bool, cancel_requested)]
+        #[qproperty(bool, search_cancelled)]
+        #[qproperty(i32, games_examined)]
+        #[qproperty(i32, total_games)]
+        #[qproperty(i32, matching_games)]
+        #[qproperty(i32, matches_found)]
         type SearchResultModel = super::SearchResultModelRust;
 
         #[qinvokable]
@@ -130,6 +137,10 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "clearResults"]
         fn clear_results(self: Pin<&mut SearchResultModel>);
+
+        #[qinvokable]
+        #[cxx_name = "cancelSearch"]
+        fn cancel_search(self: Pin<&mut SearchResultModel>);
 
         #[qinvokable]
         #[cxx_name = "occurrencesJson"]
@@ -154,6 +165,8 @@ pub mod ffi {
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut SearchResultModel>);
     }
+
+    impl cxx_qt::Threading for SearchResultModel {}
 }
 
 impl ffi::GameListModel {
