@@ -82,6 +82,13 @@ Item {
                 side
             )
 
+            drawWoodGrain(
+                ctx,
+                (width - side) / 2,
+                (height - side) / 2,
+                side
+            )
+
             ctx.strokeStyle = root.lineColor
             ctx.lineWidth = 1
 
@@ -107,7 +114,167 @@ Item {
             drawHoverMarker(ctx, left, top, spacing)
         }
 
-                function coordinateLetter(index) {
+                function drawWoodGrain(ctx, left, top, side) {
+                    const grainLines = 104
+                    const segments = 72
+
+                    ctx.save()
+
+                    ctx.beginPath()
+                    ctx.rect(left, top, side, side)
+                    ctx.clip()
+
+                    /*
+                     * Broad, nearly imperceptible tonal bands prevent the surface
+                     * from looking like a flat colour while keeping the board calm.
+                     */
+                    for (let band = 0; band < 14; ++band) {
+                        const bandX =
+                            left + side * (band + 0.5) / 14
+
+                        const bandWidth =
+                            side * (0.032 + 0.009 * Math.sin(band * 1.73))
+
+                        const gradient = ctx.createLinearGradient(
+                            bandX - bandWidth,
+                            top,
+                            bandX + bandWidth,
+                            top
+                        )
+
+                        gradient.addColorStop(
+                            0.0,
+                            "rgba(255, 225, 165, 0.00)"
+                        )
+
+                        gradient.addColorStop(
+                            0.5,
+                            band % 3 === 0
+                                ? "rgba(255, 226, 166, 0.055)"
+                                : "rgba(115, 72, 30, 0.028)"
+                        )
+
+                        gradient.addColorStop(
+                            1.0,
+                            "rgba(255, 225, 165, 0.00)"
+                        )
+
+                        ctx.fillStyle = gradient
+                        ctx.fillRect(
+                            bandX - bandWidth,
+                            top,
+                            bandWidth * 2,
+                            side
+                        )
+                    }
+
+                    /*
+                     * Fine vertical fibres. Most are very restrained; occasional
+                     * paired lines suggest carefully selected straight-grained kaya.
+                     */
+                    for (let grain = 0; grain < grainLines; ++grain) {
+                        const progressX = (grain + 0.5) / grainLines
+
+                        const groupedOffset =
+                            Math.sin(grain * 0.41) * side * 0.00065
+                            + Math.sin(grain * 1.87) * side * 0.00025
+
+                        const baseX =
+                            left + side * progressX + groupedOffset
+
+                        const phase = grain * 0.71
+
+                        const amplitude =
+                            side * (
+                                0.00042
+                                + 0.00008 * (grain % 5)
+                            )
+
+                        const featureLine = grain % 17 === 0
+                        const companionLine = grain % 17 === 1
+
+                        if (featureLine) {
+                            ctx.strokeStyle =
+                                "rgba(82, 48, 19, 0.25)"
+
+                            ctx.lineWidth =
+                                Math.max(0.70, side / 1250)
+                        } else if (companionLine) {
+                            ctx.strokeStyle =
+                                "rgba(126, 78, 31, 0.18)"
+
+                            ctx.lineWidth =
+                                Math.max(0.52, side / 1550)
+                        } else {
+                            const opacity =
+                                0.105 + (grain % 7) * 0.006
+
+                            ctx.strokeStyle =
+                                "rgba(105, 65, 27, "
+                                + opacity.toFixed(3)
+                                + ")"
+
+                            ctx.lineWidth =
+                                Math.max(0.38, side / 1900)
+                        }
+
+                        ctx.beginPath()
+
+                        for (let segment = 0;
+                             segment <= segments;
+                             ++segment) {
+                            const progressY = segment / segments
+                            const y = top + progressY * side
+
+                            /*
+                             * Long, slow movement dominates. The small secondary
+                             * movements prevent the fibres looking computer-straight.
+                             */
+                            const wave =
+                                Math.sin(
+                                    progressY * Math.PI * 1.55
+                                    + phase
+                                )
+                                + 0.16 * Math.sin(
+                                    progressY * Math.PI * 4.8
+                                    + phase * 1.37
+                                )
+                                + 0.045 * Math.sin(
+                                    progressY * Math.PI * 12.5
+                                    + grain * 0.29
+                                )
+
+                            const x = baseX + amplitude * wave
+
+                            if (segment === 0)
+                                ctx.moveTo(x, y)
+                            else
+                                ctx.lineTo(x, y)
+                        }
+
+                        ctx.stroke()
+
+                        /*
+                         * A restrained highlight beside only the strongest fibres
+                         * suggests a polished surface without making it glossy.
+                         */
+                        if (featureLine) {
+                            ctx.strokeStyle =
+                                "rgba(255, 226, 170, 0.13)"
+
+                            ctx.lineWidth =
+                                Math.max(0.34, side / 2300)
+
+                            ctx.translate(0.75, 0)
+                            ctx.stroke()
+                            ctx.translate(-0.75, 0)
+                        }
+                    }
+
+                    ctx.restore()
+                }
+
+        function coordinateLetter(index) {
             const skippedI = index >= 8 ? 1 : 0
             return String.fromCharCode(
                         "A".charCodeAt(0) + index + skippedI)
