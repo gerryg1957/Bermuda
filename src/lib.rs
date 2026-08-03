@@ -8,6 +8,7 @@ pub mod game_list;
 pub mod game_store;
 pub mod import_directory;
 pub mod importer;
+pub mod index_build;
 pub mod indexer;
 pub mod move_file;
 pub mod pattern;

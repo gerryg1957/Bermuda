@@ -1,6 +1,6 @@
 mod commands;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use moyodb::{
     Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
@@ -9,10 +9,10 @@ use moyodb::{
     },
     import_directory,
     importer::ImportOutcome,
-    indexer,
+    index_build,
     project_manager::ProjectManager,
 };
-use std::{path::PathBuf, time::Instant};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -740,81 +740,68 @@ fn build_position_index(project_path: PathBuf) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let started = Instant::now();
+    let mut last_reported = 0_usize;
 
-    let mut indexer = project.position_indexer()?;
-    let games = indexer.games_to_index(indexer::POSITION_INDEX_VERSION)?;
+    let outcome = index_build::run_with_progress(
+        &project,
+        || false,
+        |progress| {
+            if progress.processed_games == 0 || progress.processed_games == last_reported {
+                return;
+            }
 
-    let total_games = games.len();
+            if progress.processed_games.is_multiple_of(1_000)
+                || progress.processed_games == progress.total_games
+            {
+                println!(
+                    "Processed {}/{} games \
+                     ({:.1} games/second)...",
+                    progress.processed_games,
+                    progress.total_games,
+                    progress.rate(),
+                );
 
-    println!(
-        "Position index version: {}",
-        indexer::POSITION_INDEX_VERSION
-    );
-    println!("Games awaiting indexing: {total_games}");
+                last_reported = progress.processed_games;
+            }
+        },
+    )?;
 
-    if total_games == 0 {
+    let summary = match outcome {
+        index_build::IndexBuildOutcome::Completed(summary) => summary,
+
+        index_build::IndexBuildOutcome::Cancelled(_) => {
+            unreachable!("the command-line index build cannot cancel")
+        }
+    };
+
+    println!("Position index version: {}", summary.index_version);
+
+    println!("Games awaiting indexing: {}", summary.total_games);
+
+    if summary.total_games == 0 {
         println!("Position index is already up to date.");
+
         return Ok(());
     }
 
-    let mut indexed_games = 0usize;
-    let mut indexed_positions = 0u64;
-    let mut errors = 0usize;
-
-    for game in &games {
-        match indexer.index_game(game, indexer::POSITION_INDEX_VERSION) {
-            Ok(occurrence_count) => {
-                indexed_games += 1;
-
-                indexed_positions += u64::try_from(occurrence_count)
-                    .context("position count does not fit in u64")?;
-            }
-
-            Err(error) => {
-                errors += 1;
-
-                eprintln!(
-                    "Failed to index game {} from {}: {error:#}",
-                    game.game_id,
-                    game.move_file.display()
-                );
-            }
-        }
-
-        let processed = indexed_games + errors;
-
-        if processed.is_multiple_of(1_000) || processed == total_games {
-            let elapsed_seconds = started.elapsed().as_secs_f64();
-
-            let rate = if elapsed_seconds > 0.0 {
-                processed as f64 / elapsed_seconds
-            } else {
-                0.0
-            };
-
-            println!(
-                "Processed {processed}/{total_games} games \
-                 ({rate:.1} games/second)..."
-            );
-        }
-    }
-
-    let elapsed_seconds = started.elapsed().as_secs_f64();
-
-    let rate = if elapsed_seconds > 0.0 {
-        indexed_games as f64 / elapsed_seconds
-    } else {
-        0.0
-    };
-
     println!();
     println!("Position indexing complete");
-    println!("Games indexed : {indexed_games}");
-    println!("Positions     : {indexed_positions}");
-    println!("Errors        : {errors}");
-    println!("Elapsed       : {elapsed_seconds:.2} seconds");
-    println!("Rate          : {rate:.1} games/second");
+
+    println!("Games processed: {}", summary.processed_games);
+
+    println!("Games indexed  : {}", summary.indexed_games);
+
+    println!("Positions      : {}", summary.indexed_positions);
+
+    println!("Errors         : {}", summary.errors);
+
+    println!("Elapsed        : {:.2} seconds", summary.elapsed_seconds);
+
+    println!("Rate           : {:.1} games/second", summary.rate());
+
+    if let Some(error_log) = summary.error_log {
+        println!("Error log      : {}", error_log.display());
+    }
 
     Ok(())
 }
@@ -1081,10 +1068,49 @@ fn import_sgf_directory(
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
-    let summary = import_directory::run(&project, &source, &version, &directory)?;
+    let mut last_reported = 0_usize;
+
+    let outcome = import_directory::run_with_progress(
+        &project,
+        &source,
+        &version,
+        &directory,
+        || false,
+        |progress| {
+            if progress.stage != import_directory::ImportStage::Importing
+                || progress.processed == 0
+                || progress.processed == last_reported
+            {
+                return;
+            }
+
+            if progress.processed.is_multiple_of(10_000)
+                || progress.processed == progress.total_sgf_files
+            {
+                eprintln!(
+                    "Processed {} of {} SGF files \
+                     ({:.1} SGF files/second)...",
+                    progress.processed,
+                    progress.total_sgf_files,
+                    progress.rate(),
+                );
+
+                last_reported = progress.processed;
+            }
+        },
+    )?;
+
+    let summary = match outcome {
+        import_directory::ImportDirectoryOutcome::Completed(summary) => summary,
+
+        import_directory::ImportDirectoryOutcome::Cancelled(_) => {
+            unreachable!("the command-line directory import cannot cancel")
+        }
+    };
 
     println!();
     println!("Import complete");
+    println!("SGF files    : {}", summary.total_sgf_files);
     println!("Processed    : {}", summary.processed);
     println!("Imported     : {}", summary.imported);
     println!("Added sources: {}", summary.added_sources);
@@ -1092,7 +1118,7 @@ fn import_sgf_directory(
     println!("Skipped      : {}", summary.skipped);
     println!("Errors       : {}", summary.errors);
     println!("Elapsed      : {:.2} seconds", summary.elapsed_seconds);
-    println!("Rate         : {:.1} games/second", summary.rate());
+    println!("Rate         : {:.1} SGF files/second", summary.rate());
 
     if let Some(error_log) = summary.error_log {
         println!("Error log    : {}", error_log.display());
