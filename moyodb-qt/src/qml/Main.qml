@@ -25,6 +25,64 @@ ApplicationWindow {
         id: gameController
     }
 
+    function clearProjectSelection() {
+        gameList.clearSearchResults()
+        boardPane.clearMatchNavigation()
+        boardPane.resetPatternSelection()
+
+        boardPane.editingPosition = false
+        boardPane.selectedGame = null
+
+        goBoard.stones = []
+        goBoard.lastMoveX = -1
+        goBoard.lastMoveY = -1
+        goBoard.lastMoveNumber = 0
+    }
+
+    function applyFinishedDatabaseOperation() {
+        const operation = databaseOperation.operation_name
+        const resultPath =
+            databaseOperation.result_project_path
+
+        if (operation === "create-database"
+                && resultPath.length > 0) {
+            clearProjectSelection()
+            root.projectPath = resultPath
+            return
+        }
+
+        if (operation === "add-games") {
+            clearProjectSelection()
+            gameList.loadProject()
+        }
+    }
+
+    DatabaseOperationModel {
+        id: databaseOperation
+
+        onStageChanged: {
+            if (stage === "complete"
+                    || stage === "cancelled") {
+                root.applyFinishedDatabaseOperation()
+            }
+        }
+    }
+
+    DatabaseImportDialog {
+        id: databaseImportDialog
+
+        operationModel: databaseOperation
+        currentProjectPath: root.projectPath
+
+        onOperationStarted:
+            databaseProgressDialog.open()
+    }
+
+    DatabaseProgressDialog {
+        id: databaseProgressDialog
+        operationModel: databaseOperation
+    }
+
   FileDialog {
     id: openSgfDialog
 
@@ -117,6 +175,72 @@ menuBar: MenuBar {
             text: qsTr("&Open SGF…")
 
             onTriggered: openSgfDialog.open()
+        }
+    }
+
+    Menu {
+        title: qsTr("&Database")
+
+        Action {
+            text: qsTr("&Create Database…")
+
+            enabled: !databaseOperation.in_progress
+
+            onTriggered:
+                databaseImportDialog.openCreate()
+        }
+
+        Action {
+            text: qsTr("&Add Games…")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
+
+            onTriggered:
+                databaseImportDialog.openAdd(
+                    root.projectPath)
+        }
+
+        Action {
+            text: qsTr("&Update Position Index")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
+
+            onTriggered: {
+                databaseOperation.clearStatus()
+
+                if (databaseOperation.updatePositionIndex(
+                            root.projectPath)) {
+                    databaseProgressDialog.open()
+                } else {
+                    databaseProgressDialog.open()
+                }
+            }
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("&Show Current Operation")
+
+            enabled: databaseOperation.in_progress
+                     || databaseOperation.stage.length > 0
+
+            onTriggered:
+                databaseProgressDialog.open()
+        }
+
+        Action {
+            text: qsTr("&Cancel Current Operation")
+
+            enabled: databaseOperation.in_progress
+                     && !databaseOperation.cancel_requested
+
+            onTriggered: {
+                databaseProgressDialog.open()
+                databaseOperation.cancelOperation()
+            }
         }
     }
 }

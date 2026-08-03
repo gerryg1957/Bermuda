@@ -408,6 +408,55 @@ mod tests {
     }
 
     #[test]
+    fn cancels_during_sgf_discovery_before_importing() -> Result<()> {
+        let (_temporary, project, sgf_directory) = create_project_with_sgfs()?;
+
+        let cancel = Cell::new(false);
+        let mut progress = Vec::new();
+
+        let outcome = run_with_progress(
+            &project,
+            "Test Source",
+            "1",
+            &sgf_directory,
+            || cancel.get(),
+            |snapshot| {
+                if snapshot.stage == ImportStage::Discovering {
+                    cancel.set(true);
+                }
+
+                progress.push(snapshot);
+            },
+        )?;
+
+        let ImportDirectoryOutcome::Cancelled(summary) = outcome else {
+            panic!("discovery should be cancelled");
+        };
+
+        assert_eq!(summary.total_sgf_files, 0);
+        assert_eq!(summary.processed, 0);
+        assert_eq!(summary.imported, 0);
+        assert_eq!(summary.added_sources, 0);
+        assert_eq!(summary.duplicates, 0);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.errors, 0);
+
+        assert!(
+            progress
+                .iter()
+                .any(|snapshot| { snapshot.stage == ImportStage::Discovering })
+        );
+
+        assert!(
+            !progress
+                .iter()
+                .any(|snapshot| { snapshot.stage == ImportStage::Importing })
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn cancels_safely_between_sgf_files() -> Result<()> {
         let (_temporary, project, sgf_directory) = create_project_with_sgfs()?;
 
