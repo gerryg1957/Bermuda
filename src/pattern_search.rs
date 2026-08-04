@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{Colour, Pattern, indexer::PositionIndexer};
 use anyhow::Result;
 
@@ -133,7 +135,7 @@ impl PatternSearcher {
                     return Ok(PatternSearchOutcome::Cancelled);
                 }
 
-                let matches = self.search_game(indexer, game_id, &query.pattern)?;
+                let matches = self.search_game_appearances(indexer, game_id, &query.pattern)?;
 
                 let progress = PatternSearchProgress {
                     games_examined: 1,
@@ -182,7 +184,7 @@ impl PatternSearcher {
                     return Ok(PatternSearchSummaryOutcome::Cancelled);
                 }
 
-                let matches = self.search_game(indexer, game_id, &query.pattern)?;
+                let matches = self.search_game_appearances(indexer, game_id, &query.pattern)?;
 
                 let progress = PatternSearchProgress {
                     games_examined: 1,
@@ -241,6 +243,58 @@ impl PatternSearcher {
         Ok(matches)
     }
 
+    /// Collapse chronologically ordered raw matches into distinct continuous
+    /// appearances.
+    ///
+    /// A match continues an existing appearance when the same pattern
+    /// location was also present at the preceding board state. A later match
+    /// after one or more non-matching states starts a new appearance.
+    ///
+    /// The current exact-pattern identity is:
+    ///
+    /// - game ID;
+    /// - left coordinate;
+    /// - bottom coordinate.
+    ///
+    /// Future transformed searches will extend this identity with the
+    /// matching transformation and colour assignment.
+    #[must_use]
+    pub fn distinct_appearances(matches: Vec<PatternMatch>) -> Vec<PatternMatch> {
+        let mut last_seen_move = HashMap::new();
+        let mut appearances = Vec::new();
+
+        for found in matches {
+            let key = (found.game_id, found.left, found.bottom);
+
+            let continues_existing =
+                last_seen_move
+                    .get(&key)
+                    .is_some_and(|previous_move: &usize| {
+                        found.move_number == *previous_move
+                            || found.move_number == previous_move.saturating_add(1)
+                    });
+
+            last_seen_move.insert(key, found.move_number);
+
+            if !continues_existing {
+                appearances.push(found);
+            }
+        }
+
+        appearances
+    }
+
+    pub fn search_game_appearances(
+        &self,
+        indexer: &PositionIndexer,
+        game_id: i64,
+        pattern: &Pattern,
+    ) -> Result<Vec<PatternMatch>> {
+        let raw_matches = self.search_game(indexer, game_id, pattern)?;
+
+        Ok(Self::distinct_appearances(raw_matches))
+    }
+
     pub fn search_database_summaries(
         &self,
         indexer: &PositionIndexer,
@@ -290,7 +344,7 @@ impl PatternSearcher {
              * Once the count and first match have been recorded, the
              * complete per-game vector is released.
              */
-            let game_matches = self.search_game(indexer, game_id, pattern)?;
+            let game_matches = self.search_game_appearances(indexer, game_id, pattern)?;
 
             if let Some(first_match) = game_matches.first().cloned() {
                 matching_games = matching_games.saturating_add(1);
@@ -359,7 +413,7 @@ impl PatternSearcher {
                 return Ok(PatternSearchOutcome::Cancelled);
             }
 
-            let game_matches = self.search_game(indexer, game_id, pattern)?;
+            let game_matches = self.search_game_appearances(indexer, game_id, pattern)?;
 
             if !game_matches.is_empty() {
                 matching_games = matching_games.saturating_add(1);

@@ -1,9 +1,10 @@
 use std::path::Path;
 
 use moyodb::{
-    Colour, GameRecord, Metadata, Move, Pattern, PatternRect, PatternSearchQuery,
-    PatternSearchScope, SearchEngine, SearchOccurrence, SearchPatternSummaryOutcome, SearchResult,
-    SearchSummaryResult, database, project::Project, write_move_file,
+    Colour, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchQuery,
+    PatternSearchScope, PatternSearcher, SearchEngine, SearchOccurrence,
+    SearchPatternSummaryOutcome, SearchResult, SearchSummaryResult, database, project::Project,
+    write_move_file,
 };
 use rusqlite::params;
 use tempfile::TempDir;
@@ -32,7 +33,7 @@ fn create_test_project() -> (TempDir, Project) {
                     move_count,
                     move_file
                 )
-                VALUES (?1, ?2, 19, 1, ?3)
+                VALUES (?1, ?2, 19, 3, ?3)
                 "#,
                 params![game_id, hash, relative_path],
             )
@@ -58,10 +59,20 @@ fn write_test_move_file(root: &Path, relative_path: &str) {
     let record = GameRecord {
         board_size: 19,
         setup: Vec::new(),
-        moves: vec![Move {
-            colour: Colour::Black,
-            point: Some(0),
-        }],
+        moves: vec![
+            Move {
+                colour: Colour::Black,
+                point: Some(0),
+            },
+            Move {
+                colour: Colour::White,
+                point: None,
+            },
+            Move {
+                colour: Colour::Black,
+                point: None,
+            },
+        ],
         metadata: Metadata {
             black_player: None,
             white_player: None,
@@ -95,6 +106,65 @@ fn test_pattern(project: &Project) -> Pattern {
         },
     )
     .expect("extract test pattern")
+}
+
+fn synthetic_match(move_number: usize, left: u8, bottom: u8) -> PatternMatch {
+    PatternMatch {
+        game_id: 1,
+        move_number,
+        side_to_move: Colour::White,
+        ko_point: None,
+        left,
+        bottom,
+    }
+}
+
+#[test]
+fn distinct_appearances_collapse_continuity_and_keep_reappearance() {
+    let appearances = PatternSearcher::distinct_appearances(vec![
+        synthetic_match(1, 0, 0),
+        synthetic_match(1, 5, 5),
+        synthetic_match(2, 0, 0),
+        synthetic_match(2, 5, 5),
+        synthetic_match(4, 0, 0),
+    ]);
+
+    assert_eq!(
+        appearances,
+        vec![
+            synthetic_match(1, 0, 0),
+            synthetic_match(1, 5, 5),
+            synthetic_match(4, 0, 0),
+        ]
+    );
+}
+
+#[test]
+fn game_appearance_search_ignores_unchanged_pass_positions() {
+    let (_temporary, project) = create_test_project();
+    let pattern = test_pattern(&project);
+    let indexer = project
+        .position_indexer()
+        .expect("open test position indexer");
+    let searcher = PatternSearcher::new();
+
+    let raw_matches = searcher
+        .search_game(&indexer, 1, &pattern)
+        .expect("search raw game positions");
+
+    assert_eq!(
+        raw_matches
+            .iter()
+            .map(|found| found.move_number)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+
+    let appearances = searcher
+        .search_game_appearances(&indexer, 1, &pattern)
+        .expect("search distinct appearances");
+
+    assert_eq!(appearances, vec![synthetic_match(1, 0, 0)]);
 }
 
 #[test]
