@@ -34,6 +34,18 @@ pub struct BoardEdges {
     pub top: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PatternTransformation {
+    Identity,
+    Rotate90Clockwise,
+    Rotate180,
+    Rotate270Clockwise,
+    MirrorLeftRight,
+    MirrorTopBottom,
+    MirrorMainDiagonal,
+    MirrorAntiDiagonal,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pattern {
     pub width: u8,
@@ -94,6 +106,145 @@ impl Pattern {
                 top: top == board.size(),
             },
         })
+    }
+
+    #[must_use]
+    pub fn transformed(&self, transformation: PatternTransformation) -> Self {
+        let swaps_dimensions = matches!(
+            transformation,
+            PatternTransformation::Rotate90Clockwise
+                | PatternTransformation::Rotate270Clockwise
+                | PatternTransformation::MirrorMainDiagonal
+                | PatternTransformation::MirrorAntiDiagonal
+        );
+
+        let (width, height) = if swaps_dimensions {
+            (self.height, self.width)
+        } else {
+            (self.width, self.height)
+        };
+
+        let mut cells = vec![PatternCell::Empty; usize::from(width) * usize::from(height)];
+
+        for source_y in 0..self.height {
+            for source_x in 0..self.width {
+                let source_index =
+                    usize::from(source_y) * usize::from(self.width) + usize::from(source_x);
+
+                let (target_x, target_y) = match transformation {
+                    PatternTransformation::Identity => (source_x, source_y),
+
+                    PatternTransformation::Rotate90Clockwise => {
+                        (source_y, self.width - 1 - source_x)
+                    }
+
+                    PatternTransformation::Rotate180 => {
+                        (self.width - 1 - source_x, self.height - 1 - source_y)
+                    }
+
+                    PatternTransformation::Rotate270Clockwise => {
+                        (self.height - 1 - source_y, source_x)
+                    }
+
+                    PatternTransformation::MirrorLeftRight => (self.width - 1 - source_x, source_y),
+
+                    PatternTransformation::MirrorTopBottom => {
+                        (source_x, self.height - 1 - source_y)
+                    }
+
+                    PatternTransformation::MirrorMainDiagonal => (source_y, source_x),
+
+                    PatternTransformation::MirrorAntiDiagonal => {
+                        (self.height - 1 - source_y, self.width - 1 - source_x)
+                    }
+                };
+
+                let target_index =
+                    usize::from(target_y) * usize::from(width) + usize::from(target_x);
+
+                cells[target_index] = self.cells[source_index];
+            }
+        }
+
+        let edges = match transformation {
+            PatternTransformation::Identity => self.edges,
+
+            PatternTransformation::Rotate90Clockwise => BoardEdges {
+                left: self.edges.bottom,
+                right: self.edges.top,
+                bottom: self.edges.right,
+                top: self.edges.left,
+            },
+
+            PatternTransformation::Rotate180 => BoardEdges {
+                left: self.edges.right,
+                right: self.edges.left,
+                bottom: self.edges.top,
+                top: self.edges.bottom,
+            },
+
+            PatternTransformation::Rotate270Clockwise => BoardEdges {
+                left: self.edges.top,
+                right: self.edges.bottom,
+                bottom: self.edges.left,
+                top: self.edges.right,
+            },
+
+            PatternTransformation::MirrorLeftRight => BoardEdges {
+                left: self.edges.right,
+                right: self.edges.left,
+                bottom: self.edges.bottom,
+                top: self.edges.top,
+            },
+
+            PatternTransformation::MirrorTopBottom => BoardEdges {
+                left: self.edges.left,
+                right: self.edges.right,
+                bottom: self.edges.top,
+                top: self.edges.bottom,
+            },
+
+            PatternTransformation::MirrorMainDiagonal => BoardEdges {
+                left: self.edges.bottom,
+                right: self.edges.top,
+                bottom: self.edges.left,
+                top: self.edges.right,
+            },
+
+            PatternTransformation::MirrorAntiDiagonal => BoardEdges {
+                left: self.edges.top,
+                right: self.edges.bottom,
+                bottom: self.edges.right,
+                top: self.edges.left,
+            },
+        };
+
+        Self {
+            width,
+            height,
+            cells,
+            edges,
+        }
+    }
+
+    #[must_use]
+    pub fn reversed_colours(&self) -> Self {
+        let cells = self
+            .cells
+            .iter()
+            .map(|cell| match cell {
+                PatternCell::Empty => PatternCell::Empty,
+                PatternCell::Black => PatternCell::White,
+                PatternCell::White => PatternCell::Black,
+            })
+            .collect();
+
+        Self {
+            width: self.width,
+            height: self.height,
+            cells,
+            edges: self.edges,
+        }
     }
 
     pub fn matches_at(&self, board: &Board, left: u8, bottom: u8) -> Result<bool, PatternError> {
@@ -361,4 +512,126 @@ fn does_not_match_different_location() {
     .unwrap();
 
     assert!(!pattern.matches_at(&board, 6, 6).unwrap());
+}
+
+#[cfg(test)]
+mod transformation_tests {
+    use super::*;
+
+    fn asymmetric_pattern() -> Pattern {
+        Pattern {
+            width: 2,
+            height: 3,
+            cells: vec![
+                PatternCell::Black,
+                PatternCell::White,
+                PatternCell::Empty,
+                PatternCell::Black,
+                PatternCell::White,
+                PatternCell::Empty,
+            ],
+            edges: BoardEdges {
+                left: true,
+                right: false,
+                bottom: false,
+                top: true,
+            },
+        }
+    }
+
+    #[test]
+    fn rotates_rectangular_pattern_clockwise() {
+        let transformed =
+            asymmetric_pattern().transformed(PatternTransformation::Rotate90Clockwise);
+
+        assert_eq!(
+            transformed,
+            Pattern {
+                width: 3,
+                height: 2,
+                cells: vec![
+                    PatternCell::White,
+                    PatternCell::Black,
+                    PatternCell::Empty,
+                    PatternCell::Black,
+                    PatternCell::Empty,
+                    PatternCell::White,
+                ],
+                edges: BoardEdges {
+                    left: false,
+                    right: true,
+                    bottom: false,
+                    top: true,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn four_clockwise_quarter_turns_restore_pattern() {
+        let original = asymmetric_pattern();
+
+        let transformed = (0..4).fold(original.clone(), |pattern, _| {
+            pattern.transformed(PatternTransformation::Rotate90Clockwise)
+        });
+
+        assert_eq!(transformed, original);
+    }
+
+    #[test]
+    fn mirroring_twice_restores_pattern() {
+        let original = asymmetric_pattern();
+
+        let transformed = original
+            .transformed(PatternTransformation::MirrorLeftRight)
+            .transformed(PatternTransformation::MirrorLeftRight);
+
+        assert_eq!(transformed, original);
+    }
+
+    #[test]
+    fn diagonal_mirror_swaps_dimensions_and_edges() {
+        let transformed =
+            asymmetric_pattern().transformed(PatternTransformation::MirrorMainDiagonal);
+
+        assert_eq!(transformed.width, 3);
+        assert_eq!(transformed.height, 2);
+        assert_eq!(
+            transformed.edges,
+            BoardEdges {
+                left: false,
+                right: true,
+                bottom: true,
+                top: false,
+            }
+        );
+    }
+
+    #[test]
+    fn colour_reversal_preserves_geometry_and_edges() {
+        let original = asymmetric_pattern();
+        let reversed = original.reversed_colours();
+
+        assert_eq!(reversed.width, original.width);
+        assert_eq!(reversed.height, original.height);
+        assert_eq!(reversed.edges, original.edges);
+        assert_eq!(
+            reversed.cells,
+            vec![
+                PatternCell::White,
+                PatternCell::Black,
+                PatternCell::Empty,
+                PatternCell::White,
+                PatternCell::Black,
+                PatternCell::Empty,
+            ]
+        );
+    }
+
+    #[test]
+    fn reversing_colours_twice_restores_pattern() {
+        let original = asymmetric_pattern();
+
+        assert_eq!(original.reversed_colours().reversed_colours(), original);
+    }
 }
