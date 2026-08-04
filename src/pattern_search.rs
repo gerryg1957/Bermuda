@@ -25,6 +25,19 @@ pub enum PatternSearchOutcome {
     Cancelled,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternGameSummary {
+    pub game_id: i64,
+    pub match_count: usize,
+    pub first_match: PatternMatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PatternSearchSummaryOutcome {
+    Completed(Vec<PatternGameSummary>),
+    Cancelled,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternSearchScope {
     Game(i64),
@@ -143,6 +156,67 @@ impl PatternSearcher {
         }
     }
 
+    pub fn search_summaries_with_progress<C, P>(
+        &self,
+        indexer: &PositionIndexer,
+        query: &PatternSearchQuery,
+        mut is_cancelled: C,
+        mut on_progress: P,
+    ) -> Result<PatternSearchSummaryOutcome>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(PatternSearchProgress),
+    {
+        match query.scope {
+            PatternSearchScope::Game(game_id) => {
+                let initial = PatternSearchProgress {
+                    games_examined: 0,
+                    total_games: 1,
+                    matching_games: 0,
+                    matches_found: 0,
+                };
+
+                on_progress(initial);
+
+                if is_cancelled() {
+                    return Ok(PatternSearchSummaryOutcome::Cancelled);
+                }
+
+                let matches = self.search_game(indexer, game_id, &query.pattern)?;
+
+                let progress = PatternSearchProgress {
+                    games_examined: 1,
+                    total_games: 1,
+                    matching_games: usize::from(!matches.is_empty()),
+                    matches_found: matches.len(),
+                };
+
+                on_progress(progress);
+
+                let summaries = matches
+                    .first()
+                    .cloned()
+                    .map(|first_match| {
+                        vec![PatternGameSummary {
+                            game_id,
+                            match_count: matches.len(),
+                            first_match,
+                        }]
+                    })
+                    .unwrap_or_default();
+
+                Ok(PatternSearchSummaryOutcome::Completed(summaries))
+            }
+
+            PatternSearchScope::Project => self.search_database_summaries_with_progress(
+                indexer,
+                &query.pattern,
+                is_cancelled,
+                on_progress,
+            ),
+        }
+    }
+
     pub fn search_game(
         &self,
         indexer: &PositionIndexer,
@@ -165,6 +239,80 @@ impl PatternSearcher {
         }
 
         Ok(matches)
+    }
+
+    pub fn search_database_summaries(
+        &self,
+        indexer: &PositionIndexer,
+        pattern: &Pattern,
+    ) -> Result<Vec<PatternGameSummary>> {
+        match self.search_database_summaries_with_progress(indexer, pattern, || false, |_| {})? {
+            PatternSearchSummaryOutcome::Completed(summaries) => Ok(summaries),
+
+            PatternSearchSummaryOutcome::Cancelled => {
+                unreachable!("an uncancellable summary search was cancelled")
+            }
+        }
+    }
+
+    pub fn search_database_summaries_with_progress<C, P>(
+        &self,
+        indexer: &PositionIndexer,
+        pattern: &Pattern,
+        mut is_cancelled: C,
+        mut on_progress: P,
+    ) -> Result<PatternSearchSummaryOutcome>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(PatternSearchProgress),
+    {
+        let game_ids = indexer.game_ids()?;
+        let total_games = game_ids.len();
+
+        let mut summaries = Vec::new();
+        let mut matching_games = 0_usize;
+        let mut matches_found = 0_usize;
+
+        on_progress(PatternSearchProgress {
+            games_examined: 0,
+            total_games,
+            matching_games,
+            matches_found,
+        });
+
+        for (game_index, game_id) in game_ids.into_iter().enumerate() {
+            if is_cancelled() {
+                return Ok(PatternSearchSummaryOutcome::Cancelled);
+            }
+
+            /*
+             * Matches for only this game are retained temporarily.
+             * Once the count and first match have been recorded, the
+             * complete per-game vector is released.
+             */
+            let game_matches = self.search_game(indexer, game_id, pattern)?;
+
+            if let Some(first_match) = game_matches.first().cloned() {
+                matching_games = matching_games.saturating_add(1);
+
+                matches_found = matches_found.saturating_add(game_matches.len());
+
+                summaries.push(PatternGameSummary {
+                    game_id,
+                    match_count: game_matches.len(),
+                    first_match,
+                });
+            }
+
+            on_progress(PatternSearchProgress {
+                games_examined: game_index + 1,
+                total_games,
+                matching_games,
+                matches_found,
+            });
+        }
+
+        Ok(PatternSearchSummaryOutcome::Completed(summaries))
     }
 
     pub fn search_database(

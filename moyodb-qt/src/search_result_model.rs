@@ -16,8 +16,8 @@ use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QStri
 
 use moyodb::{
     Board, Colour, Pattern, PatternRect, PatternSearchProgress, PatternSearchQuery,
-    PatternSearchScope, SearchEngine, SearchOccurrence, SearchPatternOutcome, SearchResult,
-    project_manager::ProjectManager,
+    PatternSearchScope, SearchEngine, SearchOccurrence, SearchPatternSummaryOutcome,
+    SearchSummaryResult, project_manager::ProjectManager,
 };
 
 #[allow(non_camel_case_types)]
@@ -48,7 +48,17 @@ struct SearchResultRow {
     first_match_move: i32,
     first_match_left: i32,
     first_match_bottom: i32,
-    occurrences: Vec<SearchOccurrence>,
+}
+
+#[derive(Clone, Debug)]
+struct StoredSearchQuery {
+    project_path: String,
+    board_size: i32,
+    stones_json: String,
+    left: i32,
+    bottom: i32,
+    width: i32,
+    height: i32,
 }
 
 #[derive(Default)]
@@ -67,12 +77,13 @@ pub struct SearchResultModelRust {
     pub(crate) matching_games: i32,
     pub(crate) matches_found: i32,
 
+    search_query: Option<StoredSearchQuery>,
     cancel_token: Option<Arc<AtomicBool>>,
     search_id: u64,
 }
 
 enum BackgroundSearchResult {
-    Completed(Vec<SearchResult>),
+    Completed(Vec<SearchSummaryResult>),
     Cancelled,
     Failed(String),
 }
@@ -143,24 +154,19 @@ impl crate::game_list_model::ffi::SearchResultModel {
             return QString::from("[]");
         }
 
-        let Some(row) = self.rust().rows.get(row_number as usize) else {
+        let rust = self.rust();
+
+        let Some(row) = rust.rows.get(row_number as usize) else {
             return QString::from("[]");
         };
 
-        let occurrences = row
-            .occurrences
-            .iter()
-            .map(|occurrence| SearchOccurrenceJson {
-                move_number: i32::try_from(occurrence.move_number).unwrap_or(i32::MAX),
+        let Some(query) = rust.search_query.as_ref() else {
+            return QString::from("[]");
+        };
 
-                left: occurrence.left.map_or(-1, i32::from),
+        match create_game_occurrences(query, row.game_id) {
+            Ok(occurrences) => occurrences_to_json(&occurrences),
 
-                bottom: occurrence.bottom.map_or(-1, i32::from),
-            })
-            .collect::<Vec<_>>();
-
-        match serde_json::to_string(&occurrences) {
-            Ok(json) => QString::from(json),
             Err(_) => QString::from("[]"),
         }
     }
@@ -185,6 +191,16 @@ impl crate::game_list_model::ffi::SearchResultModel {
         let project_path = project_path.to_string();
         let stones_json = stones_json.to_string();
 
+        let stored_query = StoredSearchQuery {
+            project_path: project_path.clone(),
+            board_size,
+            stones_json: stones_json.clone(),
+            left,
+            bottom,
+            width,
+            height,
+        };
+
         let cancel_token = Arc::new(AtomicBool::new(false));
 
         let search_id;
@@ -195,6 +211,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             let mut rust = self.as_mut().rust_mut();
 
             rust.rows.clear();
+            rust.search_query = Some(stored_query);
             rust.cancel_token = Some(Arc::clone(&cancel_token));
 
             rust.search_id = rust.search_id.wrapping_add(1);
@@ -273,11 +290,11 @@ impl crate::game_list_model::ffi::SearchResultModel {
             );
 
             let completion = match outcome {
-                Ok(SearchPatternOutcome::Completed(results)) => {
+                Ok(SearchPatternSummaryOutcome::Completed(results)) => {
                     BackgroundSearchResult::Completed(results)
                 }
 
-                Ok(SearchPatternOutcome::Cancelled) => BackgroundSearchResult::Cancelled,
+                Ok(SearchPatternSummaryOutcome::Cancelled) => BackgroundSearchResult::Cancelled,
 
                 Err(error) => BackgroundSearchResult::Failed(error),
             };
@@ -315,6 +332,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.search_id = rust.search_id.wrapping_add(1);
 
             rust.rows.clear();
+            rust.search_query = None;
         }
 
         self.as_mut().end_reset_model();
@@ -337,7 +355,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
     }
 }
 
-fn create_search_outcome<C, P>(
+fn create_search_engine_and_query(
     project_path: &str,
     board_size: i32,
     stones_json: &str,
@@ -345,13 +363,8 @@ fn create_search_outcome<C, P>(
     bottom: i32,
     width: i32,
     height: i32,
-    is_cancelled: C,
-    on_progress: P,
-) -> Result<SearchPatternOutcome, String>
-where
-    C: FnMut() -> bool,
-    P: FnMut(PatternSearchProgress),
-{
+    scope: PatternSearchScope,
+) -> Result<(SearchEngine, PatternSearchQuery), String> {
     if project_path.trim().is_empty() {
         return Err("no project is selected".to_owned());
     }
@@ -371,15 +384,41 @@ where
 
     let pattern = Pattern::extract(&board, rect).map_err(|error| error.to_string())?;
 
-    let query = PatternSearchQuery {
-        pattern,
-        scope: PatternSearchScope::Project,
-    };
+    let query = PatternSearchQuery { pattern, scope };
 
     let search_engine = SearchEngine::new(&project).map_err(|error| error.to_string())?;
 
+    Ok((search_engine, query))
+}
+
+fn create_search_outcome<C, P>(
+    project_path: &str,
+    board_size: i32,
+    stones_json: &str,
+    left: i32,
+    bottom: i32,
+    width: i32,
+    height: i32,
+    is_cancelled: C,
+    on_progress: P,
+) -> Result<SearchPatternSummaryOutcome, String>
+where
+    C: FnMut() -> bool,
+    P: FnMut(PatternSearchProgress),
+{
+    let (search_engine, query) = create_search_engine_and_query(
+        project_path,
+        board_size,
+        stones_json,
+        left,
+        bottom,
+        width,
+        height,
+        PatternSearchScope::Project,
+    )?;
+
     search_engine
-        .search_pattern_with_progress(&query, is_cancelled, on_progress)
+        .search_pattern_summaries_with_progress(&query, is_cancelled, on_progress)
         .map_err(|error| error.to_string())
 }
 
@@ -393,11 +432,9 @@ fn finish_search(
     }
 
     let (rows, error_message, cancelled) = match completion {
-        BackgroundSearchResult::Completed(results) => match search_results_to_rows(results) {
-            Ok(rows) => (rows, None, false),
-
-            Err(error) => (Vec::new(), Some(error), false),
-        },
+        BackgroundSearchResult::Completed(results) => {
+            (search_results_to_rows(results), None, false)
+        }
 
         BackgroundSearchResult::Cancelled => (Vec::new(), None, true),
 
@@ -410,6 +447,8 @@ fn finish_search(
 
     let matching_games = count_to_i32(rows.len());
 
+    let keep_query = error_message.is_none() && !cancelled;
+
     model.as_mut().begin_reset_model();
 
     {
@@ -417,6 +456,10 @@ fn finish_search(
 
         rust.rows = rows;
         rust.cancel_token = None;
+
+        if !keep_query {
+            rust.search_query = None;
+        }
     }
 
     model.as_mut().end_reset_model();
@@ -449,44 +492,76 @@ fn is_current_search(
     model.rust().search_id == search_id
 }
 
-fn search_results_to_rows(results: Vec<SearchResult>) -> Result<Vec<SearchResultRow>, String> {
+fn create_game_occurrences(
+    query: &StoredSearchQuery,
+    game_id: i64,
+) -> Result<Vec<SearchOccurrence>, String> {
+    let (search_engine, pattern_query) = create_search_engine_and_query(
+        &query.project_path,
+        query.board_size,
+        &query.stones_json,
+        query.left,
+        query.bottom,
+        query.width,
+        query.height,
+        PatternSearchScope::Game(game_id),
+    )?;
+
+    let results = search_engine
+        .search_pattern(&pattern_query)
+        .map_err(|error| error.to_string())?;
+
+    Ok(results
+        .into_iter()
+        .find(|result| result.game_id == game_id)
+        .map(|result| result.occurrences)
+        .unwrap_or_default())
+}
+
+fn occurrences_to_json(occurrences: &[SearchOccurrence]) -> QString {
+    let occurrences = occurrences
+        .iter()
+        .map(|occurrence| SearchOccurrenceJson {
+            move_number: i32::try_from(occurrence.move_number).unwrap_or(i32::MAX),
+
+            left: occurrence.left.map_or(-1, i32::from),
+
+            bottom: occurrence.bottom.map_or(-1, i32::from),
+        })
+        .collect::<Vec<_>>();
+
+    match serde_json::to_string(&occurrences) {
+        Ok(json) => QString::from(json),
+        Err(_) => QString::from("[]"),
+    }
+}
+
+fn search_results_to_rows(results: Vec<SearchSummaryResult>) -> Vec<SearchResultRow> {
     results
         .into_iter()
         .map(|result| {
-            let first_occurrence = result
-                .occurrences
-                .first()
-                .ok_or_else(|| format!("game {} has an empty search result", result.game_id,))?;
+            let match_count = i32::try_from(result.match_count).unwrap_or(i32::MAX);
 
-            let match_count = i32::try_from(result.occurrences.len()).unwrap_or(i32::MAX);
+            let first_match_move =
+                i32::try_from(result.first_occurrence.move_number).unwrap_or(i32::MAX);
 
-            let first_match_move = i32::try_from(first_occurrence.move_number).unwrap_or(i32::MAX);
+            let first_match_left = result.first_occurrence.left.map_or(-1, i32::from);
 
-            let first_match_left = first_occurrence.left.map_or(-1, i32::from);
+            let first_match_bottom = result.first_occurrence.bottom.map_or(-1, i32::from);
 
-            let first_match_bottom = first_occurrence.bottom.map_or(-1, i32::from);
-
-            Ok(SearchResultRow {
+            SearchResultRow {
                 game_id: result.game_id,
-
                 black_player: optional_text(&result.black_player),
-
                 white_player: optional_text(&result.white_player),
-
                 played_date: optional_text(&result.game_date),
-
                 result: optional_text(&result.result),
-
                 event: optional_text(&result.event),
-
                 komi: optional_number(&result.komi),
-
                 match_count,
                 first_match_move,
                 first_match_left,
                 first_match_bottom,
-                occurrences: result.occurrences,
-            })
+            }
         })
         .collect()
 }

@@ -2,8 +2,8 @@ use std::path::Path;
 
 use moyodb::{
     Colour, GameRecord, Metadata, Move, Pattern, PatternRect, PatternSearchQuery,
-    PatternSearchScope, SearchEngine, SearchOccurrence, SearchResult, database, project::Project,
-    write_move_file,
+    PatternSearchScope, SearchEngine, SearchOccurrence, SearchPatternSummaryOutcome, SearchResult,
+    SearchSummaryResult, database, project::Project, write_move_file,
 };
 use rusqlite::params;
 use tempfile::TempDir;
@@ -130,6 +130,62 @@ fn game_scope_groups_occurrences_for_requested_game() {
                 bottom: Some(0),
             }],
         }]
+    );
+}
+
+#[test]
+fn project_summary_search_keeps_only_counts_and_first_matches() {
+    let (_temporary, project) = create_test_project();
+    let pattern = test_pattern(&project);
+
+    let query = PatternSearchQuery {
+        pattern,
+        scope: PatternSearchScope::Project,
+    };
+
+    let outcome = SearchEngine::new(&project)
+        .expect("create search engine")
+        .search_pattern_summaries_with_progress(&query, || false, |_| {})
+        .expect("search project summaries");
+
+    assert_eq!(
+        outcome,
+        SearchPatternSummaryOutcome::Completed(vec![
+            SearchSummaryResult {
+                game_id: 1,
+                black_player: None,
+                white_player: None,
+                game_date: None,
+                result: None,
+                event: None,
+                komi: None,
+                match_count: 1,
+                first_occurrence: SearchOccurrence {
+                    move_number: 1,
+                    side_to_move: Some(Colour::White),
+                    ko_point: None,
+                    left: Some(0),
+                    bottom: Some(0),
+                },
+            },
+            SearchSummaryResult {
+                game_id: 2,
+                black_player: None,
+                white_player: None,
+                game_date: None,
+                result: None,
+                event: None,
+                komi: None,
+                match_count: 1,
+                first_occurrence: SearchOccurrence {
+                    move_number: 1,
+                    side_to_move: Some(Colour::White),
+                    ko_point: None,
+                    left: Some(0),
+                    bottom: Some(0),
+                },
+            },
+        ])
     );
 }
 

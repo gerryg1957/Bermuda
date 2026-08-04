@@ -527,9 +527,16 @@ Kirigami.AbstractCard {
 
                     text: {
                         if (root.searchInProgress) {
-                            return searchModel.cancel_requested
-                                ? qsTr("Cancelling…")
-                                : qsTr("Searching…")
+                            if (searchModel.cancel_requested)
+                                return qsTr("Cancelling…")
+
+                            if (searchModel.total_games > 0
+                                    && searchModel.games_examined
+                                    >= searchModel.total_games) {
+                                return qsTr("Preparing results…")
+                            }
+
+                            return qsTr("Searching…")
                         }
 
                         if (searchModel.search_cancelled)
@@ -549,6 +556,16 @@ Kirigami.AbstractCard {
                             if (searchModel.total_games <= 0)
                                 return qsTr(
                                     "Preparing the project database")
+
+                            if (searchModel.games_examined
+                                    >= searchModel.total_games) {
+                                return qsTr(
+                                    "The game scan is complete\n"
+                                    + "Preparing %1 matching games "
+                                    + "for display")
+                                    .arg(
+                                        searchModel.matching_games)
+                            }
 
                             const matchingText =
                                 searchModel.matching_games === 1
