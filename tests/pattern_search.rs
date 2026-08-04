@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use moyodb::{
-    Colour, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchQuery,
-    PatternSearchScope, PatternSearcher, SearchEngine, SearchOccurrence,
-    SearchPatternSummaryOutcome, SearchResult, SearchSummaryResult, database, project::Project,
-    write_move_file,
+    Colour, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchOptions,
+    PatternSearchQuery, PatternSearchScope, PatternSearcher, PatternTransformation, SearchEngine,
+    SearchOccurrence, SearchPatternSummaryOutcome, SearchResult, SearchSummaryResult, database,
+    project::Project, write_move_file,
 };
 use rusqlite::params;
 use tempfile::TempDir;
@@ -116,6 +116,8 @@ fn synthetic_match(move_number: usize, left: u8, bottom: u8) -> PatternMatch {
         ko_point: None,
         left,
         bottom,
+        transformation: PatternTransformation::Identity,
+        colours_reversed: false,
     }
 }
 
@@ -174,6 +176,7 @@ fn game_scope_groups_occurrences_for_requested_game() {
 
     let query = PatternSearchQuery {
         pattern,
+        options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Game(1),
     };
 
@@ -210,6 +213,7 @@ fn project_summary_search_keeps_only_counts_and_first_matches() {
 
     let query = PatternSearchQuery {
         pattern,
+        options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Project,
     };
 
@@ -266,6 +270,7 @@ fn project_scope_returns_one_result_per_matching_game() {
 
     let query = PatternSearchQuery {
         pattern,
+        options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Project,
     };
 

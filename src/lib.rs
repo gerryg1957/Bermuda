@@ -29,8 +29,9 @@ pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
 pub use pattern::{BoardEdges, Pattern, PatternCell, PatternRect, PatternTransformation};
 pub use pattern_search::{
-    PatternGameSummary, PatternMatch, PatternSearchOutcome, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome, PatternSearcher,
+    PatternGameSummary, PatternMatch, PatternSearchOptions, PatternSearchOutcome,
+    PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
+    PatternSearcher,
 };
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};

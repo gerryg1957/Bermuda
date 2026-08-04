@@ -15,9 +15,9 @@ use std::{
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
 use moyodb::{
-    Board, Colour, Pattern, PatternRect, PatternSearchProgress, PatternSearchQuery,
-    PatternSearchScope, SearchEngine, SearchOccurrence, SearchPatternSummaryOutcome,
-    SearchSummaryResult, project_manager::ProjectManager,
+    Board, Colour, Pattern, PatternRect, PatternSearchOptions, PatternSearchProgress,
+    PatternSearchQuery, PatternSearchScope, SearchEngine, SearchOccurrence,
+    SearchPatternSummaryOutcome, SearchSummaryResult, project_manager::ProjectManager,
 };
 
 #[allow(non_camel_case_types)]
@@ -384,7 +384,11 @@ fn create_search_engine_and_query(
 
     let pattern = Pattern::extract(&board, rect).map_err(|error| error.to_string())?;
 
-    let query = PatternSearchQuery { pattern, scope };
+    let query = PatternSearchQuery {
+        pattern,
+        scope,
+        options: PatternSearchOptions::default(),
+    };
 
     let search_engine = SearchEngine::new(&project).map_err(|error| error.to_string())?;
 

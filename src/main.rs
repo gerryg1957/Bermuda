@@ -3,7 +3,8 @@ mod commands;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use moyodb::{
-    Pattern, PatternRect, PatternSearchQuery, PatternSearchScope, SearchEngine, board_display,
+    Pattern, PatternRect, PatternSearchOptions, PatternSearchQuery, PatternSearchScope,
+    SearchEngine, board_display,
     game_list::{
         GameColumn, GameListQuery, GameResultFilter, PlayerColour, SortDirection, SortField,
     },
@@ -927,6 +928,7 @@ fn search_pattern(request: SingleGamePatternSearchRequest) -> Result<()> {
 
     let query = PatternSearchQuery {
         pattern,
+        options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Game(search_game_id),
     };
 
@@ -970,6 +972,7 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
 
     let query = PatternSearchQuery {
         pattern,
+        options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Project,
     };
 
