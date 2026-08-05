@@ -115,6 +115,7 @@ pub mod ffi {
         #[qproperty(QString, error_message)]
         #[qproperty(i32, total_occurrences)]
         #[qproperty(bool, search_in_progress)]
+        #[qproperty(bool, occurrence_load_in_progress)]
         #[qproperty(bool, cancel_requested)]
         #[qproperty(bool, search_cancelled)]
         #[qproperty(i32, games_examined)]
@@ -145,8 +146,17 @@ pub mod ffi {
         fn cancel_search(self: Pin<&mut SearchResultModel>);
 
         #[qinvokable]
-        #[cxx_name = "occurrencesJson"]
-        fn occurrences_json(self: &SearchResultModel, row_number: i32) -> QString;
+        #[cxx_name = "loadOccurrences"]
+        fn load_occurrences(self: Pin<&mut SearchResultModel>, row_number: i32) -> bool;
+
+        #[qsignal]
+        #[cxx_name = "occurrencesLoaded"]
+        fn occurrences_loaded(
+            self: Pin<&mut SearchResultModel>,
+            row_number: i32,
+            occurrences_json: QString,
+            error_message: QString,
+        );
 
         #[cxx_override]
         #[cxx_name = "rowCount"]

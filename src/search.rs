@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     Colour, PatternGameSummary, PatternMatch, PatternSearchOutcome, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchSummaryOutcome, PatternSearcher,
+    PatternSearchQuery, PatternSearchSummaryOutcome, PatternSearcher, PatternTransformation,
     game_catalogue::GameCatalogue, game_list::GameListQuery, indexer::PositionIndexer,
     project::Project,
 };
@@ -18,6 +18,9 @@ pub struct SearchOccurrence {
 
     pub left: Option<u8>,
     pub bottom: Option<u8>,
+
+    pub transformation: Option<PatternTransformation>,
+    pub colours_reversed: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -202,6 +205,8 @@ impl SearchEngine {
                         ko_point: found.ko_point,
                         left: Some(found.left),
                         bottom: Some(found.bottom),
+                        transformation: Some(found.transformation),
+                        colours_reversed: Some(found.colours_reversed),
                     },
                 })
             })
@@ -221,6 +226,8 @@ impl SearchEngine {
                     ko_point: found.ko_point,
                     left: Some(found.left),
                     bottom: Some(found.bottom),
+                    transformation: Some(found.transformation),
+                    colours_reversed: Some(found.colours_reversed),
                 });
         }
 

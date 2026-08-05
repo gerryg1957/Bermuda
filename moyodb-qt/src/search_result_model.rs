@@ -16,7 +16,7 @@ use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QStri
 
 use moyodb::{
     Board, Colour, Pattern, PatternRect, PatternSearchOptions, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchScope, SearchEngine, SearchOccurrence,
+    PatternSearchQuery, PatternSearchScope, PatternTransformation, SearchEngine, SearchOccurrence,
     SearchPatternSummaryOutcome, SearchSummaryResult, project_manager::ProjectManager,
 };
 
@@ -59,6 +59,9 @@ struct StoredSearchQuery {
     bottom: i32,
     width: i32,
     height: i32,
+    include_rotations: bool,
+    include_reflections: bool,
+    include_reversed_colours: bool,
 }
 
 #[derive(Default)]
@@ -69,6 +72,7 @@ pub struct SearchResultModelRust {
     pub(crate) total_occurrences: i32,
 
     pub(crate) search_in_progress: bool,
+    pub(crate) occurrence_load_in_progress: bool,
     pub(crate) cancel_requested: bool,
     pub(crate) search_cancelled: bool,
 
@@ -80,11 +84,17 @@ pub struct SearchResultModelRust {
     search_query: Option<StoredSearchQuery>,
     cancel_token: Option<Arc<AtomicBool>>,
     search_id: u64,
+    occurrence_load_id: u64,
 }
 
 enum BackgroundSearchResult {
     Completed(Vec<SearchSummaryResult>),
     Cancelled,
+    Failed(String),
+}
+
+enum BackgroundOccurrenceResult {
+    Completed(Vec<SearchOccurrence>),
     Failed(String),
 }
 
@@ -149,26 +159,52 @@ impl crate::game_list_model::ffi::SearchResultModel {
         roles
     }
 
-    pub(crate) fn occurrences_json(&self, row_number: i32) -> QString {
+    pub(crate) fn load_occurrences(mut self: Pin<&mut Self>, row_number: i32) -> bool {
         if row_number < 0 {
-            return QString::from("[]");
+            return false;
         }
 
-        let rust = self.rust();
+        let (query, game_id, occurrence_load_id) = {
+            let mut rust = self.as_mut().rust_mut();
 
-        let Some(row) = rust.rows.get(row_number as usize) else {
-            return QString::from("[]");
+            if rust.occurrence_load_in_progress {
+                return false;
+            }
+
+            let Some(row) = rust.rows.get(row_number as usize) else {
+                return false;
+            };
+
+            let game_id = row.game_id;
+
+            let Some(query) = rust.search_query.clone() else {
+                return false;
+            };
+
+            rust.occurrence_load_id = rust.occurrence_load_id.wrapping_add(1);
+
+            (query, game_id, rust.occurrence_load_id)
         };
 
-        let Some(query) = rust.search_query.as_ref() else {
-            return QString::from("[]");
-        };
+        self.as_mut().set_occurrence_load_in_progress(true);
 
-        match create_game_occurrences(query, row.game_id) {
-            Ok(occurrences) => occurrences_to_json(&occurrences),
+        let qt_thread = self.qt_thread();
 
-            Err(_) => QString::from("[]"),
-        }
+        std::thread::spawn(move || {
+            let completion = match create_game_occurrences(&query, game_id) {
+                Ok(occurrences) => BackgroundOccurrenceResult::Completed(occurrences),
+
+                Err(error) => BackgroundOccurrenceResult::Failed(error),
+            };
+
+            qt_thread
+                .queue(move |model| {
+                    finish_occurrence_load(model, occurrence_load_id, row_number, completion);
+                })
+                .ok();
+        });
+
+        true
     }
 
     pub(crate) fn search_project(
@@ -199,6 +235,9 @@ impl crate::game_list_model::ffi::SearchResultModel {
             bottom,
             width,
             height,
+            include_rotations: true,
+            include_reflections: true,
+            include_reversed_colours: true,
         };
 
         let cancel_token = Arc::new(AtomicBool::new(false));
@@ -215,6 +254,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.cancel_token = Some(Arc::clone(&cancel_token));
 
             rust.search_id = rust.search_id.wrapping_add(1);
+            rust.occurrence_load_id = rust.occurrence_load_id.wrapping_add(1);
 
             search_id = rust.search_id;
         }
@@ -231,6 +271,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut().set_cancel_requested(false);
         self.as_mut().set_search_cancelled(false);
+        self.as_mut().set_occurrence_load_in_progress(false);
         self.as_mut().set_search_in_progress(true);
 
         let qt_thread = self.qt_thread();
@@ -247,6 +288,9 @@ impl crate::game_list_model::ffi::SearchResultModel {
                 bottom,
                 width,
                 height,
+                true,
+                true,
+                true,
                 || cancel_token.load(Ordering::Relaxed),
                 |progress| {
                     let now = Instant::now();
@@ -330,6 +374,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             cancel_token = rust.cancel_token.take();
 
             rust.search_id = rust.search_id.wrapping_add(1);
+            rust.occurrence_load_id = rust.occurrence_load_id.wrapping_add(1);
 
             rust.rows.clear();
             rust.search_query = None;
@@ -351,6 +396,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut().set_cancel_requested(false);
         self.as_mut().set_search_cancelled(false);
+        self.as_mut().set_occurrence_load_in_progress(false);
         self.as_mut().set_search_in_progress(false);
     }
 }
@@ -363,6 +409,9 @@ fn create_search_engine_and_query(
     bottom: i32,
     width: i32,
     height: i32,
+    include_rotations: bool,
+    include_reflections: bool,
+    include_reversed_colours: bool,
     scope: PatternSearchScope,
 ) -> Result<(SearchEngine, PatternSearchQuery), String> {
     if project_path.trim().is_empty() {
@@ -387,7 +436,11 @@ fn create_search_engine_and_query(
     let query = PatternSearchQuery {
         pattern,
         scope,
-        options: PatternSearchOptions::default(),
+        options: PatternSearchOptions {
+            include_rotations,
+            include_reflections,
+            include_reversed_colours,
+        },
     };
 
     let search_engine = SearchEngine::new(&project).map_err(|error| error.to_string())?;
@@ -403,6 +456,9 @@ fn create_search_outcome<C, P>(
     bottom: i32,
     width: i32,
     height: i32,
+    include_rotations: bool,
+    include_reflections: bool,
+    include_reversed_colours: bool,
     is_cancelled: C,
     on_progress: P,
 ) -> Result<SearchPatternSummaryOutcome, String>
@@ -418,12 +474,46 @@ where
         bottom,
         width,
         height,
+        include_rotations,
+        include_reflections,
+        include_reversed_colours,
         PatternSearchScope::Project,
     )?;
 
     search_engine
         .search_pattern_summaries_with_progress(&query, is_cancelled, on_progress)
         .map_err(|error| error.to_string())
+}
+
+fn finish_occurrence_load(
+    mut model: Pin<&mut crate::game_list_model::ffi::SearchResultModel>,
+    occurrence_load_id: u64,
+    row_number: i32,
+    completion: BackgroundOccurrenceResult,
+) {
+    if model.as_ref().get_ref().rust().occurrence_load_id != occurrence_load_id {
+        return;
+    }
+
+    model.as_mut().set_occurrence_load_in_progress(false);
+
+    match completion {
+        BackgroundOccurrenceResult::Completed(occurrences) => {
+            model.as_mut().occurrences_loaded(
+                row_number,
+                occurrences_to_json(&occurrences),
+                QString::default(),
+            );
+        }
+
+        BackgroundOccurrenceResult::Failed(error) => {
+            model.as_mut().occurrences_loaded(
+                row_number,
+                QString::from("[]"),
+                QString::from(error),
+            );
+        }
+    }
 }
 
 fn finish_search(
@@ -508,6 +598,9 @@ fn create_game_occurrences(
         query.bottom,
         query.width,
         query.height,
+        query.include_rotations,
+        query.include_reflections,
+        query.include_reversed_colours,
         PatternSearchScope::Game(game_id),
     )?;
 
@@ -522,6 +615,19 @@ fn create_game_occurrences(
         .unwrap_or_default())
 }
 
+fn transformation_name(transformation: Option<PatternTransformation>) -> &'static str {
+    match transformation.unwrap_or(PatternTransformation::Identity) {
+        PatternTransformation::Identity => "identity",
+        PatternTransformation::Rotate90Clockwise => "rotate90Clockwise",
+        PatternTransformation::Rotate180 => "rotate180",
+        PatternTransformation::Rotate270Clockwise => "rotate270Clockwise",
+        PatternTransformation::MirrorLeftRight => "mirrorLeftRight",
+        PatternTransformation::MirrorTopBottom => "mirrorTopBottom",
+        PatternTransformation::MirrorMainDiagonal => "mirrorMainDiagonal",
+        PatternTransformation::MirrorAntiDiagonal => "mirrorAntiDiagonal",
+    }
+}
+
 fn occurrences_to_json(occurrences: &[SearchOccurrence]) -> QString {
     let occurrences = occurrences
         .iter()
@@ -531,6 +637,8 @@ fn occurrences_to_json(occurrences: &[SearchOccurrence]) -> QString {
             left: occurrence.left.map_or(-1, i32::from),
 
             bottom: occurrence.bottom.map_or(-1, i32::from),
+            transformation: transformation_name(occurrence.transformation),
+            colours_reversed: occurrence.colours_reversed.unwrap_or(false),
         })
         .collect::<Vec<_>>();
 
@@ -576,6 +684,10 @@ struct SearchOccurrenceJson {
     move_number: i32,
     left: i32,
     bottom: i32,
+    transformation: &'static str,
+
+    #[serde(rename = "coloursReversed")]
+    colours_reversed: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]

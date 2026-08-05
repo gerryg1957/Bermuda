@@ -201,6 +201,8 @@ fn game_scope_groups_occurrences_for_requested_game() {
                 ko_point: None,
                 left: Some(0),
                 bottom: Some(0),
+                transformation: Some(PatternTransformation::Identity,),
+                colours_reversed: Some(false),
             }],
         }]
     );
@@ -240,6 +242,8 @@ fn project_summary_search_keeps_only_counts_and_first_matches() {
                     ko_point: None,
                     left: Some(0),
                     bottom: Some(0),
+                    transformation: Some(PatternTransformation::Identity,),
+                    colours_reversed: Some(false),
                 },
             },
             SearchSummaryResult {
@@ -257,6 +261,8 @@ fn project_summary_search_keeps_only_counts_and_first_matches() {
                     ko_point: None,
                     left: Some(0),
                     bottom: Some(0),
+                    transformation: Some(PatternTransformation::Identity,),
+                    colours_reversed: Some(false),
                 },
             },
         ])
@@ -296,6 +302,8 @@ fn project_scope_returns_one_result_per_matching_game() {
                     ko_point: None,
                     left: Some(0),
                     bottom: Some(0),
+                    transformation: Some(PatternTransformation::Identity,),
+                    colours_reversed: Some(false),
                 }],
             },
             SearchResult {
@@ -312,6 +320,8 @@ fn project_scope_returns_one_result_per_matching_game() {
                     ko_point: None,
                     left: Some(0),
                     bottom: Some(0),
+                    transformation: Some(PatternTransformation::Identity,),
+                    colours_reversed: Some(false),
                 }],
             },
         ]

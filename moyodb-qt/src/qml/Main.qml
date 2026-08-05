@@ -366,7 +366,6 @@ menuBar: MenuBar {
                 matchWidth = 0
                 matchHeight = 0
 
-                clearPatternSelection()
             }
 
             function showMatch(index) {
@@ -383,13 +382,25 @@ menuBar: MenuBar {
                 applyLoadedPosition()
                 matchIndex = index
 
+                const swapsDimensions =
+                    occurrence.transformation === "rotate90Clockwise"
+                    || occurrence.transformation === "rotate270Clockwise"
+                    || occurrence.transformation === "mirrorMainDiagonal"
+                    || occurrence.transformation === "mirrorAntiDiagonal"
+
+                const width =
+                    swapsDimensions ? matchHeight : matchWidth
+
+                const height =
+                    swapsDimensions ? matchWidth : matchHeight
+
                 const left = occurrence.left
-                const right = left + matchWidth - 1
+                const right = left + width - 1
 
                 const bottom =
                     goBoard.boardSize - 1 - occurrence.bottom
 
-                const top = bottom - matchHeight + 1
+                const top = bottom - height + 1
 
                 patternLeft = left
                 patternTop = top
@@ -536,12 +547,12 @@ menuBar: MenuBar {
                                   - boardPane.patternBottom
 
                               gameList.searchProject(
-                                          gameController.board_size,
-                                          gameController.stones_json,
-                                          boardPane.patternLeft,
-                                          bottom,
-                                          width,
-                                          height)
+                                  gameController.board_size,
+                                  gameController.stones_json,
+                                  boardPane.patternLeft,
+                                  bottom,
+                                  width,
+                                  height)
                           }
                       }
 
@@ -719,7 +730,7 @@ menuBar: MenuBar {
                                             boardPane.matchIndex]
 
                                     return qsTr(
-                                                "Match %1 of %2 · move %3")
+                                                "Match %1 of %2 · position after move %3")
                                         .arg(boardPane.matchIndex + 1)
                                         .arg(
                                             boardPane.matchOccurrences.length)

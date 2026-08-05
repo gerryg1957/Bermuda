@@ -18,6 +18,7 @@ Kirigami.AbstractCard {
         searchModel.search_in_progress
     property int searchPatternWidth: 0
     property int searchPatternHeight: 0
+    property var pendingSearchGame: null
 
     readonly property bool searchResultsSelected:
     catalogueTabs.currentIndex === 1
@@ -66,6 +67,7 @@ Kirigami.AbstractCard {
 
     function clearSearchResults() {
         selectedSearchRow = -1
+        pendingSearchGame = null
         searchHasRun = false
         searchPatternWidth = 0
         searchPatternHeight = 0
@@ -79,6 +81,7 @@ Kirigami.AbstractCard {
                            width,
                            height) {
         selectedSearchRow = -1
+        pendingSearchGame = null
         searchHasRun = true
         searchPatternWidth = width
         searchPatternHeight = height
@@ -111,6 +114,37 @@ Kirigami.AbstractCard {
 
     SearchResultModel {
         id: searchModel
+    }
+
+    Connections {
+        target: searchModel
+
+        function onOccurrencesLoaded(rowNumber,
+                                     occurrencesJson,
+                                     errorMessage) {
+            if (rowNumber !== root.selectedSearchRow
+                    || root.pendingSearchGame === null) {
+                return
+            }
+
+            const game = root.pendingSearchGame
+            root.pendingSearchGame = null
+
+            if (errorMessage.length > 0) {
+                console.warn(errorMessage)
+                return
+            }
+
+            try {
+                game.matchOccurrences = JSON.parse(occurrencesJson)
+            } catch (error) {
+                console.warn("Could not decode match occurrences: "
+                             + error)
+                return
+            }
+
+            root.gameSelected(game)
+        }
     }
 
    contentItem: ColumnLayout {
@@ -420,6 +454,7 @@ Kirigami.AbstractCard {
                 clip: true
 
                 highlighted: root.selectedSearchRow === index
+                enabled: !searchModel.occurrence_load_in_progress
 
                 background: Rectangle {
                     anchors {
@@ -443,10 +478,7 @@ Kirigami.AbstractCard {
                 onClicked: {
                     root.selectedSearchRow = index
 
-                    const occurrences = JSON.parse(
-                                          searchModel.occurrencesJson(index))
-
-                    root.gameSelected({
+                    root.pendingSearchGame = {
                         gameId: gameId,
                         black: blackPlayer,
                         white: whitePlayer,
@@ -457,11 +489,17 @@ Kirigami.AbstractCard {
                         matchMove: firstMatchMove,
                         matchLeft: firstMatchLeft,
                         matchBottom: firstMatchBottom,
-                        matchOccurrences: occurrences,
+                        matchOccurrences: [],
                         matchWidth: root.searchPatternWidth,
                         matchHeight: root.searchPatternHeight,
                         fromSearchResults: true
-                    })
+                    }
+
+                    if (!searchModel.loadOccurrences(index)) {
+                        root.pendingSearchGame = null
+                        console.warn(
+                            "Could not start loading match occurrences")
+                    }
                 }
 
                 contentItem: RowLayout {
