@@ -4,7 +4,9 @@
 
 MoyoDB pattern search should help a Go player find positions that are equivalent
 for a stated purpose without losing the ability to perform exact technical
-searches.
+searches. It should also help a player who does not know what to consider next
+discover candidate moves repeatedly chosen by strong players and investigate
+the games behind those choices.
 
 The phrase **same pattern** can mean several different things:
 
@@ -61,10 +63,23 @@ The engine can establish observable facts such as:
 It should not assume that geometry alone determines the strategic meaning of a
 shape.
 
+### Candidate frequencies are evidence, not verdicts
+
+Where several continuations occur, their frequencies identify recurring
+professional candidates. They do not prove which move is best. A move played
+eight times deserves investigation, but it should not be labelled superior
+merely because another move appeared five times.
+
+The interface should lead from each candidate to the supporting games,
+contexts and continuations. Historical outcomes may be shown descriptively,
+but must not be converted into causal claims or an unexplained move-quality
+score.
+
 ### Broad searches should support refinement
 
-A useful workflow may begin with a broad search, inspect a heat map or
-move-number distribution, and then add explicit restrictions. Result analysis
+A useful workflow may begin with a broad search, inspect a continuation map,
+appearance-location map or move-number distribution, and then add explicit
+restrictions. Result analysis
 should inform refinement rather than silently discarding matches.
 
 ### Core semantics belong in Rust
@@ -409,7 +424,7 @@ A whole-board opening pattern may combine:
 - unspecified unrelated intersections;
 - preserved edge distances;
 - optional transformations;
-- optional colour reversal;
+- colour reversal where appropriate;
 - an optional move-number range.
 
 It should not require the whole board position to match exactly.
@@ -590,15 +605,100 @@ matches.
 
 ---
 
+## Continuation analysis and candidate investigation
+
+The continuation display should turn a result set into a route for studying
+professional choices rather than a passive summary.
+
+### Immediate continuation distribution
+
+For each distinct appearance, MoyoDB should record at most one immediate next
+move: the recorded move after the displayed position. The points must be
+normalised into the query's orientation and colour frame before aggregation.
+
+The aggregate should distinguish:
+
+- points within the displayed pattern area and margin;
+- moves outside the displayed area;
+- passes;
+- games that ended at the matched position.
+
+These categories must total the number of appearances used for the aggregate.
+No evidence should disappear merely because it cannot be drawn as a point on
+the board.
+
+The board overlay for this distribution is called the **continuation map**.
+Larger or stronger circles may represent greater frequency, but the map shows
+what professionals played, not an evaluation of what they should have played.
+
+### Candidate counts
+
+Each candidate should be able to report:
+
+- number of appearances;
+- number of distinct supporting games;
+- later, where useful, number of distinct players or player pairs.
+
+Appearances and games must remain separate because several occurrences in one
+game are not equivalent to several independent games. Local-episode grouping
+may later reduce further over-counting.
+
+### Interactive investigation
+
+Selecting a continuation point should create an explicit filter showing the
+games in which that candidate was played. A frequency-ordered candidate list
+may provide the same operation for keyboard and non-board use.
+
+For a selected candidate, the user should be able to:
+
+- open every supporting game;
+- jump to the matched position;
+- replay the subsequent local and whole-board sequence;
+- compare another candidate without reconstructing the search;
+- clear the candidate filter and return to the complete result set.
+
+The selected point is an object of investigation, not a declaration that the
+move is best.
+
+### Historical outcomes
+
+Win and loss counts may be shown from the perspective of the player who chose
+the candidate, together with the sample size. The language must remain
+descriptive, for example:
+
+> This continuation occurred in 13 games: 5 wins and 8 losses.
+
+The display should invite inspection of the games rather than imply that the
+continuation caused those results. Later annotations may include player
+strength, era, colour, rules, komi and engine evaluation before and after the
+sequence.
+
+### Map terminology
+
+MoyoDB should keep several board overlays distinct:
+
+- **continuation map** — corpus-derived immediate-next-move frequencies;
+- **appearance-location map** — where matching appearances occurred;
+- **formation or activity map** — moves before or after a pattern over a wider
+  time window;
+- **influence map** — a future heuristic field derived from the current board;
+- **KataGo ownership map** — a future engine estimate of eventual ownership.
+
+An influence or ownership map must not be presented as another form of
+professional continuation statistics.
+
+---
+
 ## Aggregate result analysis
 
 A result set should also support aggregate analysis.
 
-### Spatial heat map
+### Appearance-location map
 
-MoyoDB should be able to summarise result locations as a board heat map.
+MoyoDB should be able to summarise result locations as an appearance-location
+map.
 
-The heat map may show:
+The map may show:
 
 - where distinct appearances begin;
 - how often each board location is used;
@@ -606,8 +706,8 @@ The heat map may show:
 - whether unexpected centre matches occur;
 - whether transformed versions occupy predictable regions.
 
-The heat map should not be an invisible rule that decides which matches are
-meaningful.
+The appearance-location map should not be an invisible rule that decides
+which matches are meaningful.
 
 Its purpose is to help the user discover whether location appears intrinsic
 to the pattern and then refine the search deliberately.
@@ -648,7 +748,7 @@ The analysis may also show:
 
 A later interface may allow the user to refine a search by:
 
-- selecting heat-map cells;
+- selecting appearance-location cells;
 - selecting one or more board regions;
 - selecting a move-number histogram range;
 - selecting transformations;
@@ -702,8 +802,8 @@ Search controls should describe their effects plainly.
 
 ### Colours
 
-- Preserve colours
-- Include reversed colours
+- Preserve colours only, for exact or diagnostic searches
+- Include reversed colours, the ordinary study default
 
 ### Spatial scope
 
@@ -727,16 +827,17 @@ Search controls should describe their effects plainly.
 The initial practical default for position-pattern search should probably be:
 
 - unmarked intersections are unspecified;
-- colours are preserved;
 - rotations and reflections are included;
+- reversed colours are included;
 - edge relationships are preserved when the selected definition explicitly
   depends on an edge;
 - move order is ignored;
 - all move numbers are allowed;
 - distinct continuous appearances are counted.
 
-Colour reversal should initially remain an explicit choice because it can
-substantially broaden a search.
+Exact and diagnostic searches may explicitly preserve colours and orientation.
+Ordinary study searches should include colour reversal because the purpose is
+to compare strategic ideas rather than the nominal colour of the player.
 
 The active search definition should be inspectable before and after the
 search runs.
@@ -821,15 +922,15 @@ A suitable position-pattern definition should be able to require:
 - the defining stones;
 - their distances from the relevant side and corner;
 - optional reflection to the opposite side;
-- optional colour reversal;
+- colour reversal where appropriate;
 - unrelated stones elsewhere to be ignored.
 
 The centre translation should then be excluded by an explicit spatial rule,
 not by a hidden heuristic.
 
 A deliberately broad preliminary search may still include it. In that case,
-the heat map should reveal it as a centre occurrence that can be inspected or
-filtered.
+the appearance-location map should reveal it as a centre occurrence that can be
+inspected or filtered.
 
 ### Example 6: shimari and strategic function
 
@@ -860,8 +961,8 @@ match:
 - on a side;
 - in the centre.
 
-The heat map should display the distribution without treating one region as
-more correct than another.
+The appearance-location map should display the distribution without treating one
+region as more correct than another.
 
 ### Example 8: persistent opening position
 
@@ -933,10 +1034,11 @@ A move-range filter may then be applied explicitly.
 - make unmarked intersections unspecified in position-pattern mode;
 - show active point states clearly in the editor.
 
-### Stage 5: optional colour reversal
+### Stage 5: colour equivalence
 
 - search the original colour assignment;
-- optionally search the reversed assignment;
+- include the reversed assignment in ordinary study searches;
+- allow exact or diagnostic searches to preserve colours;
 - record the colour assignment used;
 - prevent duplicate results where reversal makes no difference.
 
@@ -949,31 +1051,43 @@ A move-range filter may then be applied explicitly.
 - support selected board regions;
 - keep spatial rules visible in the search definition.
 
-### Stage 7: temporal filters and aggregate analysis
+### Stage 7: continuation and candidate investigation
+
+- aggregate one immediate next move per distinct appearance;
+- normalise continuations across transformations and colour reversal;
+- distinguish local points, off-map moves, passes and ended games;
+- make continuation points selectable;
+- filter results to the games supporting a selected candidate;
+- show appearances and distinct supporting-game counts;
+- present historical outcomes descriptively.
+
+### Stage 8: temporal filters and broader aggregate analysis
 
 - record the first move of each appearance;
 - support explicit move-number filters;
-- produce a board-location heat map;
+- produce an appearance-location map;
 - produce a first-appearance move-number distribution;
+- produce formation and post-pattern activity maps;
 - produce transformation and colour counts;
 - allow explicit refinement from aggregate views.
 
-### Stage 8: search interface refinement
+### Stage 9: search interface refinement
 
 - expose independent search choices;
 - show the active search definition;
 - allow settings to be changed without reconstructing the board;
-- provide clear result summaries;
+- provide clear result and candidate summaries;
 - support navigation between appearances;
-- make heat-map and histogram refinements inspectable.
+- support comparison of candidate continuations;
+- make map and histogram refinements inspectable.
 
-### Stage 9: sequence search
+### Stage 10: sequence search and external analysis
 
-- design only after position-pattern search is mature;
+- design sequence search only after position-pattern search is mature;
 - support move order and optional intervening moves;
-- investigate continuation statistics;
-- investigate professional comparison;
-- consider later KataGo-assisted analysis.
+- investigate longer local continuations and delayed returns;
+- consider later KataGo-assisted analysis;
+- keep KataGo ownership separate from any heuristic influence map.
 
 ---
 
@@ -1041,7 +1155,7 @@ The preferred pattern is:
 3. prepare result rows in batches;
 4. display one row per game;
 5. load or recompute detailed appearances for a selected game;
-6. compute aggregate analysis from compact appearance data.
+6. compute aggregate and candidate analysis from compact appearance data.
 
 Progress reporting should distinguish at least:
 
@@ -1062,13 +1176,17 @@ The next milestone does not need to include:
 - machine-learning pattern recognition;
 - automatic opening-name recognition;
 - tactical evaluation;
-- strategic labels such as aggressive or defensive;
+- automatic strategic labels such as aggressive or defensive;
+- an unexplained ranking of candidate move quality;
+- causal conclusions from game outcomes;
+- an influence or territory heuristic;
 - KataGo analysis;
-- sequence search;
-- automatic judgement of strategic importance.
+- full sequence search.
 
-The immediate goal is to make exact and transformed position searches
-predictable, understandable and useful.
+The immediate goal is to make exact and transformed position searches lead
+into a clear candidate-investigation workflow: reveal professional
+continuations, select one, inspect its supporting games and compare the
+evidence without overstating what it proves.
 
 ---
 
@@ -1077,34 +1195,37 @@ predictable, understandable and useful.
 The following questions should be settled through examples and testing rather
 than assumption:
 
-1. Should rotations and reflections be enabled by default?
-2. Should touching an edge automatically suggest anchoring?
-3. Should the user always confirm the spatial scope explicitly?
-4. Should colour reversal be one option or a separate search mode?
-5. How should overlapping appearances be presented?
-6. Should a pattern broken for one move and immediately restored count as a
+1. Should touching an edge automatically suggest anchoring?
+2. Should the user always confirm the spatial scope explicitly?
+3. How should overlapping appearances be presented?
+4. Should a pattern broken for one move and immediately restored count as a
    new appearance?
-7. Should result sorting initially use date, game ID, appearance count or
-   first matching move?
-8. How should required-empty and unspecified points be edited visually?
-9. Should exact search and position-pattern search use separate setup tools or
+5. Should result sorting initially use date, game ID, appearance count or first
+   matching move?
+6. How should required-empty and unspecified points be edited visually?
+7. Should exact search and position-pattern search use separate setup tools or
    one editor with a mode selector?
-10. How much of a selected rectangle should default to unspecified?
-11. How should transformed match locations be highlighted?
-12. Which spatial scopes belong in the first position-pattern interface?
-13. How should selected board regions be represented?
-14. Should move-number analysis use fixed bands, configurable bands or a
+8. How much of a selected rectangle should default to unspecified?
+9. How should transformed match locations be highlighted?
+10. Which spatial scopes belong in the first position-pattern interface?
+11. How should selected board regions be represented?
+12. Should move-number analysis use fixed bands, configurable bands or a
     continuous histogram?
-15. How should heat-map filtering combine with transformations and colour
-    reversal?
-16. Should late appearances of an opening formation be included by default
-    and shown as outliers?
-17. How should aggregate analysis count simultaneous appearances?
-18. Should continuation statistics begin from the first appearance or from
-    each distinct appearance?
-19. How should the interface explain that a recognised shape does not imply a
+13. How should appearance-location filtering combine with transformations and
+    colour reversal?
+14. Should late appearances of an opening formation be included by default and
+    shown as outliers?
+15. How should aggregate analysis count simultaneous appearances?
+16. When should several appearances be grouped into one local episode?
+17. Should candidate summaries count distinct players as well as appearances
+    and games?
+18. How should outcome counts be displayed without implying move quality or
+    causation?
+19. How should two candidate continuations be compared without crowding the
+    board and result list?
+20. How should the interface explain that a recognised shape does not imply a
     fixed strategic function?
-20. Which examples should become permanent regression and acceptance tests?
+21. Which examples should become permanent regression and acceptance tests?
 
 ---
 
@@ -1126,9 +1247,14 @@ choices:
 - whether move order matters;
 - how repeated positions are counted.
 
-Heat maps and move-number distributions should help the user understand the
-result set and refine the search. They should not silently redefine the
-search.
+Continuation maps, appearance-location maps and move-number distributions
+should help the user understand the result set and refine the search. They
+should not silently redefine the search or rank move quality.
+
+The principal study path should lead from a candidate continuation to the
+supporting games, subsequent play and descriptive context. Frequency and game
+results identify questions worth investigating; they do not supply final
+verdicts.
 
 Pattern recognition should establish structural and historical facts.
 Strategic interpretation should remain contextual, inspectable and open to
