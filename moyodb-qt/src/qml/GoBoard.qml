@@ -10,6 +10,9 @@ Item {
 
         property int boardSize: 19
     property var stones: []
+    property var continuationPoints: []
+
+    onContinuationPointsChanged: boardCanvas.requestPaint()
 
     property bool showCoordinates: true
     property int lastMoveX: -1
@@ -108,6 +111,7 @@ Item {
 
             drawStarPoints(ctx, left, top, spacing)
             drawCoordinates(ctx, left, top, usable, spacing)
+            drawContinuationMap(ctx, left, top, spacing)
             drawStones(ctx, left, top, spacing)
             drawPatternSelection(ctx, left, top, spacing)
             drawLastMoveNumber(ctx, left, top, spacing)
@@ -541,7 +545,64 @@ Item {
             }
         }
 
-                function drawLastMoveNumber(ctx, left, top, spacing) {
+                function drawContinuationMap(ctx, left, top, spacing) {
+            if (root.continuationPoints === null
+                    || root.continuationPoints.length === 0) {
+                return
+            }
+
+            let maximumCount = 0
+
+            for (const point of root.continuationPoints) {
+                maximumCount = Math.max(
+                            maximumCount,
+                            Number(point.count))
+            }
+
+            if (maximumCount <= 0)
+                return
+
+            ctx.save()
+
+            for (const point of root.continuationPoints) {
+                const count = Number(point.count)
+
+                if (count <= 0)
+                    continue
+
+                const strength =
+                    Math.sqrt(count / maximumCount)
+
+                const radius =
+                    spacing * (0.20 + 0.27 * strength)
+
+                const alpha =
+                    0.18 + 0.50 * strength
+
+                const x = left + point.x * spacing
+                const y = top + point.y * spacing
+
+                ctx.fillStyle =
+                    "rgba(190, 48, 35, " + alpha + ")"
+
+                ctx.strokeStyle =
+                    "rgba(100, 24, 18, "
+                    + Math.min(0.88, alpha + 0.18)
+                    + ")"
+
+                ctx.lineWidth =
+                    Math.max(1, spacing * 0.055)
+
+                ctx.beginPath()
+                ctx.arc(x, y, radius, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.stroke()
+            }
+
+            ctx.restore()
+        }
+
+        function drawLastMoveNumber(ctx, left, top, spacing) {
             if (root.lastMoveNumber <= 0
                     || root.lastMoveX < 0
                     || root.lastMoveY < 0) {

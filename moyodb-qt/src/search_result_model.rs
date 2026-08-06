@@ -15,9 +15,10 @@ use std::{
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
 use moyodb::{
-    Board, Colour, Pattern, PatternRect, PatternSearchOptions, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchScope, PatternTransformation, SearchEngine, SearchOccurrence,
-    SearchPatternSummaryOutcome, SearchSummaryResult, project_manager::ProjectManager,
+    Board, Colour, NextMoveDistribution, NextMovePointCount, Pattern, PatternRect,
+    PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
+    PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
+    SearchSummaryReport, SearchSummaryResult, project_manager::ProjectManager,
 };
 
 #[allow(non_camel_case_types)]
@@ -69,6 +70,7 @@ pub struct SearchResultModelRust {
     rows: Vec<SearchResultRow>,
 
     pub(crate) error_message: QString,
+    pub(crate) next_move_distribution_json: QString,
     pub(crate) total_occurrences: i32,
 
     pub(crate) search_in_progress: bool,
@@ -82,19 +84,33 @@ pub struct SearchResultModelRust {
     pub(crate) matches_found: i32,
 
     search_query: Option<StoredSearchQuery>,
+    next_move_distribution: Option<NextMoveDistribution>,
     cancel_token: Option<Arc<AtomicBool>>,
     search_id: u64,
     occurrence_load_id: u64,
 }
 
 enum BackgroundSearchResult {
-    Completed(Vec<SearchSummaryResult>),
+    Completed(SearchSummaryReport),
     Cancelled,
     Failed(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ContinuationBoardPoint {
+    x: u8,
+    core_y: u8,
+    count: usize,
+}
+
+#[derive(Clone, Debug)]
+struct LoadedSearchOccurrence {
+    occurrence: SearchOccurrence,
+    continuation_points: Vec<ContinuationBoardPoint>,
+}
+
 enum BackgroundOccurrenceResult {
-    Completed(Vec<SearchOccurrence>),
+    Completed(Vec<LoadedSearchOccurrence>),
     Failed(String),
 }
 
@@ -164,7 +180,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             return false;
         }
 
-        let (query, game_id, occurrence_load_id) = {
+        let (query, next_move_distribution, game_id, occurrence_load_id) = {
             let mut rust = self.as_mut().rust_mut();
 
             if rust.occurrence_load_in_progress {
@@ -181,9 +197,16 @@ impl crate::game_list_model::ffi::SearchResultModel {
                 return false;
             };
 
+            let next_move_distribution = rust.next_move_distribution.clone().unwrap_or_default();
+
             rust.occurrence_load_id = rust.occurrence_load_id.wrapping_add(1);
 
-            (query, game_id, rust.occurrence_load_id)
+            (
+                query,
+                next_move_distribution,
+                game_id,
+                rust.occurrence_load_id,
+            )
         };
 
         self.as_mut().set_occurrence_load_in_progress(true);
@@ -191,7 +214,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
         let qt_thread = self.qt_thread();
 
         std::thread::spawn(move || {
-            let completion = match create_game_occurrences(&query, game_id) {
+            let completion = match create_game_occurrences(&query, &next_move_distribution, game_id)
+            {
                 Ok(occurrences) => BackgroundOccurrenceResult::Completed(occurrences),
 
                 Err(error) => BackgroundOccurrenceResult::Failed(error),
@@ -251,6 +275,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
             rust.rows.clear();
             rust.search_query = Some(stored_query);
+            rust.next_move_distribution = None;
             rust.cancel_token = Some(Arc::clone(&cancel_token));
 
             rust.search_id = rust.search_id.wrapping_add(1);
@@ -263,6 +288,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut().set_error_message(QString::default());
 
+        self.as_mut()
+            .set_next_move_distribution_json(QString::from("{}"));
         self.as_mut().set_total_occurrences(0);
         self.as_mut().set_games_examined(0);
         self.as_mut().set_total_games(0);
@@ -334,11 +361,13 @@ impl crate::game_list_model::ffi::SearchResultModel {
             );
 
             let completion = match outcome {
-                Ok(SearchPatternSummaryOutcome::Completed(results)) => {
-                    BackgroundSearchResult::Completed(results)
+                Ok(SearchPatternSummaryReportOutcome::Completed(report)) => {
+                    BackgroundSearchResult::Completed(report)
                 }
 
-                Ok(SearchPatternSummaryOutcome::Cancelled) => BackgroundSearchResult::Cancelled,
+                Ok(SearchPatternSummaryReportOutcome::Cancelled) => {
+                    BackgroundSearchResult::Cancelled
+                }
 
                 Err(error) => BackgroundSearchResult::Failed(error),
             };
@@ -378,6 +407,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
             rust.rows.clear();
             rust.search_query = None;
+            rust.next_move_distribution = None;
         }
 
         self.as_mut().end_reset_model();
@@ -388,6 +418,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut().set_error_message(QString::default());
 
+        self.as_mut()
+            .set_next_move_distribution_json(QString::from("{}"));
         self.as_mut().set_total_occurrences(0);
         self.as_mut().set_games_examined(0);
         self.as_mut().set_total_games(0);
@@ -461,7 +493,7 @@ fn create_search_outcome<C, P>(
     include_reversed_colours: bool,
     is_cancelled: C,
     on_progress: P,
-) -> Result<SearchPatternSummaryOutcome, String>
+) -> Result<SearchPatternSummaryReportOutcome, String>
 where
     C: FnMut() -> bool,
     P: FnMut(PatternSearchProgress),
@@ -481,7 +513,7 @@ where
     )?;
 
     search_engine
-        .search_pattern_summaries_with_progress(&query, is_cancelled, on_progress)
+        .search_pattern_summary_report_with_progress(&query, is_cancelled, on_progress)
         .map_err(|error| error.to_string())
 }
 
@@ -525,15 +557,33 @@ fn finish_search(
         return;
     }
 
-    let (rows, error_message, cancelled) = match completion {
-        BackgroundSearchResult::Completed(results) => {
-            (search_results_to_rows(results), None, false)
-        }
+    let (rows, next_move_distribution_json, stored_distribution, error_message, cancelled) =
+        match completion {
+            BackgroundSearchResult::Completed(report) => {
+                let SearchSummaryReport {
+                    results,
+                    next_moves,
+                } = report;
 
-        BackgroundSearchResult::Cancelled => (Vec::new(), None, true),
+                let json = next_move_distribution_to_json(&next_moves);
 
-        BackgroundSearchResult::Failed(error) => (Vec::new(), Some(error), false),
-    };
+                (
+                    search_results_to_rows(results),
+                    json,
+                    Some(next_moves),
+                    None,
+                    false,
+                )
+            }
+
+            BackgroundSearchResult::Cancelled => {
+                (Vec::new(), QString::from("{}"), None, None, true)
+            }
+
+            BackgroundSearchResult::Failed(error) => {
+                (Vec::new(), QString::from("{}"), None, Some(error), false)
+            }
+        };
 
     let total_occurrences = rows
         .iter()
@@ -550,6 +600,7 @@ fn finish_search(
 
         rust.rows = rows;
         rust.cancel_token = None;
+        rust.next_move_distribution = stored_distribution;
 
         if !keep_query {
             rust.search_query = None;
@@ -558,10 +609,12 @@ fn finish_search(
 
     model.as_mut().end_reset_model();
 
+    model
+        .as_mut()
+        .set_next_move_distribution_json(next_move_distribution_json);
+
     model.as_mut().set_total_occurrences(total_occurrences);
-
     model.as_mut().set_matching_games(matching_games);
-
     model.as_mut().set_matches_found(total_occurrences);
 
     match error_message {
@@ -588,8 +641,9 @@ fn is_current_search(
 
 fn create_game_occurrences(
     query: &StoredSearchQuery,
+    distribution: &NextMoveDistribution,
     game_id: i64,
-) -> Result<Vec<SearchOccurrence>, String> {
+) -> Result<Vec<LoadedSearchOccurrence>, String> {
     let (search_engine, pattern_query) = create_search_engine_and_query(
         &query.project_path,
         query.board_size,
@@ -608,11 +662,84 @@ fn create_game_occurrences(
         .search_pattern(&pattern_query)
         .map_err(|error| error.to_string())?;
 
-    Ok(results
+    let occurrences = results
         .into_iter()
         .find(|result| result.game_id == game_id)
         .map(|result| result.occurrences)
-        .unwrap_or_default())
+        .unwrap_or_default();
+
+    occurrences
+        .into_iter()
+        .map(|occurrence| {
+            let continuation_points =
+                continuation_points_for_occurrence(query, distribution, &occurrence)?;
+
+            Ok(LoadedSearchOccurrence {
+                occurrence,
+                continuation_points,
+            })
+        })
+        .collect()
+}
+
+fn continuation_points_for_occurrence(
+    query: &StoredSearchQuery,
+    distribution: &NextMoveDistribution,
+    occurrence: &SearchOccurrence,
+) -> Result<Vec<ContinuationBoardPoint>, String> {
+    let board_size = i16::try_from(query.board_size)
+        .map_err(|_| format!("invalid continuation-map board size {}", query.board_size))?;
+
+    let pattern_width = u8::try_from(query.width)
+        .map_err(|_| format!("invalid continuation-map pattern width {}", query.width))?;
+
+    let pattern_height = u8::try_from(query.height)
+        .map_err(|_| format!("invalid continuation-map pattern height {}", query.height))?;
+
+    let left = occurrence
+        .left
+        .ok_or_else(|| "pattern occurrence has no left coordinate".to_string())?;
+
+    let bottom = occurrence
+        .bottom
+        .ok_or_else(|| "pattern occurrence has no bottom coordinate".to_string())?;
+
+    let transformation = occurrence
+        .transformation
+        .unwrap_or(PatternTransformation::Identity);
+
+    let mut mapped = Vec::new();
+
+    for point in &distribution.points {
+        let (relative_x, relative_y) = transformation.transform_relative_point(
+            point.x,
+            point.y,
+            pattern_width,
+            pattern_height,
+        );
+
+        let board_x = i16::from(left) + relative_x;
+        let board_y = i16::from(bottom) + relative_y;
+
+        /*
+         * Margin points can lie beyond the board when projected onto
+         * a particular edge or corner occurrence. Such points simply
+         * have no drawable intersection in this occurrence.
+         */
+        if board_x < 0 || board_y < 0 || board_x >= board_size || board_y >= board_size {
+            continue;
+        }
+
+        mapped.push(ContinuationBoardPoint {
+            x: u8::try_from(board_x).expect("validated board x must fit in u8"),
+
+            core_y: u8::try_from(board_y).expect("validated board y must fit in u8"),
+
+            count: point.count,
+        });
+    }
+
+    Ok(mapped)
 }
 
 fn transformation_name(transformation: Option<PatternTransformation>) -> &'static str {
@@ -628,17 +755,52 @@ fn transformation_name(transformation: Option<PatternTransformation>) -> &'stati
     }
 }
 
-fn occurrences_to_json(occurrences: &[SearchOccurrence]) -> QString {
+fn next_move_distribution_to_json(distribution: &NextMoveDistribution) -> QString {
+    let json = NextMoveDistributionJson {
+        margin: distribution.margin,
+        appearances: distribution.appearances,
+        matching_games: distribution.matching_games,
+        points: distribution
+            .points
+            .iter()
+            .copied()
+            .map(NextMovePointJson::from)
+            .collect(),
+        outside_displayed_area: distribution.outside_displayed_area,
+        passes: distribution.passes,
+        game_ended: distribution.game_ended,
+    };
+
+    match serde_json::to_string(&json) {
+        Ok(json) => QString::from(json),
+        Err(_) => QString::from("{}"),
+    }
+}
+
+fn occurrences_to_json(occurrences: &[LoadedSearchOccurrence]) -> QString {
     let occurrences = occurrences
         .iter()
-        .map(|occurrence| SearchOccurrenceJson {
-            move_number: i32::try_from(occurrence.move_number).unwrap_or(i32::MAX),
+        .map(|loaded| {
+            let occurrence = &loaded.occurrence;
 
-            left: occurrence.left.map_or(-1, i32::from),
+            SearchOccurrenceJson {
+                move_number: i32::try_from(occurrence.move_number).unwrap_or(i32::MAX),
 
-            bottom: occurrence.bottom.map_or(-1, i32::from),
-            transformation: transformation_name(occurrence.transformation),
-            colours_reversed: occurrence.colours_reversed.unwrap_or(false),
+                left: occurrence.left.map_or(-1, i32::from),
+
+                bottom: occurrence.bottom.map_or(-1, i32::from),
+
+                transformation: transformation_name(occurrence.transformation),
+
+                colours_reversed: occurrence.colours_reversed.unwrap_or(false),
+
+                continuation_points: loaded
+                    .continuation_points
+                    .iter()
+                    .copied()
+                    .map(ContinuationPointJson::from)
+                    .collect(),
+            }
         })
         .collect::<Vec<_>>();
 
@@ -679,6 +841,62 @@ fn search_results_to_rows(results: Vec<SearchSummaryResult>) -> Vec<SearchResult
 }
 
 #[derive(Debug, serde::Serialize)]
+struct NextMoveDistributionJson {
+    margin: i16,
+    appearances: usize,
+
+    #[serde(rename = "matchingGames")]
+    matching_games: usize,
+
+    points: Vec<NextMovePointJson>,
+
+    #[serde(rename = "outsideDisplayedArea")]
+    outside_displayed_area: usize,
+
+    passes: usize,
+
+    #[serde(rename = "gameEnded")]
+    game_ended: usize,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct NextMovePointJson {
+    x: i16,
+    y: i16,
+    count: usize,
+}
+
+impl From<NextMovePointCount> for NextMovePointJson {
+    fn from(point: NextMovePointCount) -> Self {
+        Self {
+            x: point.x,
+            y: point.y,
+            count: point.count,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ContinuationPointJson {
+    x: u8,
+
+    #[serde(rename = "coreY")]
+    core_y: u8,
+
+    count: usize,
+}
+
+impl From<ContinuationBoardPoint> for ContinuationPointJson {
+    fn from(point: ContinuationBoardPoint) -> Self {
+        Self {
+            x: point.x,
+            core_y: point.core_y,
+            count: point.count,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
 struct SearchOccurrenceJson {
     #[serde(rename = "move")]
     move_number: i32,
@@ -688,6 +906,9 @@ struct SearchOccurrenceJson {
 
     #[serde(rename = "coloursReversed")]
     colours_reversed: bool,
+
+    #[serde(rename = "continuationPoints")]
+    continuation_points: Vec<ContinuationPointJson>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -770,5 +991,162 @@ where
     match value {
         Some(value) => QString::from(value.to_string()),
         None => QString::default(),
+    }
+}
+
+#[cfg(test)]
+mod next_move_json_tests {
+    use super::*;
+
+    #[test]
+    fn serialises_next_move_distribution_for_qml() {
+        let distribution = NextMoveDistribution {
+            margin: 3,
+            appearances: 8,
+            matching_games: 6,
+            points: vec![
+                NextMovePointCount {
+                    x: -1,
+                    y: 2,
+                    count: 3,
+                },
+                NextMovePointCount {
+                    x: 4,
+                    y: 1,
+                    count: 2,
+                },
+            ],
+            outside_displayed_area: 1,
+            passes: 1,
+            game_ended: 1,
+        };
+
+        let json = next_move_distribution_to_json(&distribution).to_string();
+
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "margin": 3,
+                "appearances": 8,
+                "matchingGames": 6,
+                "points": [
+                    {
+                        "x": -1,
+                        "y": 2,
+                        "count": 3
+                    },
+                    {
+                        "x": 4,
+                        "y": 1,
+                        "count": 2
+                    }
+                ],
+                "outsideDisplayedArea": 1,
+                "passes": 1,
+                "gameEnded": 1
+            })
+        );
+    }
+}
+
+#[cfg(test)]
+mod occurrence_continuation_tests {
+    use super::*;
+
+    #[test]
+    fn maps_normalised_points_to_rotated_occurrence() {
+        let query = StoredSearchQuery {
+            project_path: String::new(),
+            board_size: 19,
+            stones_json: "[]".to_string(),
+            left: 0,
+            bottom: 0,
+            width: 4,
+            height: 5,
+            include_rotations: true,
+            include_reflections: true,
+            include_reversed_colours: true,
+        };
+
+        let distribution = NextMoveDistribution {
+            margin: 3,
+            appearances: 1,
+            matching_games: 1,
+            points: vec![NextMovePointCount {
+                x: 1,
+                y: 2,
+                count: 7,
+            }],
+            outside_displayed_area: 0,
+            passes: 0,
+            game_ended: 0,
+        };
+
+        let occurrence = SearchOccurrence {
+            move_number: 20,
+            side_to_move: Some(Colour::White),
+            ko_point: None,
+            left: Some(7),
+            bottom: Some(8),
+            transformation: Some(PatternTransformation::Rotate90Clockwise),
+            colours_reversed: Some(true),
+        };
+
+        assert_eq!(
+            continuation_points_for_occurrence(&query, &distribution, &occurrence,).unwrap(),
+            vec![ContinuationBoardPoint {
+                x: 9,
+                core_y: 10,
+                count: 7,
+            }]
+        );
+    }
+
+    #[test]
+    fn omits_margin_points_outside_board() {
+        let query = StoredSearchQuery {
+            project_path: String::new(),
+            board_size: 19,
+            stones_json: "[]".to_string(),
+            left: 0,
+            bottom: 0,
+            width: 4,
+            height: 4,
+            include_rotations: true,
+            include_reflections: true,
+            include_reversed_colours: true,
+        };
+
+        let distribution = NextMoveDistribution {
+            margin: 3,
+            appearances: 1,
+            matching_games: 1,
+            points: vec![NextMovePointCount {
+                x: -2,
+                y: 1,
+                count: 3,
+            }],
+            outside_displayed_area: 0,
+            passes: 0,
+            game_ended: 0,
+        };
+
+        let occurrence = SearchOccurrence {
+            move_number: 10,
+            side_to_move: Some(Colour::Black),
+            ko_point: None,
+            left: Some(0),
+            bottom: Some(0),
+            transformation: Some(PatternTransformation::Identity),
+            colours_reversed: Some(false),
+        };
+
+        assert!(
+            continuation_points_for_occurrence(&query, &distribution, &occurrence,)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

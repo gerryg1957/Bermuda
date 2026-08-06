@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::{Context, Result};
 
 use crate::{
-    Colour, PatternGameSummary, PatternMatch, PatternSearchOutcome, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchSummaryOutcome, PatternSearcher, PatternTransformation,
+    Colour, NextMoveDistribution, PatternGameSummary, PatternMatch, PatternSearchOutcome,
+    PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
+    PatternSearchSummaryReportOutcome, PatternSearcher, PatternTransformation,
     game_catalogue::GameCatalogue, game_list::GameListQuery, indexer::PositionIndexer,
     project::Project,
 };
@@ -63,6 +64,18 @@ pub struct SearchSummaryResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SearchPatternSummaryOutcome {
     Completed(Vec<SearchSummaryResult>),
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchSummaryReport {
+    pub results: Vec<SearchSummaryResult>,
+    pub next_moves: NextMoveDistribution,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SearchPatternSummaryReportOutcome {
+    Completed(SearchSummaryReport),
     Cancelled,
 }
 
@@ -160,6 +173,53 @@ impl SearchEngine {
         }
 
         Ok(SearchPatternSummaryOutcome::Completed(results))
+    }
+
+    pub fn search_pattern_summary_report_with_progress<C, P>(
+        &self,
+        query: &PatternSearchQuery,
+        mut is_cancelled: C,
+        on_progress: P,
+    ) -> Result<SearchPatternSummaryReportOutcome>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(PatternSearchProgress),
+    {
+        anyhow::ensure!(
+            matches!(query.scope, PatternSearchScope::Project),
+            "pattern summary reports currently require project scope"
+        );
+
+        let outcome = self
+            .pattern_searcher
+            .search_database_summary_report_with_progress(
+                &self.indexer,
+                &query.pattern,
+                query.options,
+                &mut is_cancelled,
+                on_progress,
+            )?;
+
+        let PatternSearchSummaryReportOutcome::Completed(report) = outcome else {
+            return Ok(SearchPatternSummaryReportOutcome::Cancelled);
+        };
+
+        if is_cancelled() {
+            return Ok(SearchPatternSummaryReportOutcome::Cancelled);
+        }
+
+        let results = self.results_from_summaries(report.summaries)?;
+
+        if is_cancelled() {
+            return Ok(SearchPatternSummaryReportOutcome::Cancelled);
+        }
+
+        Ok(SearchPatternSummaryReportOutcome::Completed(
+            SearchSummaryReport {
+                results,
+                next_moves: report.next_moves,
+            },
+        ))
     }
 
     fn results_from_summaries(

@@ -36,6 +36,121 @@ pub struct PatternGameSummary {
     pub first_match: PatternMatch,
 }
 
+pub const NEXT_MOVE_DISPLAY_MARGIN: i16 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextMovePointCount {
+    pub x: i16,
+    pub y: i16,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NextMoveDistribution {
+    pub margin: i16,
+    pub appearances: usize,
+    pub matching_games: usize,
+    pub points: Vec<NextMovePointCount>,
+    pub outside_displayed_area: usize,
+    pub passes: usize,
+    pub game_ended: usize,
+}
+
+impl Default for NextMoveDistribution {
+    fn default() -> Self {
+        Self {
+            margin: NEXT_MOVE_DISPLAY_MARGIN,
+            appearances: 0,
+            matching_games: 0,
+            points: Vec::new(),
+            outside_displayed_area: 0,
+            passes: 0,
+            game_ended: 0,
+        }
+    }
+}
+
+impl NextMoveDistribution {
+    fn record_appearance(
+        &mut self,
+        point_counts: &mut HashMap<(i16, i16), usize>,
+        pattern: &Pattern,
+        found: &PatternMatch,
+        board_size: u8,
+        next_move: Option<crate::Move>,
+    ) {
+        self.appearances = self.appearances.saturating_add(1);
+
+        let Some(next_move) = next_move else {
+            self.game_ended = self.game_ended.saturating_add(1);
+            return;
+        };
+
+        let Some(point) = next_move.point else {
+            self.passes = self.passes.saturating_add(1);
+            return;
+        };
+
+        let board_size = u16::from(board_size);
+
+        debug_assert!(board_size > 0);
+
+        let board_x =
+            i16::try_from(point % board_size).expect("board x coordinate must fit in i16");
+
+        let board_y =
+            i16::try_from(point / board_size).expect("board y coordinate must fit in i16");
+
+        let relative_x = board_x - i16::from(found.left);
+        let relative_y = board_y - i16::from(found.bottom);
+
+        let (normalised_x, normalised_y) = found.transformation.inverse_relative_point(
+            relative_x,
+            relative_y,
+            pattern.width,
+            pattern.height,
+        );
+
+        let inside_displayed_area = normalised_x >= -self.margin
+            && normalised_y >= -self.margin
+            && normalised_x < i16::from(pattern.width) + self.margin
+            && normalised_y < i16::from(pattern.height) + self.margin;
+
+        if inside_displayed_area {
+            let count = point_counts
+                .entry((normalised_x, normalised_y))
+                .or_default();
+
+            *count = count.saturating_add(1);
+        } else {
+            self.outside_displayed_area = self.outside_displayed_area.saturating_add(1);
+        }
+    }
+
+    fn finish_points(&mut self, point_counts: HashMap<(i16, i16), usize>) {
+        let mut points = point_counts
+            .into_iter()
+            .map(|((x, y), count)| NextMovePointCount { x, y, count })
+            .collect::<Vec<_>>();
+
+        points.sort_by_key(|point| (point.y, point.x));
+
+        self.points = points;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternSearchSummaryReport {
+    pub summaries: Vec<PatternGameSummary>,
+    pub next_moves: NextMoveDistribution,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PatternSearchSummaryReportOutcome {
+    Completed(PatternSearchSummaryReport),
+    Cancelled,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatternSearchSummaryOutcome {
     Completed(Vec<PatternGameSummary>),
@@ -333,7 +448,19 @@ impl PatternSearcher {
         pattern: &Pattern,
         options: PatternSearchOptions,
     ) -> Result<Vec<PatternMatch>> {
-        let states = indexer.replay_game_states_by_id(game_id)?;
+        let record = indexer.read_game_by_id(game_id)?;
+
+        self.search_record_with_options(game_id, &record, pattern, options)
+    }
+
+    fn search_record_with_options(
+        &self,
+        game_id: i64,
+        record: &crate::GameRecord,
+        pattern: &Pattern,
+        options: PatternSearchOptions,
+    ) -> Result<Vec<PatternMatch>> {
+        let states = crate::replay_positions(record)?;
         let variants = Self::search_variants(pattern, options);
 
         let mut matches = Vec::new();
@@ -465,9 +592,59 @@ impl PatternSearcher {
         indexer: &PositionIndexer,
         pattern: &Pattern,
         options: PatternSearchOptions,
+        is_cancelled: C,
+        on_progress: P,
+    ) -> Result<PatternSearchSummaryOutcome>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(PatternSearchProgress),
+    {
+        match self.search_database_summary_report_with_progress(
+            indexer,
+            pattern,
+            options,
+            is_cancelled,
+            on_progress,
+        )? {
+            PatternSearchSummaryReportOutcome::Completed(report) => {
+                Ok(PatternSearchSummaryOutcome::Completed(report.summaries))
+            }
+
+            PatternSearchSummaryReportOutcome::Cancelled => {
+                Ok(PatternSearchSummaryOutcome::Cancelled)
+            }
+        }
+    }
+
+    pub fn search_database_summary_report(
+        &self,
+        indexer: &PositionIndexer,
+        pattern: &Pattern,
+        options: PatternSearchOptions,
+    ) -> Result<PatternSearchSummaryReport> {
+        match self.search_database_summary_report_with_progress(
+            indexer,
+            pattern,
+            options,
+            || false,
+            |_| {},
+        )? {
+            PatternSearchSummaryReportOutcome::Completed(report) => Ok(report),
+
+            PatternSearchSummaryReportOutcome::Cancelled => {
+                unreachable!("an uncancellable summary report search was cancelled")
+            }
+        }
+    }
+
+    pub fn search_database_summary_report_with_progress<C, P>(
+        &self,
+        indexer: &PositionIndexer,
+        pattern: &Pattern,
+        options: PatternSearchOptions,
         mut is_cancelled: C,
         mut on_progress: P,
-    ) -> Result<PatternSearchSummaryOutcome>
+    ) -> Result<PatternSearchSummaryReportOutcome>
     where
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
@@ -479,6 +656,9 @@ impl PatternSearcher {
         let mut matching_games = 0_usize;
         let mut matches_found = 0_usize;
 
+        let mut next_moves = NextMoveDistribution::default();
+        let mut next_move_point_counts = HashMap::new();
+
         on_progress(PatternSearchProgress {
             games_examined: 0,
             total_games,
@@ -488,21 +668,42 @@ impl PatternSearcher {
 
         for (game_index, game_id) in game_ids.into_iter().enumerate() {
             if is_cancelled() {
-                return Ok(PatternSearchSummaryOutcome::Cancelled);
+                return Ok(PatternSearchSummaryReportOutcome::Cancelled);
             }
 
             /*
-             * Matches for only this game are retained temporarily.
-             * Once the count and first match have been recorded, the
-             * complete per-game vector is released.
+             * Load and replay the compact game record once. The same
+             * record then supplies the move immediately following each
+             * distinct appearance.
              */
-            let game_matches =
-                self.search_game_appearances_with_options(indexer, game_id, pattern, options)?;
+            let record = indexer.read_game_by_id(game_id)?;
+
+            let raw_matches =
+                self.search_record_with_options(game_id, &record, pattern, options)?;
+
+            let game_matches = Self::distinct_appearances(raw_matches);
 
             if let Some(first_match) = game_matches.first().cloned() {
                 matching_games = matching_games.saturating_add(1);
-
                 matches_found = matches_found.saturating_add(game_matches.len());
+
+                next_moves.matching_games = next_moves.matching_games.saturating_add(1);
+
+                for found in &game_matches {
+                    /*
+                     * A match at position N is followed by move N + 1,
+                     * stored at zero-based record.moves[N].
+                     */
+                    let next_move = record.moves.get(found.move_number).copied();
+
+                    next_moves.record_appearance(
+                        &mut next_move_point_counts,
+                        pattern,
+                        found,
+                        record.board_size,
+                        next_move,
+                    );
+                }
 
                 summaries.push(PatternGameSummary {
                     game_id,
@@ -519,7 +720,14 @@ impl PatternSearcher {
             });
         }
 
-        Ok(PatternSearchSummaryOutcome::Completed(summaries))
+        next_moves.finish_points(next_move_point_counts);
+
+        Ok(PatternSearchSummaryReportOutcome::Completed(
+            PatternSearchSummaryReport {
+                summaries,
+                next_moves,
+            },
+        ))
     }
 
     pub fn search_database(
@@ -733,5 +941,144 @@ mod option_tests {
             ]),
             vec![base, rotated, reversed]
         );
+    }
+    #[test]
+    fn next_move_distribution_normalises_and_classifies_moves() {
+        let pattern = Pattern {
+            width: 4,
+            height: 5,
+            cells: vec![crate::PatternCell::Empty; 20],
+            edges: crate::BoardEdges {
+                left: false,
+                right: false,
+                bottom: false,
+                top: false,
+            },
+        };
+
+        let identity_match = PatternMatch {
+            game_id: 1,
+            move_number: 10,
+            side_to_move: Colour::Black,
+            ko_point: None,
+            left: 3,
+            bottom: 4,
+            transformation: PatternTransformation::Identity,
+            colours_reversed: false,
+        };
+
+        let rotated_match = PatternMatch {
+            game_id: 2,
+            move_number: 20,
+            side_to_move: Colour::White,
+            ko_point: None,
+            left: 7,
+            bottom: 8,
+            transformation: PatternTransformation::Rotate90Clockwise,
+            colours_reversed: true,
+        };
+
+        let board_size = 19_u8;
+
+        let point = |x: u8, y: u8| u16::from(y) * u16::from(board_size) + u16::from(x);
+
+        let mut distribution = NextMoveDistribution::default();
+        let mut point_counts = HashMap::new();
+
+        distribution.matching_games = 2;
+
+        /*
+         * Identity match: absolute (4, 6) is relative (1, 2).
+         */
+        distribution.record_appearance(
+            &mut point_counts,
+            &pattern,
+            &identity_match,
+            board_size,
+            Some(crate::Move {
+                colour: Colour::Black,
+                point: Some(point(4, 6)),
+            }),
+        );
+
+        /*
+         * For a 4 x 5 pattern, normalised (1, 2) becomes
+         * transformed relative coordinate (2, 2) after a clockwise
+         * quarter turn. At match origin (7, 8), that is (9, 10).
+         */
+        distribution.record_appearance(
+            &mut point_counts,
+            &pattern,
+            &rotated_match,
+            board_size,
+            Some(crate::Move {
+                colour: Colour::White,
+                point: Some(point(9, 10)),
+            }),
+        );
+
+        /*
+         * x = 7 lies just beyond a width-four pattern plus the
+         * three-intersection display margin.
+         */
+        distribution.record_appearance(
+            &mut point_counts,
+            &pattern,
+            &identity_match,
+            board_size,
+            Some(crate::Move {
+                colour: Colour::Black,
+                point: Some(point(10, 6)),
+            }),
+        );
+
+        distribution.record_appearance(
+            &mut point_counts,
+            &pattern,
+            &identity_match,
+            board_size,
+            Some(crate::Move {
+                colour: Colour::White,
+                point: None,
+            }),
+        );
+
+        distribution.record_appearance(
+            &mut point_counts,
+            &pattern,
+            &identity_match,
+            board_size,
+            None,
+        );
+
+        distribution.finish_points(point_counts);
+
+        assert_eq!(distribution.margin, 3);
+        assert_eq!(distribution.appearances, 5);
+        assert_eq!(distribution.matching_games, 2);
+
+        assert_eq!(
+            distribution.points,
+            vec![NextMovePointCount {
+                x: 1,
+                y: 2,
+                count: 2,
+            }]
+        );
+
+        assert_eq!(distribution.outside_displayed_area, 1);
+        assert_eq!(distribution.passes, 1);
+        assert_eq!(distribution.game_ended, 1);
+
+        let classified_total = distribution
+            .points
+            .iter()
+            .map(|point| point.count)
+            .sum::<usize>()
+            + distribution.outside_displayed_area
+            + distribution.passes
+            + distribution.game_ended;
+
+        assert_eq!(classified_total, distribution.appearances);
     }
 }

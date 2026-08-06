@@ -29,15 +29,16 @@ pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
 pub use pattern::{BoardEdges, Pattern, PatternCell, PatternRect, PatternTransformation};
 pub use pattern_search::{
-    PatternGameSummary, PatternMatch, PatternSearchOptions, PatternSearchOutcome,
-    PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
-    PatternSearcher,
+    NEXT_MOVE_DISPLAY_MARGIN, NextMoveDistribution, NextMovePointCount, PatternGameSummary,
+    PatternMatch, PatternSearchOptions, PatternSearchOutcome, PatternSearchProgress,
+    PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
+    PatternSearchSummaryReport, PatternSearchSummaryReportOutcome, PatternSearcher,
 };
 pub use position::{position_fingerprint, position_fingerprint_hex};
 pub use position_stream::{PositionOccurrence, position_stream};
 pub use replay::{PositionState, replay_positions};
 pub use search::{
     SearchEngine, SearchOccurrence, SearchPatternOutcome, SearchPatternSummaryOutcome,
-    SearchResult, SearchSummaryResult,
+    SearchPatternSummaryReportOutcome, SearchResult, SearchSummaryReport, SearchSummaryResult,
 };
 pub use sgf::{Collection, GameTree, Node, parse_collection};

@@ -342,10 +342,11 @@ menuBar: MenuBar {
             property int matchIndex: -1
             property int matchWidth: 0
             property int matchHeight: 0
-
+            property bool showingMatchPosition: false
 
             function clearPatternSelection() {
                 selectingPattern = false
+                clearMatchNavigation()
 
                 patternLeft = -1
                 patternTop = -1
@@ -360,12 +361,18 @@ menuBar: MenuBar {
                 clearPatternSelection()
             }
 
+            function clearContinuationMap() {
+                showingMatchPosition = false
+                goBoard.continuationPoints = []
+            }
+
             function clearMatchNavigation() {
                 matchOccurrences = []
                 matchIndex = -1
                 matchWidth = 0
                 matchHeight = 0
 
+                clearContinuationMap()
             }
 
             function showMatch(index) {
@@ -381,6 +388,7 @@ menuBar: MenuBar {
 
                 applyLoadedPosition()
                 matchIndex = index
+                showingMatchPosition = true
 
                 const swapsDimensions =
                     occurrence.transformation === "rotate90Clockwise"
@@ -412,6 +420,22 @@ menuBar: MenuBar {
                             top,
                             right,
                             bottom)
+
+                const continuationPoints =
+                    occurrence.continuationPoints === undefined
+                    ? []
+                    : occurrence.continuationPoints
+
+                goBoard.continuationPoints =
+                    continuationPoints.map(function(point) {
+                        return {
+                            "x": point.x,
+                            "y": goBoard.boardSize
+                                 - 1
+                                 - point.coreY,
+                            "count": point.count
+                        }
+                    })
             }
 
             function applyLoadedPosition() {
@@ -429,7 +453,12 @@ menuBar: MenuBar {
                     return
                 }
 
-                clearMatchNavigation()
+                /*
+                 * Preserve the known match locations while replaying
+                 * the surrounding game. Only the continuation map is
+                 * specific to the matched position.
+                 */
+                clearContinuationMap()
 
                 if (gameController.showPosition(moveNumber)) {
                     applyLoadedPosition()
@@ -484,6 +513,8 @@ menuBar: MenuBar {
                           }
 
                           onPatternSelected: function(left, top, right, bottom) {
+                              boardPane.clearMatchNavigation()
+
                               boardPane.patternLeft = left
                               boardPane.patternTop = top
                               boardPane.patternRight = right
@@ -512,6 +543,7 @@ menuBar: MenuBar {
                               boardPane.selectingPattern = checked
 
                               if (checked) {
+                                  boardPane.clearMatchNavigation()
                                   gameList.clearSearchResults()
                                   goBoard.hoverValid = false
                               }
@@ -545,6 +577,8 @@ menuBar: MenuBar {
                               const bottom =
                                   goBoard.boardSize - 1
                                   - boardPane.patternBottom
+
+                              goBoard.continuationPoints = []
 
                               gameList.searchProject(
                                   gameController.board_size,
@@ -628,13 +662,19 @@ menuBar: MenuBar {
                       id: gameDetailsFrame
 
                     Layout.fillWidth: true
-                    Layout.minimumHeight: 112
-                    Layout.preferredHeight: 122
-                    Layout.maximumHeight: 160
+
+                    Layout.minimumHeight:
+                        gameDetailsContent.implicitHeight
+                        + gameDetailsFrame.topPadding
+                        + gameDetailsFrame.bottomPadding
+
+                    Layout.preferredHeight:
+                        Layout.minimumHeight
 
                     padding: 8
 
                     ColumnLayout {
+                        id: gameDetailsContent
                         anchors.fill: parent
                         spacing: 4
 
@@ -705,6 +745,7 @@ menuBar: MenuBar {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            spacing: 4
 
                             visible:
                                 boardPane.matchOccurrences.length > 0
@@ -729,16 +770,45 @@ menuBar: MenuBar {
                                         boardPane.matchOccurrences[
                                             boardPane.matchIndex]
 
+                                    if (boardPane.showingMatchPosition) {
+                                        return qsTr(
+                                                    "Match %1 of %2 · position after move %3")
+                                            .arg(boardPane.matchIndex + 1)
+                                            .arg(
+                                                boardPane.matchOccurrences.length)
+                                            .arg(occurrence.move)
+                                    }
+
                                     return qsTr(
-                                                "Match %1 of %2 · position after move %3")
+                                                "Match %1 of %2 at move %3 · viewing move %4")
                                         .arg(boardPane.matchIndex + 1)
                                         .arg(
                                             boardPane.matchOccurrences.length)
                                         .arg(occurrence.move)
+                                        .arg(gameController.move_number)
                                 }
 
                                 horizontalAlignment:
                                     Text.AlignHCenter
+
+                                elide: Text.ElideRight
+                            }
+
+                            ToolButton {
+                                text: qsTr("Return")
+
+                                visible:
+                                    !boardPane.showingMatchPosition
+                                    && boardPane.matchIndex >= 0
+
+                                onClicked:
+                                    boardPane.showMatch(
+                                        boardPane.matchIndex)
+
+                                ToolTip.visible: hovered
+
+                                ToolTip.text:
+                                    qsTr("Return to the matched position")
                             }
 
                             ToolButton {
@@ -783,6 +853,12 @@ menuBar: MenuBar {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 4
+
+                            Label {
+                                text: qsTr("Moves:")
+                                font.bold: true
+                                opacity: 0.75
+                            }
 
                             ToolButton {
                                 text: "|<"

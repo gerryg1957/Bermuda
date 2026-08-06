@@ -20,6 +20,39 @@ Kirigami.AbstractCard {
     property int searchPatternHeight: 0
     property var pendingSearchGame: null
 
+    readonly property var nextMoveDistribution: {
+        const json = searchModel.next_move_distribution_json
+
+        if (json.length === 0 || json === "{}")
+            return null
+
+        try {
+            return JSON.parse(json)
+        } catch (error) {
+            console.warn(
+                        "Could not decode next-move distribution: "
+                        + error)
+
+            return null
+        }
+    }
+
+    readonly property int nextMoveLocalCount: {
+        const distribution = nextMoveDistribution
+
+        if (distribution === null
+                || distribution.points === undefined) {
+            return 0
+        }
+
+        let total = 0
+
+        for (const point of distribution.points)
+            total += point.count
+
+        return total
+    }
+
     readonly property bool searchResultsSelected:
     catalogueTabs.currentIndex === 1
 
@@ -151,26 +184,6 @@ Kirigami.AbstractCard {
     anchors.fill: parent
     spacing: 0
 
-    Item {
-        Layout.fillWidth: true
-        Layout.preferredHeight: root.searchResultsSelected
-                                ? Kirigami.Units.gridUnit * 7
-                                : 0
-
-        visible: root.searchResultsSelected
-
-       Label {
-    anchors.centerIn: parent
-
-    text: qsTr(
-              "Search-result Go board will appear here")
-
-    font.italic: true
-    opacity: 0.55
-}
-
-    }
-
     RowLayout {
         Layout.fillWidth: true
         spacing: 0
@@ -192,6 +205,70 @@ Kirigami.AbstractCard {
         }
 
     }
+
+    Item {
+        Layout.fillWidth: true
+        Layout.preferredHeight: root.searchResultsSelected
+                                ? Kirigami.Units.gridUnit * 7
+                                : 0
+
+        visible: root.searchResultsSelected
+
+          Label {
+           anchors.fill: parent
+           anchors.margins: Kirigami.Units.largeSpacing
+
+           horizontalAlignment: Text.AlignHCenter
+           verticalAlignment: Text.AlignVCenter
+           wrapMode: Text.WordWrap
+
+           text: {
+               if (searchModel.search_in_progress) {
+                   return qsTr(
+                               "Searching the database…\n"
+                               + "%1 of %2 games examined")
+                       .arg(searchModel.games_examined)
+                       .arg(searchModel.total_games)
+               }
+
+               const distribution =
+                   root.nextMoveDistribution
+
+               if (distribution === null) {
+                   return qsTr(
+                               "Run a pattern search to build "
+                               + "a continuation map")
+               }
+
+               return qsTr(
+                           "Continuation map\n"
+                           + "%1 appearances in %2 games · "
+                           + "%3 shown locally · "
+                           + "%4 outside area · "
+                           + "%5 passes · "
+                           + "%6 games ended\n"
+                           + "Larger circles indicate more frequently "
+                           + "played immediate continuations.")
+                   .arg(distribution.appearances)
+                   .arg(distribution.matchingGames)
+                   .arg(root.nextMoveLocalCount)
+                   .arg(distribution.outsideDisplayedArea)
+                   .arg(distribution.passes)
+                   .arg(distribution.gameEnded)
+           }
+
+           opacity: root.nextMoveDistribution === null
+                    && !searchModel.search_in_progress
+                    ? 0.55
+                    : 0.80
+
+           font.italic:
+               root.nextMoveDistribution === null
+               && !searchModel.search_in_progress
+       }
+
+    }
+
 
         Rectangle {
             Layout.fillWidth: true

@@ -46,6 +46,82 @@ pub enum PatternTransformation {
     MirrorAntiDiagonal,
 }
 
+impl PatternTransformation {
+    #[must_use]
+    pub fn swaps_dimensions(self) -> bool {
+        matches!(
+            self,
+            Self::Rotate90Clockwise
+                | Self::Rotate270Clockwise
+                | Self::MirrorMainDiagonal
+                | Self::MirrorAntiDiagonal
+        )
+    }
+
+    #[must_use]
+    pub fn transformed_dimensions(self, width: u8, height: u8) -> (u8, u8) {
+        if self.swaps_dimensions() {
+            (height, width)
+        } else {
+            (width, height)
+        }
+    }
+
+    /// Transform coordinates relative to the pattern's bottom-left corner.
+    ///
+    /// Coordinates are signed deliberately: continuation heat maps may
+    /// include moves lying outside the pattern rectangle.
+    #[must_use]
+    pub fn transform_relative_point(self, x: i16, y: i16, width: u8, height: u8) -> (i16, i16) {
+        let width = i16::from(width);
+        let height = i16::from(height);
+
+        match self {
+            Self::Identity => (x, y),
+
+            Self::Rotate90Clockwise => (y, width - 1 - x),
+
+            Self::Rotate180 => (width - 1 - x, height - 1 - y),
+
+            Self::Rotate270Clockwise => (height - 1 - y, x),
+
+            Self::MirrorLeftRight => (width - 1 - x, y),
+
+            Self::MirrorTopBottom => (x, height - 1 - y),
+
+            Self::MirrorMainDiagonal => (y, x),
+
+            Self::MirrorAntiDiagonal => (height - 1 - y, width - 1 - x),
+        }
+    }
+
+    #[must_use]
+    pub fn inverse(self) -> Self {
+        match self {
+            Self::Rotate90Clockwise => Self::Rotate270Clockwise,
+            Self::Rotate270Clockwise => Self::Rotate90Clockwise,
+            other => other,
+        }
+    }
+
+    /// Convert a coordinate from a transformed match back into the
+    /// orientation of the original query pattern.
+    #[must_use]
+    pub fn inverse_relative_point(
+        self,
+        x: i16,
+        y: i16,
+        original_width: u8,
+        original_height: u8,
+    ) -> (i16, i16) {
+        let (transformed_width, transformed_height) =
+            self.transformed_dimensions(original_width, original_height);
+
+        self.inverse()
+            .transform_relative_point(x, y, transformed_width, transformed_height)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pattern {
     pub width: u8,
@@ -265,6 +341,106 @@ impl Pattern {
 mod tests {
     use super::*;
     use crate::{Board, Colour};
+
+    #[test]
+    fn transforms_relative_coordinates() {
+        let width = 4;
+        let height = 5;
+        let point = (1, 2);
+
+        assert_eq!(
+            PatternTransformation::Identity
+                .transform_relative_point(point.0, point.1, width, height),
+            (1, 2)
+        );
+
+        assert_eq!(
+            PatternTransformation::Rotate90Clockwise
+                .transform_relative_point(point.0, point.1, width, height),
+            (2, 2)
+        );
+
+        assert_eq!(
+            PatternTransformation::Rotate180
+                .transform_relative_point(point.0, point.1, width, height),
+            (2, 2)
+        );
+
+        assert_eq!(
+            PatternTransformation::Rotate270Clockwise
+                .transform_relative_point(point.0, point.1, width, height),
+            (2, 1)
+        );
+
+        assert_eq!(
+            PatternTransformation::MirrorLeftRight
+                .transform_relative_point(point.0, point.1, width, height),
+            (2, 2)
+        );
+
+        assert_eq!(
+            PatternTransformation::MirrorTopBottom
+                .transform_relative_point(point.0, point.1, width, height),
+            (1, 2)
+        );
+
+        assert_eq!(
+            PatternTransformation::MirrorMainDiagonal
+                .transform_relative_point(point.0, point.1, width, height),
+            (2, 1)
+        );
+
+        assert_eq!(
+            PatternTransformation::MirrorAntiDiagonal
+                .transform_relative_point(point.0, point.1, width, height),
+            (2, 2)
+        );
+    }
+
+    #[test]
+    fn inverse_coordinate_transform_restores_inside_and_outside_points() {
+        let transformations = [
+            PatternTransformation::Identity,
+            PatternTransformation::Rotate90Clockwise,
+            PatternTransformation::Rotate180,
+            PatternTransformation::Rotate270Clockwise,
+            PatternTransformation::MirrorLeftRight,
+            PatternTransformation::MirrorTopBottom,
+            PatternTransformation::MirrorMainDiagonal,
+            PatternTransformation::MirrorAntiDiagonal,
+        ];
+
+        let points = [(-3, -2), (0, 0), (1, 2), (3, 4), (6, 7)];
+
+        for transformation in transformations {
+            for point in points {
+                let transformed = transformation.transform_relative_point(point.0, point.1, 4, 5);
+
+                let restored =
+                    transformation.inverse_relative_point(transformed.0, transformed.1, 4, 5);
+
+                assert_eq!(restored, point, "{transformation:?} failed for {point:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn reports_transformed_dimensions() {
+        assert_eq!(
+            PatternTransformation::Identity.transformed_dimensions(4, 5),
+            (4, 5)
+        );
+
+        assert_eq!(
+            PatternTransformation::Rotate90Clockwise.transformed_dimensions(4, 5),
+            (5, 4)
+        );
+
+        assert_eq!(
+            PatternTransformation::MirrorMainDiagonal.transformed_dimensions(4, 5),
+            (5, 4)
+        );
+    }
 
     #[test]
     fn extracts_centre_pattern() {
