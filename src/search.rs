@@ -12,7 +12,11 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOccurrence {
+    /// First board position at which this appearance exists.
     pub move_number: usize,
+
+    /// Last consecutive board position at which the same appearance exists.
+    pub last_move_number: usize,
 
     pub side_to_move: Option<Colour>,
     pub ko_point: Option<u16>,
@@ -22,6 +26,16 @@ pub struct SearchOccurrence {
 
     pub transformation: Option<PatternTransformation>,
     pub colours_reversed: Option<bool>,
+}
+
+impl SearchOccurrence {
+    /// Number of moves for which this continuous appearance persists.
+    ///
+    /// An appearance present at only one board position has duration zero.
+    #[must_use]
+    pub fn duration_moves(&self) -> usize {
+        self.last_move_number.saturating_sub(self.move_number)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -263,6 +277,7 @@ impl SearchEngine {
                     match_count: summary.match_count,
                     first_occurrence: SearchOccurrence {
                         move_number: found.move_number,
+                        last_move_number: found.last_move_number,
                         side_to_move: Some(found.side_to_move),
                         ko_point: found.ko_point,
                         left: Some(found.left),
@@ -284,6 +299,7 @@ impl SearchEngine {
                 .or_default()
                 .push(SearchOccurrence {
                     move_number: found.move_number,
+                    last_move_number: found.last_move_number,
                     side_to_move: Some(found.side_to_move),
                     ko_point: found.ko_point,
                     left: Some(found.left),

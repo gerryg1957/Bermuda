@@ -204,6 +204,10 @@ fn game_scope_groups_occurrences_for_requested_game() {
         .search_pattern(&query)
         .expect("search one game");
 
+    assert_eq!(results[0].occurrences[0].move_number, 1);
+    assert_eq!(results[0].occurrences[0].last_move_number, 3);
+    assert_eq!(results[0].occurrences[0].duration_moves(), 2);
+
     assert_eq!(
         results,
         vec![SearchResult {
@@ -216,6 +220,7 @@ fn game_scope_groups_occurrences_for_requested_game() {
             komi: None,
             occurrences: vec![SearchOccurrence {
                 move_number: 1,
+                last_move_number: 3,
                 side_to_move: Some(Colour::White),
                 ko_point: None,
                 left: Some(0),
@@ -228,7 +233,7 @@ fn game_scope_groups_occurrences_for_requested_game() {
 }
 
 #[test]
-fn project_summary_search_keeps_only_counts_and_first_matches() {
+fn project_summary_search_keeps_counts_and_first_appearance_spans() {
     let (_temporary, project) = create_test_project();
     let pattern = test_pattern(&project);
 
@@ -257,6 +262,7 @@ fn project_summary_search_keeps_only_counts_and_first_matches() {
                 match_count: 1,
                 first_occurrence: SearchOccurrence {
                     move_number: 1,
+                    last_move_number: 3,
                     side_to_move: Some(Colour::White),
                     ko_point: None,
                     left: Some(0),
@@ -276,6 +282,7 @@ fn project_summary_search_keeps_only_counts_and_first_matches() {
                 match_count: 1,
                 first_occurrence: SearchOccurrence {
                     move_number: 1,
+                    last_move_number: 3,
                     side_to_move: Some(Colour::White),
                     ko_point: None,
                     left: Some(0),
@@ -317,6 +324,7 @@ fn project_scope_returns_one_result_per_matching_game() {
                 komi: None,
                 occurrences: vec![SearchOccurrence {
                     move_number: 1,
+                    last_move_number: 3,
                     side_to_move: Some(Colour::White),
                     ko_point: None,
                     left: Some(0),
@@ -335,6 +343,7 @@ fn project_scope_returns_one_result_per_matching_game() {
                 komi: None,
                 occurrences: vec![SearchOccurrence {
                     move_number: 1,
+                    last_move_number: 3,
                     side_to_move: Some(Colour::White),
                     ko_point: None,
                     left: Some(0),

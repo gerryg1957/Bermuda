@@ -1385,6 +1385,7 @@ mod occurrence_continuation_tests {
 
         let occurrence = SearchOccurrence {
             move_number: 20,
+            last_move_number: 20,
             side_to_move: Some(Colour::White),
             ko_point: None,
             left: Some(7),
@@ -1434,6 +1435,7 @@ mod occurrence_continuation_tests {
 
         let occurrence = SearchOccurrence {
             move_number: 10,
+            last_move_number: 10,
             side_to_move: Some(Colour::Black),
             ko_point: None,
             left: Some(0),
