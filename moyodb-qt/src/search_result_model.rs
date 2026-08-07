@@ -301,6 +301,72 @@ impl crate::game_list_model::ffi::SearchResultModel {
         true
     }
 
+    pub(crate) fn continuation_game_count_at_occurrence(
+        self: Pin<&mut Self>,
+        board_x: i32,
+        core_y: i32,
+        left: i32,
+        bottom: i32,
+        transformation: &QString,
+    ) -> i32 {
+        let (pattern_width, pattern_height) = {
+            let rust = self.as_ref().get_ref().rust();
+
+            let Some(query) = rust.search_query.as_ref() else {
+                return 0;
+            };
+
+            let Ok(width) = u8::try_from(query.width) else {
+                return 0;
+            };
+
+            let Ok(height) = u8::try_from(query.height) else {
+                return 0;
+            };
+
+            (width, height)
+        };
+
+        let transformation_name = transformation.to_string();
+
+        let Some(transformation) = transformation_from_name(&transformation_name) else {
+            return 0;
+        };
+
+        let Ok(board_x) = i16::try_from(board_x) else {
+            return 0;
+        };
+
+        let Ok(core_y) = i16::try_from(core_y) else {
+            return 0;
+        };
+
+        let Ok(left) = i16::try_from(left) else {
+            return 0;
+        };
+
+        let Ok(bottom) = i16::try_from(bottom) else {
+            return 0;
+        };
+
+        let relative_x = board_x - left;
+        let relative_y = core_y - bottom;
+
+        let (normalised_x, normalised_y) = transformation.inverse_relative_point(
+            relative_x,
+            relative_y,
+            pattern_width,
+            pattern_height,
+        );
+
+        self.as_ref()
+            .get_ref()
+            .rust()
+            .continuation_game_ids
+            .get(&(normalised_x, normalised_y))
+            .map_or(0, |game_ids| count_to_i32(game_ids.len()))
+    }
+
     pub(crate) fn clear_continuation_filter(mut self: Pin<&mut Self>) {
         let rows = self.as_ref().get_ref().rust().all_rows.clone();
         self.as_mut().begin_reset_model();

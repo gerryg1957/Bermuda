@@ -154,6 +154,17 @@ pub mod ffi {
         ) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "continuationGameCountAtOccurrence"]
+        fn continuation_game_count_at_occurrence(
+            self: Pin<&mut SearchResultModel>,
+            board_x: i32,
+            core_y: i32,
+            left: i32,
+            bottom: i32,
+            transformation: &QString,
+        ) -> i32;
+
+        #[qinvokable]
         #[cxx_name = "clearContinuationFilter"]
         fn clear_continuation_filter(self: Pin<&mut SearchResultModel>);
 

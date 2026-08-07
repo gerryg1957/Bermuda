@@ -12,8 +12,12 @@ Item {
         property int boardSize: 19
     property var stones: []
     property var continuationPoints: []
+    property int selectedContinuationX: -1
+    property int selectedContinuationY: -1
 
     onContinuationPointsChanged: boardCanvas.requestPaint()
+    onSelectedContinuationXChanged: boardCanvas.requestPaint()
+    onSelectedContinuationYChanged: boardCanvas.requestPaint()
 
     property bool showCoordinates: true
     property int lastMoveX: -1
@@ -600,7 +604,27 @@ Item {
                 ctx.stroke()
             }
 
-            ctx.restore()
+                        if (root.selectedContinuationX >= 0
+                    && root.selectedContinuationY >= 0) {
+                const selectedX =
+                    left + root.selectedContinuationX * spacing
+
+                const selectedY =
+                    top + root.selectedContinuationY * spacing
+
+                ctx.strokeStyle = "rgba(80, 20, 16, 0.95)"
+                ctx.lineWidth = Math.max(2, spacing * 0.075)
+
+                ctx.beginPath()
+                ctx.arc(selectedX,
+                        selectedY,
+                        spacing * 0.53,
+                        0,
+                        Math.PI * 2)
+                ctx.stroke()
+            }
+
+ctx.restore()
         }
 
         function drawLastMoveNumber(ctx, left, top, spacing) {

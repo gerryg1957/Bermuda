@@ -285,6 +285,19 @@ menuBar: MenuBar {
 
             projectPath: root.projectPath
 
+            onContinuationCandidateSelected:
+                function(boardX, coreY, count) {
+                    boardPane.filterContinuationPoint(
+                                boardX,
+                                coreY,
+                                count)
+                }
+
+            onContinuationFilterCleared: {
+                goBoard.selectedContinuationX = -1
+                goBoard.selectedContinuationY = -1
+            }
+
                        onGameSelected: function(game) {
                 if (!game.fromSearchResults)
                     gameList.clearSearchResults()
@@ -364,6 +377,9 @@ menuBar: MenuBar {
             function clearContinuationMap() {
                 showingMatchPosition = false
                 goBoard.continuationPoints = []
+                goBoard.selectedContinuationX = -1
+                goBoard.selectedContinuationY = -1
+                gameList.clearContinuationCandidates()
             }
 
             function clearMatchNavigation() {
@@ -373,6 +389,33 @@ menuBar: MenuBar {
                 matchHeight = 0
 
                 clearContinuationMap()
+            }
+
+            function filterContinuationPoint(boardX,
+                                                 coreY,
+                                                 count) {
+                if (matchIndex < 0
+                        || matchIndex >= matchOccurrences.length) {
+                    return
+                }
+
+                const occurrence = matchOccurrences[matchIndex]
+
+                if (!gameList.filterContinuationAtOccurrence(
+                            boardX,
+                            coreY,
+                            occurrence.left,
+                            occurrence.bottom,
+                            occurrence.transformation,
+                            count)) {
+                    console.warn(
+                                "Could not filter continuation results")
+                    return
+                }
+
+                goBoard.selectedContinuationX = boardX
+                goBoard.selectedContinuationY =
+                    goBoard.boardSize - 1 - coreY
             }
 
             function showMatch(index) {
@@ -436,6 +479,13 @@ menuBar: MenuBar {
                             "count": point.count
                         }
                     })
+
+                gameList.setContinuationCandidates(
+                            continuationPoints,
+                            goBoard.boardSize,
+                            occurrence.left,
+                            occurrence.bottom,
+                            occurrence.transformation)
             }
 
             function applyLoadedPosition() {
@@ -497,31 +547,10 @@ menuBar: MenuBar {
                           patternSelectionEnabled: boardPane.selectingPattern
 
                           onContinuationPointClicked: function(x, y, count) {
-
-                              if (boardPane.matchIndex < 0
-
-                                      || boardPane.matchIndex >= boardPane.matchOccurrences.length)
-
-                                  return
-
-
-                              const occurrence = boardPane.matchOccurrences[boardPane.matchIndex]
-
-                              const coreY = goBoard.boardSize - 1 - y
-
-
-                              if (!gameList.filterContinuationAtOccurrence(
-
-                                          x, coreY,
-
-                                          occurrence.left, occurrence.bottom,
-
-                                          occurrence.transformation, count)) {
-
-                                  console.warn("Could not filter continuation results")
-
-                              }
-
+                              boardPane.filterContinuationPoint(
+                                          x,
+                                          goBoard.boardSize - 1 - y,
+                                          count)
                           }
 
 

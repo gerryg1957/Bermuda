@@ -8,6 +8,8 @@ Kirigami.AbstractCard {
     id: root
 
     signal gameSelected(var game)
+    signal continuationCandidateSelected(int boardX, int coreY, int count)
+    signal continuationFilterCleared()
 
     property string projectPath: ""
     property int selectedRow: -1
@@ -21,6 +23,9 @@ Kirigami.AbstractCard {
     property var pendingSearchGame: null
     property bool continuationFilterActive: false
     property int continuationFilterAppearances: 0
+    property int selectedContinuationX: -1
+    property int selectedContinuationCoreY: -1
+    property var continuationCandidates: []
 
     readonly property var nextMoveDistribution: {
         const json = searchModel.next_move_distribution_json
@@ -108,6 +113,9 @@ Kirigami.AbstractCard {
         searchPatternHeight = 0
         continuationFilterActive = false
         continuationFilterAppearances = 0
+        selectedContinuationX = -1
+        selectedContinuationCoreY = -1
+        continuationCandidates = []
         searchModel.clearResults()
     }
 
@@ -124,6 +132,9 @@ Kirigami.AbstractCard {
         searchPatternHeight = height
         continuationFilterActive = false
         continuationFilterAppearances = 0
+        selectedContinuationX = -1
+        selectedContinuationCoreY = -1
+        continuationCandidates = []
 
         searchModel.clearResults()
         catalogueTabs.currentIndex = 1
@@ -141,6 +152,65 @@ Kirigami.AbstractCard {
             console.warn(searchModel.error_message)
     }
 
+    function goCoordinate(boardX, coreY) {
+        const columns = "ABCDEFGHJKLMNOPQRST"
+
+        if (boardX < 0 || boardX >= columns.length || coreY < 0)
+            return "?"
+
+        return columns.charAt(boardX) + (coreY + 1)
+    }
+
+    function setContinuationCandidates(points,
+                                       boardSize,
+                                       left,
+                                       bottom,
+                                       transformation) {
+        const candidates = []
+
+        if (points === undefined || points === null) {
+            continuationCandidates = candidates
+            return
+        }
+
+        for (const point of points) {
+            const gameCount =
+                searchModel.continuationGameCountAtOccurrence(
+                    point.x,
+                    point.coreY,
+                    left,
+                    bottom,
+                    transformation)
+
+            candidates.push({
+                "x": point.x,
+                "coreY": point.coreY,
+                "count": Number(point.count),
+                "gameCount": gameCount,
+                "coordinate": goCoordinate(point.x, point.coreY)
+            })
+        }
+
+        candidates.sort(function(a, b) {
+            if (a.count !== b.count)
+                return b.count - a.count
+
+            if (a.gameCount !== b.gameCount)
+                return b.gameCount - a.gameCount
+
+            if (a.coreY !== b.coreY)
+                return b.coreY - a.coreY
+
+            return a.x - b.x
+        })
+
+        continuationCandidates = candidates
+    }
+
+    function clearContinuationCandidates() {
+        continuationCandidates = []
+    }
+
     function filterContinuationAtOccurrence(boardX, coreY, left, bottom, transformation, appearanceCount) {
         selectedSearchRow = -1
         pendingSearchGame = null
@@ -150,6 +220,8 @@ Kirigami.AbstractCard {
             return false
         continuationFilterActive = true
         continuationFilterAppearances = appearanceCount
+        selectedContinuationX = boardX
+        selectedContinuationCoreY = coreY
         return true
     }
 
@@ -158,7 +230,10 @@ Kirigami.AbstractCard {
         pendingSearchGame = null
         continuationFilterActive = false
         continuationFilterAppearances = 0
+        selectedContinuationX = -1
+        selectedContinuationCoreY = -1
         searchModel.clearContinuationFilter()
+        continuationFilterCleared()
     }
 
     onProjectPathChanged: {
@@ -315,6 +390,87 @@ Kirigami.AbstractCard {
             onClicked: root.clearContinuationFilter()
         }
 }
+
+    Frame {
+        Layout.fillWidth: true
+        Layout.preferredHeight: visible
+            ? Math.min(Kirigami.Units.gridUnit * 8,
+                       Kirigami.Units.gridUnit
+                       * (2.2 + root.continuationCandidates.length * 1.55))
+            : 0
+
+        visible: root.searchResultsSelected
+                 && !searchModel.search_in_progress
+                 && root.continuationCandidates.length > 0
+
+        padding: Kirigami.Units.smallSpacing
+
+        contentItem: ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            Label {
+                text: qsTr("Professional continuations")
+                font.bold: true
+                Layout.fillWidth: true
+                leftPadding: Kirigami.Units.smallSpacing
+            }
+
+            ListView {
+                id: continuationCandidateView
+
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                clip: true
+                model: root.continuationCandidates
+
+                ScrollBar.vertical: ScrollBar {}
+
+                delegate: ItemDelegate {
+                    required property var modelData
+
+                    width: continuationCandidateView.width
+                    height: Math.round(Kirigami.Units.gridUnit * 1.45)
+
+                    highlighted:
+                        root.continuationFilterActive
+                        && root.selectedContinuationX === modelData.x
+                        && root.selectedContinuationCoreY === modelData.coreY
+
+                    onClicked: {
+                        root.continuationCandidateSelected(
+                                    modelData.x,
+                                    modelData.coreY,
+                                    modelData.count)
+                    }
+
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+
+                        Label {
+                            text: modelData.coordinate
+                            font.bold: true
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Label {
+                            text: qsTr("%1 appearances")
+                                      .arg(modelData.count)
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                        }
+
+                        Label {
+                            text: qsTr("%1 games")
+                                      .arg(modelData.gameCount)
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
 
         Rectangle {
