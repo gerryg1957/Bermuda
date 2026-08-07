@@ -112,6 +112,7 @@ fn synthetic_match(move_number: usize, left: u8, bottom: u8) -> PatternMatch {
     PatternMatch {
         game_id: 1,
         move_number,
+        last_move_number: move_number,
         side_to_move: Colour::White,
         ko_point: None,
         left,
@@ -119,6 +120,17 @@ fn synthetic_match(move_number: usize, left: u8, bottom: u8) -> PatternMatch {
         transformation: PatternTransformation::Identity,
         colours_reversed: false,
     }
+}
+
+fn synthetic_appearance(
+    first_move_number: usize,
+    last_move_number: usize,
+    left: u8,
+    bottom: u8,
+) -> PatternMatch {
+    let mut found = synthetic_match(first_move_number, left, bottom);
+    found.last_move_number = last_move_number;
+    found
 }
 
 #[test]
@@ -134,11 +146,15 @@ fn distinct_appearances_collapse_continuity_and_keep_reappearance() {
     assert_eq!(
         appearances,
         vec![
-            synthetic_match(1, 0, 0),
-            synthetic_match(1, 5, 5),
+            synthetic_appearance(1, 2, 0, 0),
+            synthetic_appearance(1, 2, 5, 5),
             synthetic_match(4, 0, 0),
         ]
     );
+
+    assert_eq!(appearances[0].duration_moves(), 1);
+    assert_eq!(appearances[1].duration_moves(), 1);
+    assert_eq!(appearances[2].duration_moves(), 0);
 }
 
 #[test]
@@ -166,7 +182,10 @@ fn game_appearance_search_ignores_unchanged_pass_positions() {
         .search_game_appearances(&indexer, 1, &pattern)
         .expect("search distinct appearances");
 
-    assert_eq!(appearances, vec![synthetic_match(1, 0, 0)]);
+    assert_eq!(appearances, vec![synthetic_appearance(1, 3, 0, 0)]);
+    assert_eq!(appearances[0].move_number, 1);
+    assert_eq!(appearances[0].last_move_number, 3);
+    assert_eq!(appearances[0].duration_moves(), 2);
 }
 
 #[test]

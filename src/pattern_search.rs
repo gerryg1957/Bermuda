@@ -6,13 +6,29 @@ use anyhow::Result;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatternMatch {
     pub game_id: i64,
+
+    /// First board position at which this match/appearance exists.
     pub move_number: usize,
+
+    /// Last consecutive board position at which the same appearance exists.
+    pub last_move_number: usize,
+
     pub side_to_move: Colour,
     pub ko_point: Option<u16>,
     pub left: u8,
     pub bottom: u8,
     pub transformation: PatternTransformation,
     pub colours_reversed: bool,
+}
+
+impl PatternMatch {
+    /// Number of moves for which a continuous appearance persists.
+    ///
+    /// A match present at only one board position has duration zero.
+    #[must_use]
+    pub fn duration_moves(&self) -> usize {
+        self.last_move_number.saturating_sub(self.move_number)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,6 +297,7 @@ impl PatternSearcher {
                     matches.push(PatternMatch {
                         game_id,
                         move_number,
+                        last_move_number: move_number,
                         side_to_move,
                         ko_point,
                         left,
@@ -497,8 +514,16 @@ impl PatternSearcher {
     /// - colour assignment.
     #[must_use]
     pub fn distinct_appearances(matches: Vec<PatternMatch>) -> Vec<PatternMatch> {
-        let mut last_seen_move = HashMap::new();
-        let mut appearances = Vec::new();
+        /*
+         * For each exact appearance identity, remember both the most
+         * recently matched position and the index of the retained
+         * appearance. This preserves the complete first..last span.
+         */
+        type AppearanceKey = (i64, u8, u8, PatternTransformation, bool);
+        type AppearanceState = (usize, usize);
+
+        let mut last_seen: HashMap<AppearanceKey, AppearanceState> = HashMap::new();
+        let mut appearances: Vec<PatternMatch> = Vec::new();
 
         for found in matches {
             let key = (
@@ -509,19 +534,25 @@ impl PatternSearcher {
                 found.colours_reversed,
             );
 
-            let continues_existing =
-                last_seen_move
-                    .get(&key)
-                    .is_some_and(|previous_move: &usize| {
-                        found.move_number == *previous_move
-                            || found.move_number == previous_move.saturating_add(1)
-                    });
+            if let Some((previous_move, appearance_index)) = last_seen.get(&key).copied() {
+                let continues_existing = found.move_number == previous_move
+                    || found.move_number == previous_move.saturating_add(1);
 
-            last_seen_move.insert(key, found.move_number);
+                if continues_existing {
+                    appearances[appearance_index].last_move_number = appearances[appearance_index]
+                        .last_move_number
+                        .max(found.move_number);
 
-            if !continues_existing {
-                appearances.push(found);
+                    last_seen.insert(key, (found.move_number, appearance_index));
+                    continue;
+                }
             }
+
+            let appearance_index = appearances.len();
+            let move_number = found.move_number;
+
+            appearances.push(found);
+            last_seen.insert(key, (move_number, appearance_index));
         }
 
         appearances
@@ -931,6 +962,7 @@ mod option_tests {
         let base = PatternMatch {
             game_id: 1,
             move_number: 10,
+            last_move_number: 10,
             side_to_move: Colour::Black,
             ko_point: None,
             left: 3,
@@ -971,6 +1003,7 @@ mod option_tests {
         let identity_match = PatternMatch {
             game_id: 1,
             move_number: 10,
+            last_move_number: 10,
             side_to_move: Colour::Black,
             ko_point: None,
             left: 3,
@@ -982,6 +1015,7 @@ mod option_tests {
         let rotated_match = PatternMatch {
             game_id: 2,
             move_number: 20,
+            last_move_number: 20,
             side_to_move: Colour::White,
             ko_point: None,
             left: 7,
