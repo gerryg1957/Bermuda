@@ -367,6 +367,103 @@ impl crate::game_list_model::ffi::SearchResultModel {
             .map_or(0, |game_ids| count_to_i32(game_ids.len()))
     }
 
+    pub(crate) fn continuation_outcome_summary_at_occurrence(
+        self: Pin<&mut Self>,
+        board_x: i32,
+        core_y: i32,
+        left: i32,
+        bottom: i32,
+        transformation: &QString,
+    ) -> QString {
+        let rust = self.as_ref().get_ref().rust();
+
+        let Some(query) = rust.search_query.as_ref() else {
+            return QString::from("{}");
+        };
+
+        let Ok(pattern_width) = u8::try_from(query.width) else {
+            return QString::from("{}");
+        };
+
+        let Ok(pattern_height) = u8::try_from(query.height) else {
+            return QString::from("{}");
+        };
+
+        let transformation_name = transformation.to_string();
+
+        let Some(transformation) = transformation_from_name(&transformation_name) else {
+            return QString::from("{}");
+        };
+
+        let Ok(board_x) = i16::try_from(board_x) else {
+            return QString::from("{}");
+        };
+
+        let Ok(core_y) = i16::try_from(core_y) else {
+            return QString::from("{}");
+        };
+
+        let Ok(left) = i16::try_from(left) else {
+            return QString::from("{}");
+        };
+
+        let Ok(bottom) = i16::try_from(bottom) else {
+            return QString::from("{}");
+        };
+
+        let (normalised_x, normalised_y) = transformation.inverse_relative_point(
+            board_x - left,
+            core_y - bottom,
+            pattern_width,
+            pattern_height,
+        );
+
+        let Some(game_ids) = rust
+            .continuation_game_ids
+            .get(&(normalised_x, normalised_y))
+        else {
+            return QString::from("{}");
+        };
+
+        let mut summary = ContinuationOutcomeSummaryJson {
+            games: game_ids.len(),
+            black_wins: 0,
+            white_wins: 0,
+            draws: 0,
+            unknown: game_ids.len(),
+        };
+
+        for row in &rust.all_rows {
+            if game_ids.binary_search(&row.game_id).is_err() {
+                continue;
+            }
+
+            match classify_game_result(&row.result.to_string()) {
+                GameResultClass::BlackWin => {
+                    summary.black_wins = summary.black_wins.saturating_add(1);
+                    summary.unknown = summary.unknown.saturating_sub(1);
+                }
+
+                GameResultClass::WhiteWin => {
+                    summary.white_wins = summary.white_wins.saturating_add(1);
+                    summary.unknown = summary.unknown.saturating_sub(1);
+                }
+
+                GameResultClass::Draw => {
+                    summary.draws = summary.draws.saturating_add(1);
+                    summary.unknown = summary.unknown.saturating_sub(1);
+                }
+
+                GameResultClass::Unknown => {}
+            }
+        }
+
+        match serde_json::to_string(&summary) {
+            Ok(json) => QString::from(json),
+            Err(_) => QString::from("{}"),
+        }
+    }
+
     pub(crate) fn clear_continuation_filter(mut self: Pin<&mut Self>) {
         let rows = self.as_ref().get_ref().rust().all_rows.clone();
         self.as_mut().begin_reset_model();
@@ -918,6 +1015,31 @@ fn transformation_from_name(name: &str) -> Option<PatternTransformation> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GameResultClass {
+    BlackWin,
+    WhiteWin,
+    Draw,
+    Unknown,
+}
+
+fn classify_game_result(result: &str) -> GameResultClass {
+    let result = result.trim().to_ascii_uppercase();
+
+    if result.starts_with("B+") {
+        return GameResultClass::BlackWin;
+    }
+
+    if result.starts_with("W+") {
+        return GameResultClass::WhiteWin;
+    }
+
+    match result.as_str() {
+        "0" | "0.0" | "DRAW" | "JIGO" => GameResultClass::Draw,
+        _ => GameResultClass::Unknown,
+    }
+}
+
 fn next_move_distribution_to_json(distribution: &NextMoveDistribution) -> QString {
     let json = NextMoveDistributionJson {
         margin: distribution.margin,
@@ -1001,6 +1123,20 @@ fn search_results_to_rows(results: Vec<SearchSummaryResult>) -> Vec<SearchResult
             }
         })
         .collect()
+}
+
+#[derive(Debug, serde::Serialize)]
+struct ContinuationOutcomeSummaryJson {
+    games: usize,
+
+    #[serde(rename = "blackWins")]
+    black_wins: usize,
+
+    #[serde(rename = "whiteWins")]
+    white_wins: usize,
+
+    draws: usize,
+    unknown: usize,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -1311,5 +1447,24 @@ mod occurrence_continuation_tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod continuation_outcome_classification_tests {
+    use super::{GameResultClass, classify_game_result};
+
+    #[test]
+    fn classifies_standard_sgf_results_without_overinterpreting_unknown_values() {
+        assert_eq!(classify_game_result("B+R"), GameResultClass::BlackWin);
+        assert_eq!(classify_game_result("b+2.5"), GameResultClass::BlackWin);
+        assert_eq!(classify_game_result("W+T"), GameResultClass::WhiteWin);
+        assert_eq!(classify_game_result("w+0.5"), GameResultClass::WhiteWin);
+        assert_eq!(classify_game_result("0"), GameResultClass::Draw);
+        assert_eq!(classify_game_result("Jigo"), GameResultClass::Draw);
+        assert_eq!(classify_game_result("Draw"), GameResultClass::Draw);
+        assert_eq!(classify_game_result("Void"), GameResultClass::Unknown);
+        assert_eq!(classify_game_result("?"), GameResultClass::Unknown);
+        assert_eq!(classify_game_result(""), GameResultClass::Unknown);
     }
 }

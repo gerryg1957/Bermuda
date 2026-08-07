@@ -165,6 +165,17 @@ pub mod ffi {
         ) -> i32;
 
         #[qinvokable]
+        #[cxx_name = "continuationOutcomeSummaryAtOccurrence"]
+        fn continuation_outcome_summary_at_occurrence(
+            self: Pin<&mut SearchResultModel>,
+            board_x: i32,
+            core_y: i32,
+            left: i32,
+            bottom: i32,
+            transformation: &QString,
+        ) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "clearContinuationFilter"]
         fn clear_continuation_filter(self: Pin<&mut SearchResultModel>);
 

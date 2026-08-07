@@ -26,6 +26,8 @@ Kirigami.AbstractCard {
     property int selectedContinuationX: -1
     property int selectedContinuationCoreY: -1
     property var continuationCandidates: []
+    property var comparisonCandidateA: null
+    property var comparisonCandidateB: null
 
     readonly property var nextMoveDistribution: {
         const json = searchModel.next_move_distribution_json
@@ -116,6 +118,8 @@ Kirigami.AbstractCard {
         selectedContinuationX = -1
         selectedContinuationCoreY = -1
         continuationCandidates = []
+        comparisonCandidateA = null
+        comparisonCandidateB = null
         searchModel.clearResults()
     }
 
@@ -135,6 +139,8 @@ Kirigami.AbstractCard {
         selectedContinuationX = -1
         selectedContinuationCoreY = -1
         continuationCandidates = []
+        comparisonCandidateA = null
+        comparisonCandidateB = null
 
         searchModel.clearResults()
         catalogueTabs.currentIndex = 1
@@ -150,6 +156,24 @@ Kirigami.AbstractCard {
 
         if (!started)
             console.warn(searchModel.error_message)
+    }
+
+    function appearanceCountText(count) {
+        return count === 1
+               ? qsTr("1 appearance")
+               : qsTr("%1 appearances").arg(count)
+    }
+
+    function gameCountText(count) {
+        return count === 1
+               ? qsTr("1 game")
+               : qsTr("%1 games").arg(count)
+    }
+
+    function endedGameCountText(count) {
+        return count === 1
+               ? qsTr("1 game ended")
+               : qsTr("%1 games ended").arg(count)
     }
 
     function goCoordinate(boardX, coreY) {
@@ -168,26 +192,50 @@ Kirigami.AbstractCard {
                                        transformation) {
         const candidates = []
 
+        comparisonCandidateA = null
+        comparisonCandidateB = null
+
         if (points === undefined || points === null) {
             continuationCandidates = candidates
             return
         }
 
         for (const point of points) {
-            const gameCount =
-                searchModel.continuationGameCountAtOccurrence(
-                    point.x,
-                    point.coreY,
-                    left,
-                    bottom,
-                    transformation)
+            let outcomes = {
+                "games": 0,
+                "blackWins": 0,
+                "whiteWins": 0,
+                "draws": 0,
+                "unknown": 0
+            }
+
+            try {
+                const outcomeJson =
+                    searchModel.continuationOutcomeSummaryAtOccurrence(
+                        point.x,
+                        point.coreY,
+                        left,
+                        bottom,
+                        transformation)
+
+                if (outcomeJson.length > 0 && outcomeJson !== "{}")
+                    outcomes = JSON.parse(outcomeJson)
+            } catch (error) {
+                console.warn(
+                            "Could not decode continuation outcomes: "
+                            + error)
+            }
 
             candidates.push({
                 "x": point.x,
                 "coreY": point.coreY,
                 "count": Number(point.count),
-                "gameCount": gameCount,
-                "coordinate": goCoordinate(point.x, point.coreY)
+                "gameCount": Number(outcomes.games),
+                "coordinate": goCoordinate(point.x, point.coreY),
+                "blackWins": Number(outcomes.blackWins),
+                "whiteWins": Number(outcomes.whiteWins),
+                "draws": Number(outcomes.draws),
+                "unknown": Number(outcomes.unknown)
             })
         }
 
@@ -209,6 +257,47 @@ Kirigami.AbstractCard {
 
     function clearContinuationCandidates() {
         continuationCandidates = []
+        comparisonCandidateA = null
+        comparisonCandidateB = null
+    }
+
+    function sameContinuationCandidate(first, second) {
+        return first !== null
+               && second !== null
+               && first.x === second.x
+               && first.coreY === second.coreY
+    }
+
+    function selectComparisonCandidate(slot, candidate) {
+        if (slot === "A") {
+            comparisonCandidateA = candidate
+
+            if (sameContinuationCandidate(
+                        comparisonCandidateA,
+                        comparisonCandidateB)) {
+                comparisonCandidateB = null
+            }
+
+            return
+        }
+
+        comparisonCandidateB = candidate
+
+        if (sameContinuationCandidate(
+                    comparisonCandidateA,
+                    comparisonCandidateB)) {
+            comparisonCandidateA = null
+        }
+    }
+
+    function showComparisonCandidate(candidate) {
+        if (candidate === null)
+            return
+
+        continuationCandidateSelected(
+                    candidate.x,
+                    candidate.coreY,
+                    candidate.count)
     }
 
     function filterContinuationAtOccurrence(boardX, coreY, left, bottom, transformation, appearanceCount) {
@@ -307,96 +396,93 @@ Kirigami.AbstractCard {
 
     }
 
-    Item {
+    Frame {
         Layout.fillWidth: true
-        Layout.preferredHeight: root.searchResultsSelected
-                                ? Kirigami.Units.gridUnit * 7
-                                : 0
+        Layout.preferredHeight: visible
+            ? Kirigami.Units.gridUnit * 4.2
+            : 0
 
         visible: root.searchResultsSelected
+        padding: Kirigami.Units.smallSpacing
 
-          Label {
-           anchors.fill: parent
-           anchors.margins: Kirigami.Units.largeSpacing
+        contentItem: ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
 
-           horizontalAlignment: Text.AlignHCenter
-           verticalAlignment: Text.AlignVCenter
-           wrapMode: Text.WordWrap
+            RowLayout {
+                Layout.fillWidth: true
 
-           text: {
-               if (searchModel.search_in_progress) {
-                   return qsTr(
-                               "Searching the database…\n"
-                               + "%1 of %2 games examined")
-                       .arg(searchModel.games_examined)
-                       .arg(searchModel.total_games)
-               }
+                Label {
+                    text: qsTr("Continuation map")
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
 
-               const distribution =
-                   root.nextMoveDistribution
+                ToolButton {
+                    visible: root.continuationFilterActive
+                    text: qsTr("Clear filter")
+                    onClicked: root.clearContinuationFilter()
+                }
+            }
 
-               if (distribution === null) {
-                   return qsTr(
-                               "Run a pattern search to build "
-                               + "a continuation map")
-               }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
 
-               if (root.continuationFilterActive) {
-                   return qsTr(
-                               "Continuation map\n"
-                               + "Selected continuation: "
-                               + "%1 appearances in %2 games\n"
-                               + "The search results below show the "
-                               + "supporting games.")
-                       .arg(root.continuationFilterAppearances)
-                       .arg(searchView.count)
-               }
+                text: {
+                    if (searchModel.search_in_progress) {
+                        return qsTr("Searching the database… %1 of %2 games examined")
+                            .arg(searchModel.games_examined)
+                            .arg(searchModel.total_games)
+                    }
 
-               return qsTr(
-                           "Continuation map\n"
-                           + "%1 appearances in %2 games · "
-                           + "%3 shown locally · "
-                           + "%4 outside area · "
-                           + "%5 passes · "
-                           + "%6 games ended\n"
-                           + "Larger circles indicate more frequently "
-                           + "played immediate continuations.")
-                   .arg(distribution.appearances)
-                   .arg(distribution.matchingGames)
-                   .arg(root.nextMoveLocalCount)
-                   .arg(distribution.outsideDisplayedArea)
-                   .arg(distribution.passes)
-                   .arg(distribution.gameEnded)
-           }
+                    const distribution = root.nextMoveDistribution
 
-           opacity: root.nextMoveDistribution === null
-                    && !searchModel.search_in_progress
-                    ? 0.55
-                    : 0.80
+                    if (distribution === null)
+                        return qsTr("Run a pattern search to build a continuation map.")
 
-           font.italic:
-               root.nextMoveDistribution === null
-               && !searchModel.search_in_progress
-       }
+                    if (root.continuationFilterActive) {
+                        return qsTr("Selected %1 · %2 · %3 supporting games")
+                            .arg(root.goCoordinate(
+                                     root.selectedContinuationX,
+                                     root.selectedContinuationCoreY))
+                            .arg(root.appearanceCountText(
+                                     root.continuationFilterAppearances))
+                            .arg(searchView.count)
+                    }
 
+                    return qsTr("%1 · %2 · %3 local · %4 outside · %5 passes · %6")
+                        .arg(root.appearanceCountText(distribution.appearances))
+                        .arg(root.gameCountText(distribution.matchingGames))
+                        .arg(root.nextMoveLocalCount)
+                        .arg(distribution.outsideDisplayedArea)
+                        .arg(distribution.passes)
+                        .arg(root.endedGameCountText(distribution.gameEnded))
+                }
 
-        ToolButton {
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.rightMargin: Kirigami.Units.largeSpacing
-            anchors.bottomMargin: Kirigami.Units.smallSpacing
-            visible: root.continuationFilterActive
-            text: qsTr("Show all continuations")
-            onClicked: root.clearContinuationFilter()
+                opacity: root.nextMoveDistribution === null
+                         && !searchModel.search_in_progress
+                         ? 0.55
+                         : 0.82
+            }
+
+            Label {
+                visible: root.nextMoveDistribution !== null
+                         && !root.continuationFilterActive
+                         && !searchModel.search_in_progress
+                text: qsTr("Larger circles indicate more frequently played immediate continuations.")
+                opacity: 0.62
+                font.italic: true
+                Layout.fillWidth: true
+            }
         }
-}
+    }
 
     Frame {
         Layout.fillWidth: true
         Layout.preferredHeight: visible
-            ? Math.min(Kirigami.Units.gridUnit * 8,
+            ? Math.min(Kirigami.Units.gridUnit * 7,
                        Kirigami.Units.gridUnit
-                       * (2.2 + root.continuationCandidates.length * 1.55))
+                       * (2.9 + root.continuationCandidates.length * 1.45))
             : 0
 
         visible: root.searchResultsSelected
@@ -412,7 +498,52 @@ Kirigami.AbstractCard {
                 text: qsTr("Professional continuations")
                 font.bold: true
                 Layout.fillWidth: true
-                leftPadding: Kirigami.Units.smallSpacing
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                Label {
+                    text: qsTr("Move")
+                    font.bold: true
+                    opacity: 0.72
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 4
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 4
+                }
+
+                Label {
+                    text: qsTr("Appearances")
+                    font.bold: true
+                    opacity: 0.72
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 7
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 7
+                }
+
+                Label {
+                    text: qsTr("Games")
+                    font.bold: true
+                    opacity: 0.72
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 5
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 5
+                }
+
+                Label {
+                    text: qsTr("Compare")
+                    font.bold: true
+                    opacity: 0.72
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 5
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 5
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                }
+            }
+
+            Kirigami.Separator {
+                Layout.fillWidth: true
             }
 
             ListView {
@@ -420,49 +551,107 @@ Kirigami.AbstractCard {
 
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-
                 clip: true
                 model: root.continuationCandidates
 
                 ScrollBar.vertical: ScrollBar {}
 
-                delegate: ItemDelegate {
+                delegate: Item {
+                    id: candidateDelegate
+
                     required property var modelData
 
-                    width: continuationCandidateView.width
-                    height: Math.round(Kirigami.Units.gridUnit * 1.45)
-
-                    highlighted:
+                    readonly property bool selected:
                         root.continuationFilterActive
                         && root.selectedContinuationX === modelData.x
                         && root.selectedContinuationCoreY === modelData.coreY
 
-                    onClicked: {
-                        root.continuationCandidateSelected(
-                                    modelData.x,
-                                    modelData.coreY,
-                                    modelData.count)
+                    width: continuationCandidateView.width
+                    height: Math.round(Kirigami.Units.gridUnit * 1.4)
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: candidateDelegate.selected
+                               ? Kirigami.Theme.highlightColor
+                               : rowMouse.containsMouse
+                                 ? Kirigami.Theme.alternateBackgroundColor
+                                 : "transparent"
                     }
 
-                    contentItem: RowLayout {
+                    MouseArea {
+                        id: rowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            root.continuationCandidateSelected(
+                                        candidateDelegate.modelData.x,
+                                        candidateDelegate.modelData.coreY,
+                                        candidateDelegate.modelData.count)
+                        }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
                         spacing: Kirigami.Units.smallSpacing
 
                         Label {
-                            text: modelData.coordinate
+                            text: candidateDelegate.modelData.coordinate
                             font.bold: true
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
-                            horizontalAlignment: Text.AlignHCenter
+                            Layout.minimumWidth: Kirigami.Units.gridUnit * 4
+                            Layout.maximumWidth: Kirigami.Units.gridUnit * 4
                         }
 
                         Label {
-                            text: qsTr("%1 appearances")
-                                      .arg(modelData.count)
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+                            text: root.appearanceCountText(
+                                      candidateDelegate.modelData.count)
+                            Layout.minimumWidth: Kirigami.Units.gridUnit * 7
+                            Layout.maximumWidth: Kirigami.Units.gridUnit * 7
                         }
 
                         Label {
-                            text: qsTr("%1 games")
-                                      .arg(modelData.gameCount)
+                            text: root.gameCountText(
+                                      candidateDelegate.modelData.gameCount)
+                            Layout.minimumWidth: Kirigami.Units.gridUnit * 5
+                            Layout.maximumWidth: Kirigami.Units.gridUnit * 5
+                        }
+
+                        RowLayout {
+                            Layout.minimumWidth: Kirigami.Units.gridUnit * 5
+                            Layout.maximumWidth: Kirigami.Units.gridUnit * 5
+                            spacing: 0
+
+                            ToolButton {
+                                text: qsTr("A")
+                                checkable: true
+
+                                checked:
+                                    root.sameContinuationCandidate(
+                                        root.comparisonCandidateA,
+                                        candidateDelegate.modelData)
+
+                                onClicked:
+                                    root.selectComparisonCandidate(
+                                        "A",
+                                        candidateDelegate.modelData)
+                            }
+
+                            ToolButton {
+                                text: qsTr("B")
+                                checkable: true
+
+                                checked:
+                                    root.sameContinuationCandidate(
+                                        root.comparisonCandidateB,
+                                        candidateDelegate.modelData)
+
+                                onClicked:
+                                    root.selectComparisonCandidate(
+                                        "B",
+                                        candidateDelegate.modelData)
+                            }
+                        }
+
+                        Item {
                             Layout.fillWidth: true
                         }
                     }
@@ -470,6 +659,153 @@ Kirigami.AbstractCard {
             }
         }
     }
+
+    Frame {
+        Layout.fillWidth: true
+        Layout.preferredHeight: visible
+            ? Kirigami.Units.gridUnit
+              * (3.3
+                 + (root.comparisonCandidateA !== null ? 1.75 : 0)
+                 + (root.comparisonCandidateB !== null ? 1.75 : 0))
+            : 0
+
+        visible: root.searchResultsSelected
+                 && (root.comparisonCandidateA !== null
+                     || root.comparisonCandidateB !== null)
+
+        padding: Kirigami.Units.smallSpacing
+
+        contentItem: ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            Label {
+                text: qsTr("Candidate comparison")
+                font.bold: true
+                Layout.fillWidth: true
+            }
+
+            RowLayout {
+                visible: root.comparisonCandidateA !== null
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                Label {
+                    text: qsTr("A")
+                    font.bold: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                }
+
+                Label {
+                    text: root.comparisonCandidateA === null
+                          ? ""
+                          : root.comparisonCandidateA.coordinate
+                    font.bold: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                }
+
+                Label {
+                    text: root.comparisonCandidateA === null
+                          ? ""
+                          : qsTr("%1 · %2")
+                                .arg(root.appearanceCountText(
+                                     root.comparisonCandidateA.count))
+                                .arg(root.gameCountText(
+                                     root.comparisonCandidateA.gameCount))
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 12
+                }
+
+                Label {
+                    text: root.comparisonCandidateA === null
+                          ? ""
+                          : qsTr("Black %1 · White %2 · Draw %3 · Unknown %4")
+                                .arg(root.comparisonCandidateA.blackWins)
+                                .arg(root.comparisonCandidateA.whiteWins)
+                                .arg(root.comparisonCandidateA.draws)
+                                .arg(root.comparisonCandidateA.unknown)
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    text: qsTr("Show games")
+                    onClicked:
+                        root.showComparisonCandidate(
+                            root.comparisonCandidateA)
+                }
+
+                ToolButton {
+                    text: qsTr("×")
+                    onClicked: root.comparisonCandidateA = null
+                }
+            }
+
+            RowLayout {
+                visible: root.comparisonCandidateB !== null
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                Label {
+                    text: qsTr("B")
+                    font.bold: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                }
+
+                Label {
+                    text: root.comparisonCandidateB === null
+                          ? ""
+                          : root.comparisonCandidateB.coordinate
+                    font.bold: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                }
+
+                Label {
+                    text: root.comparisonCandidateB === null
+                          ? ""
+                          : qsTr("%1 · %2")
+                                .arg(root.appearanceCountText(
+                                     root.comparisonCandidateB.count))
+                                .arg(root.gameCountText(
+                                     root.comparisonCandidateB.gameCount))
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 12
+                }
+
+                Label {
+                    text: root.comparisonCandidateB === null
+                          ? ""
+                          : qsTr("Black %1 · White %2 · Draw %3 · Unknown %4")
+                                .arg(root.comparisonCandidateB.blackWins)
+                                .arg(root.comparisonCandidateB.whiteWins)
+                                .arg(root.comparisonCandidateB.draws)
+                                .arg(root.comparisonCandidateB.unknown)
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    text: qsTr("Show games")
+                    onClicked:
+                        root.showComparisonCandidate(
+                            root.comparisonCandidateB)
+                }
+
+                ToolButton {
+                    text: qsTr("×")
+                    onClicked: root.comparisonCandidateB = null
+                }
+            }
+
+            Label {
+                text: qsTr(
+                          "Recorded game colours and outcomes are descriptive, "
+                          + "not an evaluation of either continuation.")
+                opacity: 0.62
+                font.italic: true
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+    }
+
 
 
 
