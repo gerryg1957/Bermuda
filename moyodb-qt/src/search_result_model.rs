@@ -1071,6 +1071,10 @@ fn occurrences_to_json(occurrences: &[LoadedSearchOccurrence]) -> QString {
             SearchOccurrenceJson {
                 move_number: i32::try_from(occurrence.move_number).unwrap_or(i32::MAX),
 
+                last_move_number: i32::try_from(occurrence.last_move_number).unwrap_or(i32::MAX),
+
+                duration_moves: i32::try_from(occurrence.duration_moves()).unwrap_or(i32::MAX),
+
                 left: occurrence.left.map_or(-1, i32::from),
 
                 bottom: occurrence.bottom.map_or(-1, i32::from),
@@ -1199,6 +1203,13 @@ impl From<ContinuationBoardPoint> for ContinuationPointJson {
 struct SearchOccurrenceJson {
     #[serde(rename = "move")]
     move_number: i32,
+
+    #[serde(rename = "lastMove")]
+    last_move_number: i32,
+
+    #[serde(rename = "durationMoves")]
+    duration_moves: i32,
+
     left: i32,
     bottom: i32,
     transformation: &'static str,
@@ -1353,6 +1364,30 @@ mod next_move_json_tests {
 #[cfg(test)]
 mod occurrence_continuation_tests {
     use super::*;
+
+    #[test]
+    fn occurrence_json_exposes_first_last_and_duration() {
+        let occurrence = LoadedSearchOccurrence {
+            occurrence: SearchOccurrence {
+                move_number: 20,
+                last_move_number: 25,
+                side_to_move: Some(Colour::White),
+                ko_point: None,
+                left: Some(7),
+                bottom: Some(8),
+                transformation: Some(PatternTransformation::Identity),
+                colours_reversed: Some(false),
+            },
+            continuation_points: Vec::new(),
+        };
+
+        let json = occurrences_to_json(&[occurrence]).to_string();
+        let value: serde_json::Value = serde_json::from_str(&json).expect("decode occurrence JSON");
+
+        assert_eq!(value[0]["move"], 20);
+        assert_eq!(value[0]["lastMove"], 25);
+        assert_eq!(value[0]["durationMoves"], 5);
+    }
 
     #[test]
     fn maps_normalised_points_to_rotated_occurrence() {

@@ -391,6 +391,31 @@ menuBar: MenuBar {
                 clearContinuationMap()
             }
 
+            function matchSpanText(occurrence) {
+                const firstMove = Number(occurrence.move)
+                const lastMove = occurrence.lastMove === undefined
+                    ? firstMove
+                    : Number(occurrence.lastMove)
+                const duration = occurrence.durationMoves === undefined
+                    ? Math.max(0, lastMove - firstMove)
+                    : Number(occurrence.durationMoves)
+
+                const durationText = duration === 1
+                    ? qsTr("duration 1 move")
+                    : qsTr("duration %1 moves").arg(duration)
+
+                if (lastMove === firstMove) {
+                    return qsTr("after move %1 · %2")
+                        .arg(firstMove)
+                        .arg(durationText)
+                }
+
+                return qsTr("after moves %1–%2 · %3")
+                    .arg(firstMove)
+                    .arg(lastMove)
+                    .arg(durationText)
+            }
+
             function filterContinuationPoint(boardX,
                                                  coreY,
                                                  count) {
@@ -828,21 +853,24 @@ menuBar: MenuBar {
                                         boardPane.matchOccurrences[
                                             boardPane.matchIndex]
 
+                                    const spanText =
+                                        boardPane.matchSpanText(occurrence)
+
                                     if (boardPane.showingMatchPosition) {
                                         return qsTr(
-                                                    "Match %1 of %2 · position after move %3")
+                                                    "Match %1 of %2 · %3")
                                             .arg(boardPane.matchIndex + 1)
                                             .arg(
                                                 boardPane.matchOccurrences.length)
-                                            .arg(occurrence.move)
+                                            .arg(spanText)
                                     }
 
                                     return qsTr(
-                                                "Match %1 of %2 at move %3 · viewing move %4")
+                                                "Match %1 of %2 · %3 · viewing move %4")
                                         .arg(boardPane.matchIndex + 1)
                                         .arg(
                                             boardPane.matchOccurrences.length)
-                                        .arg(occurrence.move)
+                                        .arg(spanText)
                                         .arg(gameController.move_number)
                                 }
 
