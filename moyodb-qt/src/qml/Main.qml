@@ -496,6 +496,35 @@ menuBar: MenuBar {
 
                           patternSelectionEnabled: boardPane.selectingPattern
 
+                          onContinuationPointClicked: function(x, y, count) {
+
+                              if (boardPane.matchIndex < 0
+
+                                      || boardPane.matchIndex >= boardPane.matchOccurrences.length)
+
+                                  return
+
+
+                              const occurrence = boardPane.matchOccurrences[boardPane.matchIndex]
+
+                              const coreY = goBoard.boardSize - 1 - y
+
+
+                              if (!gameList.filterContinuationAtOccurrence(
+
+                                          x, coreY,
+
+                                          occurrence.left, occurrence.bottom,
+
+                                          occurrence.transformation, count)) {
+
+                                  console.warn("Could not filter continuation results")
+
+                              }
+
+                          }
+
+
                           onPointClicked: function(x, y) {
                               if (!boardPane.editingPosition)
                                   return

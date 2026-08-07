@@ -143,6 +143,21 @@ pub mod ffi {
         fn clear_results(self: Pin<&mut SearchResultModel>);
 
         #[qinvokable]
+        #[cxx_name = "filterContinuationAtOccurrence"]
+        fn filter_continuation_at_occurrence(
+            self: Pin<&mut SearchResultModel>,
+            board_x: i32,
+            core_y: i32,
+            left: i32,
+            bottom: i32,
+            transformation: &QString,
+        ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "clearContinuationFilter"]
+        fn clear_continuation_filter(self: Pin<&mut SearchResultModel>);
+
+        #[qinvokable]
         #[cxx_name = "cancelSearch"]
         fn cancel_search(self: Pin<&mut SearchResultModel>);
 

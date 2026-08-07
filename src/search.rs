@@ -71,6 +71,7 @@ pub enum SearchPatternSummaryOutcome {
 pub struct SearchSummaryReport {
     pub results: Vec<SearchSummaryResult>,
     pub next_moves: NextMoveDistribution,
+    pub continuation_game_ids: HashMap<(i16, i16), Vec<i64>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +219,7 @@ impl SearchEngine {
             SearchSummaryReport {
                 results,
                 next_moves: report.next_moves,
+                continuation_game_ids: report.continuation_game_ids,
             },
         ))
     }

@@ -19,6 +19,8 @@ Kirigami.AbstractCard {
     property int searchPatternWidth: 0
     property int searchPatternHeight: 0
     property var pendingSearchGame: null
+    property bool continuationFilterActive: false
+    property int continuationFilterAppearances: 0
 
     readonly property var nextMoveDistribution: {
         const json = searchModel.next_move_distribution_json
@@ -104,6 +106,8 @@ Kirigami.AbstractCard {
         searchHasRun = false
         searchPatternWidth = 0
         searchPatternHeight = 0
+        continuationFilterActive = false
+        continuationFilterAppearances = 0
         searchModel.clearResults()
     }
 
@@ -118,6 +122,8 @@ Kirigami.AbstractCard {
         searchHasRun = true
         searchPatternWidth = width
         searchPatternHeight = height
+        continuationFilterActive = false
+        continuationFilterAppearances = 0
 
         searchModel.clearResults()
         catalogueTabs.currentIndex = 1
@@ -133,6 +139,26 @@ Kirigami.AbstractCard {
 
         if (!started)
             console.warn(searchModel.error_message)
+    }
+
+    function filterContinuationAtOccurrence(boardX, coreY, left, bottom, transformation, appearanceCount) {
+        selectedSearchRow = -1
+        pendingSearchGame = null
+        const filtered = searchModel.filterContinuationAtOccurrence(
+                             boardX, coreY, left, bottom, transformation)
+        if (!filtered)
+            return false
+        continuationFilterActive = true
+        continuationFilterAppearances = appearanceCount
+        return true
+    }
+
+    function clearContinuationFilter() {
+        selectedSearchRow = -1
+        pendingSearchGame = null
+        continuationFilterActive = false
+        continuationFilterAppearances = 0
+        searchModel.clearContinuationFilter()
     }
 
     onProjectPathChanged: {
@@ -240,6 +266,17 @@ Kirigami.AbstractCard {
                                + "a continuation map")
                }
 
+               if (root.continuationFilterActive) {
+                   return qsTr(
+                               "Continuation map\n"
+                               + "Selected continuation: "
+                               + "%1 appearances in %2 games\n"
+                               + "The search results below show the "
+                               + "supporting games.")
+                       .arg(root.continuationFilterAppearances)
+                       .arg(searchView.count)
+               }
+
                return qsTr(
                            "Continuation map\n"
                            + "%1 appearances in %2 games · "
@@ -267,7 +304,17 @@ Kirigami.AbstractCard {
                && !searchModel.search_in_progress
        }
 
-    }
+
+        ToolButton {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: Kirigami.Units.largeSpacing
+            anchors.bottomMargin: Kirigami.Units.smallSpacing
+            visible: root.continuationFilterActive
+            text: qsTr("Show all continuations")
+            onClicked: root.clearContinuationFilter()
+        }
+}
 
 
         Rectangle {

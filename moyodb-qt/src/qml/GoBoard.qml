@@ -5,6 +5,7 @@ Item {
     id: root
 
     signal pointClicked(int x, int y)
+    signal continuationPointClicked(int x, int y, int count)
     signal patternSelected(int left, int top,
                            int right, int bottom)
 
@@ -918,8 +919,23 @@ Item {
 
             const point = pointAt(mouse.x, mouse.y)
 
-            if (point !== null)
-                root.pointClicked(point.x, point.y)
+            if (point === null)
+                return
+
+            if (root.continuationPoints !== null) {
+                for (const continuation of root.continuationPoints) {
+                    if (continuation.x === point.x
+                            && continuation.y === point.y) {
+                        root.continuationPointClicked(
+                                    point.x,
+                                    point.y,
+                                    Number(continuation.count))
+                        return
+                    }
+                }
+            }
+
+            root.pointClicked(point.x, point.y)
         }
     }
 

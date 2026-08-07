@@ -78,26 +78,24 @@ impl NextMoveDistribution {
         found: &PatternMatch,
         board_size: u8,
         next_move: Option<crate::Move>,
-    ) {
+    ) -> Option<(i16, i16)> {
         self.appearances = self.appearances.saturating_add(1);
 
         let Some(next_move) = next_move else {
             self.game_ended = self.game_ended.saturating_add(1);
-            return;
+            return None;
         };
 
         let Some(point) = next_move.point else {
             self.passes = self.passes.saturating_add(1);
-            return;
+            return None;
         };
 
         let board_size = u16::from(board_size);
-
         debug_assert!(board_size > 0);
 
         let board_x =
             i16::try_from(point % board_size).expect("board x coordinate must fit in i16");
-
         let board_y =
             i16::try_from(point / board_size).expect("board y coordinate must fit in i16");
 
@@ -120,10 +118,11 @@ impl NextMoveDistribution {
             let count = point_counts
                 .entry((normalised_x, normalised_y))
                 .or_default();
-
             *count = count.saturating_add(1);
+            Some((normalised_x, normalised_y))
         } else {
             self.outside_displayed_area = self.outside_displayed_area.saturating_add(1);
+            None
         }
     }
 
@@ -143,6 +142,7 @@ impl NextMoveDistribution {
 pub struct PatternSearchSummaryReport {
     pub summaries: Vec<PatternGameSummary>,
     pub next_moves: NextMoveDistribution,
+    pub continuation_game_ids: HashMap<(i16, i16), Vec<i64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -658,6 +658,7 @@ impl PatternSearcher {
 
         let mut next_moves = NextMoveDistribution::default();
         let mut next_move_point_counts = HashMap::new();
+        let mut continuation_game_ids = HashMap::<(i16, i16), Vec<i64>>::new();
 
         on_progress(PatternSearchProgress {
             games_examined: 0,
@@ -696,13 +697,18 @@ impl PatternSearcher {
                      */
                     let next_move = record.moves.get(found.move_number).copied();
 
-                    next_moves.record_appearance(
+                    if let Some(point) = next_moves.record_appearance(
                         &mut next_move_point_counts,
                         pattern,
                         found,
                         record.board_size,
                         next_move,
-                    );
+                    ) {
+                        let game_ids = continuation_game_ids.entry(point).or_default();
+                        if !game_ids.contains(&game_id) {
+                            game_ids.push(game_id);
+                        }
+                    }
                 }
 
                 summaries.push(PatternGameSummary {
@@ -722,10 +728,16 @@ impl PatternSearcher {
 
         next_moves.finish_points(next_move_point_counts);
 
+        for game_ids in continuation_game_ids.values_mut() {
+            game_ids.sort_unstable();
+            game_ids.dedup();
+        }
+
         Ok(PatternSearchSummaryReportOutcome::Completed(
             PatternSearchSummaryReport {
                 summaries,
                 next_moves,
+                continuation_game_ids,
             },
         ))
     }

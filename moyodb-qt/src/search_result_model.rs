@@ -2,6 +2,7 @@
 use cxx_qt::{CxxQtType, Threading};
 
 use std::{
+    collections::HashMap,
     fmt::Display,
     path::Path,
     pin::Pin,
@@ -68,6 +69,8 @@ struct StoredSearchQuery {
 #[derive(Default)]
 pub struct SearchResultModelRust {
     rows: Vec<SearchResultRow>,
+    all_rows: Vec<SearchResultRow>,
+    continuation_game_ids: HashMap<(i16, i16), Vec<i64>>,
 
     pub(crate) error_message: QString,
     pub(crate) next_move_distribution_json: QString,
@@ -231,6 +234,80 @@ impl crate::game_list_model::ffi::SearchResultModel {
         true
     }
 
+    pub(crate) fn filter_continuation_at_occurrence(
+        mut self: Pin<&mut Self>,
+        board_x: i32,
+        core_y: i32,
+        left: i32,
+        bottom: i32,
+        transformation: &QString,
+    ) -> bool {
+        let (pattern_width, pattern_height) = {
+            let rust = self.as_ref().get_ref().rust();
+            let Some(query) = rust.search_query.as_ref() else {
+                return false;
+            };
+            let Ok(width) = u8::try_from(query.width) else {
+                return false;
+            };
+            let Ok(height) = u8::try_from(query.height) else {
+                return false;
+            };
+            (width, height)
+        };
+
+        let name = transformation.to_string();
+        let Some(transformation) = transformation_from_name(&name) else {
+            return false;
+        };
+        let Ok(board_x) = i16::try_from(board_x) else {
+            return false;
+        };
+        let Ok(core_y) = i16::try_from(core_y) else {
+            return false;
+        };
+        let Ok(left) = i16::try_from(left) else {
+            return false;
+        };
+        let Ok(bottom) = i16::try_from(bottom) else {
+            return false;
+        };
+
+        let (normalised_x, normalised_y) = transformation.inverse_relative_point(
+            board_x - left,
+            core_y - bottom,
+            pattern_width,
+            pattern_height,
+        );
+
+        let filtered_rows = {
+            let rust = self.as_ref().get_ref().rust();
+            let Some(game_ids) = rust
+                .continuation_game_ids
+                .get(&(normalised_x, normalised_y))
+            else {
+                return false;
+            };
+            rust.all_rows
+                .iter()
+                .filter(|row| game_ids.binary_search(&row.game_id).is_ok())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        self.as_mut().begin_reset_model();
+        self.as_mut().rust_mut().rows = filtered_rows;
+        self.as_mut().end_reset_model();
+        true
+    }
+
+    pub(crate) fn clear_continuation_filter(mut self: Pin<&mut Self>) {
+        let rows = self.as_ref().get_ref().rust().all_rows.clone();
+        self.as_mut().begin_reset_model();
+        self.as_mut().rust_mut().rows = rows;
+        self.as_mut().end_reset_model();
+    }
+
     pub(crate) fn search_project(
         mut self: Pin<&mut Self>,
         project_path: &QString,
@@ -274,6 +351,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
             let mut rust = self.as_mut().rust_mut();
 
             rust.rows.clear();
+            rust.all_rows.clear();
+            rust.continuation_game_ids.clear();
             rust.search_query = Some(stored_query);
             rust.next_move_distribution = None;
             rust.cancel_token = Some(Arc::clone(&cancel_token));
@@ -406,6 +485,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.occurrence_load_id = rust.occurrence_load_id.wrapping_add(1);
 
             rust.rows.clear();
+            rust.all_rows.clear();
+            rust.continuation_game_ids.clear();
             rust.search_query = None;
             rust.next_move_distribution = None;
         }
@@ -557,76 +638,78 @@ fn finish_search(
         return;
     }
 
-    let (rows, next_move_distribution_json, stored_distribution, error_message, cancelled) =
-        match completion {
-            BackgroundSearchResult::Completed(report) => {
-                let SearchSummaryReport {
-                    results,
-                    next_moves,
-                } = report;
-
-                let json = next_move_distribution_to_json(&next_moves);
-
-                (
-                    search_results_to_rows(results),
-                    json,
-                    Some(next_moves),
-                    None,
-                    false,
-                )
-            }
-
-            BackgroundSearchResult::Cancelled => {
-                (Vec::new(), QString::from("{}"), None, None, true)
-            }
-
-            BackgroundSearchResult::Failed(error) => {
-                (Vec::new(), QString::from("{}"), None, Some(error), false)
-            }
-        };
+    let (
+        rows,
+        next_move_distribution_json,
+        stored_distribution,
+        continuation_game_ids,
+        error_message,
+        cancelled,
+    ) = match completion {
+        BackgroundSearchResult::Completed(report) => {
+            let SearchSummaryReport {
+                results,
+                next_moves,
+                continuation_game_ids,
+            } = report;
+            let json = next_move_distribution_to_json(&next_moves);
+            (
+                search_results_to_rows(results),
+                json,
+                Some(next_moves),
+                continuation_game_ids,
+                None,
+                false,
+            )
+        }
+        BackgroundSearchResult::Cancelled => (
+            Vec::new(),
+            QString::from("{}"),
+            None,
+            HashMap::new(),
+            None,
+            true,
+        ),
+        BackgroundSearchResult::Failed(error) => (
+            Vec::new(),
+            QString::from("{}"),
+            None,
+            HashMap::new(),
+            Some(error),
+            false,
+        ),
+    };
 
     let total_occurrences = rows
         .iter()
         .fold(0_i32, |total, row| total.saturating_add(row.match_count));
-
     let matching_games = count_to_i32(rows.len());
-
     let keep_query = error_message.is_none() && !cancelled;
 
     model.as_mut().begin_reset_model();
-
     {
         let mut rust = model.as_mut().rust_mut();
-
+        rust.all_rows = rows.clone();
         rust.rows = rows;
         rust.cancel_token = None;
         rust.next_move_distribution = stored_distribution;
-
+        rust.continuation_game_ids = continuation_game_ids;
         if !keep_query {
             rust.search_query = None;
         }
     }
-
     model.as_mut().end_reset_model();
 
     model
         .as_mut()
         .set_next_move_distribution_json(next_move_distribution_json);
-
     model.as_mut().set_total_occurrences(total_occurrences);
     model.as_mut().set_matching_games(matching_games);
     model.as_mut().set_matches_found(total_occurrences);
-
     match error_message {
-        Some(error) => {
-            model.as_mut().set_error_message(QString::from(error));
-        }
-
-        None => {
-            model.as_mut().set_error_message(QString::default());
-        }
+        Some(error) => model.as_mut().set_error_message(QString::from(error)),
+        None => model.as_mut().set_error_message(QString::default()),
     }
-
     model.as_mut().set_search_cancelled(cancelled);
     model.as_mut().set_cancel_requested(false);
     model.as_mut().set_search_in_progress(false);
@@ -752,6 +835,20 @@ fn transformation_name(transformation: Option<PatternTransformation>) -> &'stati
         PatternTransformation::MirrorTopBottom => "mirrorTopBottom",
         PatternTransformation::MirrorMainDiagonal => "mirrorMainDiagonal",
         PatternTransformation::MirrorAntiDiagonal => "mirrorAntiDiagonal",
+    }
+}
+
+fn transformation_from_name(name: &str) -> Option<PatternTransformation> {
+    match name {
+        "identity" => Some(PatternTransformation::Identity),
+        "rotate90Clockwise" => Some(PatternTransformation::Rotate90Clockwise),
+        "rotate180" => Some(PatternTransformation::Rotate180),
+        "rotate270Clockwise" => Some(PatternTransformation::Rotate270Clockwise),
+        "mirrorLeftRight" => Some(PatternTransformation::MirrorLeftRight),
+        "mirrorTopBottom" => Some(PatternTransformation::MirrorTopBottom),
+        "mirrorMainDiagonal" => Some(PatternTransformation::MirrorMainDiagonal),
+        "mirrorAntiDiagonal" => Some(PatternTransformation::MirrorAntiDiagonal),
+        _ => None,
     }
 }
 
