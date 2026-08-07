@@ -92,28 +92,50 @@ same search model.
 
 ## Current foundation
 
-MoyoDB currently has an exact rectangular position search.
+MoyoDB now has an exact rectangular position-search foundation together with
+the first complete candidate-investigation workflow.
 
-The existing search:
+The current search:
 
 - extracts a rectangle from a board position;
 - records every black stone, white stone and empty intersection within it;
 - records its relationship to board edges;
-- preserves stone colours;
-- searches in the same orientation;
-- finds the moves at which the exact rectangle exists;
-- groups matches by game for display.
+- searches exact pattern states while allowing rotations, reflections and
+  colour reversal for ordinary study searches;
+- deduplicates equivalent transformed query variants;
+- finds the positions at which the exact rectangle exists;
+- collapses continuous raw matches into distinct appearances;
+- groups appearances by game for display.
 
-The current large-result work also introduces a bounded result path:
+The large-result path is deliberately bounded:
 
 - the database-wide scan retains one summary per matching game;
 - the summary records the match count and first occurrence;
 - result metadata is prepared without retaining every occurrence for every
   game in the GUI;
-- a selected game's complete occurrences are regenerated on demand.
+- a selected game's complete occurrences are regenerated on demand;
+- the GUI search runs asynchronously and exposes progress without making QML
+  responsible for search semantics.
 
-This exact-search foundation should remain available while broader
-position-pattern semantics are added.
+Continuation evidence is also part of the current foundation:
+
+- at most one immediate next move is aggregated per distinct appearance;
+- continuation points are normalised into the query orientation across
+  transformations and colour reversal;
+- local points, moves outside the displayed area, passes and ended games
+  remain separate evidence categories;
+- the continuation map shows frequency without treating frequency as quality;
+- continuation points are selectable and filter the existing result set
+  without another database-wide search;
+- a frequency-ordered Professional continuations list reports appearances and
+  distinct supporting games;
+- two candidates can be selected as A and B for side-by-side comparison;
+- supporting games can be restored or selected directly from that comparison;
+- recorded SGF outcomes are summarised descriptively as Black wins, White
+  wins, draws and unknown results.
+
+The exact-search foundation remains available while broader position-pattern,
+temporal and contextual semantics are added.
 
 ---
 
@@ -607,75 +629,111 @@ matches.
 
 ## Continuation analysis and candidate investigation
 
-The continuation display should turn a result set into a route for studying
-professional choices rather than a passive summary.
+The continuation display turns a result set into a route for studying
+professional choices rather than a passive summary. This workflow is now
+implemented for immediate continuations.
 
 ### Immediate continuation distribution
 
-For each distinct appearance, MoyoDB should record at most one immediate next
-move: the recorded move after the displayed position. The points must be
-normalised into the query's orientation and colour frame before aggregation.
+For each distinct appearance, MoyoDB records at most one immediate next move:
+the recorded move after the displayed position. Points are normalised into the
+query's orientation and colour frame before aggregation.
 
-The aggregate should distinguish:
+The aggregate distinguishes:
 
 - points within the displayed pattern area and margin;
 - moves outside the displayed area;
 - passes;
 - games that ended at the matched position.
 
-These categories must total the number of appearances used for the aggregate.
-No evidence should disappear merely because it cannot be drawn as a point on
-the board.
+These categories total the number of appearances used for the aggregate. No
+evidence disappears merely because it cannot be drawn as a point on the
+board.
 
 The board overlay for this distribution is called the **continuation map**.
-Larger or stronger circles may represent greater frequency, but the map shows
-what professionals played, not an evaluation of what they should have played.
+Larger or stronger circles represent greater observed frequency. The map
+shows what professionals played, not an evaluation of what they should have
+played.
 
 ### Candidate counts
 
-Each candidate should be able to report:
+Each displayed point reports:
 
 - number of appearances;
-- number of distinct supporting games;
-- later, where useful, number of distinct players or player pairs.
+- number of distinct supporting games.
 
-Appearances and games must remain separate because several occurrences in one
-game are not equivalent to several independent games. Local-episode grouping
-may later reduce further over-counting.
+Appearances and games remain separate because several occurrences in one game
+are not equivalent to several independent games. Local-episode grouping may
+later reduce further over-counting. Distinct-player or player-pair counts may
+also be useful later.
 
 ### Interactive investigation
 
-Selecting a continuation point should create an explicit filter showing the
-games in which that candidate was played. A frequency-ordered candidate list
-may provide the same operation for keyboard and non-board use.
+A continuation point can be selected either on the board or from the
+frequency-ordered **Professional continuations** list.
 
-For a selected candidate, the user should be able to:
+Selection is a result refinement, not a new pattern search. MoyoDB keeps the
+complete search result in memory and filters it to the games supporting the
+selected normalised continuation. Clearing the filter restores the complete
+result set immediately.
 
-- open every supporting game;
-- jump to the matched position;
-- replay the subsequent local and whole-board sequence;
-- compare another candidate without reconstructing the search;
+For a selected candidate the user can:
+
+- see its Go coordinate in the currently displayed occurrence;
+- see appearances and distinct supporting-game counts;
+- open its supporting games;
+- jump to matching positions and replay the game;
+- move between multiple matching appearances in a game;
+- select another candidate without reconstructing the search;
 - clear the candidate filter and return to the complete result set.
 
 The selected point is an object of investigation, not a declaration that the
 move is best.
 
+### Candidate comparison
+
+Two displayed continuations can be assigned to comparison slots A and B.
+
+The comparison shows, for each candidate:
+
+- displayed Go coordinate;
+- appearances;
+- distinct supporting games;
+- recorded Black wins;
+- recorded White wins;
+- draws;
+- unknown or unclassified results.
+
+Either candidate's supporting games can be shown directly from the comparison
+without rerunning the search.
+
+This is deliberately an evidence comparison rather than a ranking. Frequency
+does not become a quality score, and historical outcomes do not become a
+causal verdict.
+
 ### Historical outcomes
 
-Win and loss counts may be shown from the perspective of the player who chose
-the candidate, together with the sample size. The language must remain
-descriptive, for example:
+The current implementation reports outcomes in the colours recorded by the
+SGF: Black wins, White wins, draws and unknown results.
 
-> This continuation occurred in 13 games: 5 wins and 8 losses.
+This is an important semantic limitation. Ordinary study searches include
+colour reversal, so the current Black/White totals are **not** a
+candidate-player win/loss rate. They describe the supporting games and invite
+inspection of those games.
 
-The display should invite inspection of the games rather than imply that the
-continuation caused those results. Later annotations may include player
-strength, era, colour, rules, komi and engine evaluation before and after the
-sequence.
+A future chooser-relative result view would require MoyoDB to preserve and
+label which recorded player made the normalised candidate after colour
+reversal. Such a view must still remain descriptive. Even then, a result
+distribution could reflect prior whole-board advantage, player strength,
+era, rules, komi, later mistakes or many other factors.
+
+Later annotations may therefore include player strength, era, colour, rules,
+komi and engine evaluation before and after a sequence, while keeping those
+different evidence layers explicit.
 
 ### Map terminology
 
-MoyoDB should keep several board overlays distinct:
+MoyoDB keeps several board overlays distinct:
 
 - **continuation map** — corpus-derived immediate-next-move frequencies;
 - **appearance-location map** — where matching appearances occurred;
@@ -1051,15 +1109,19 @@ A move-range filter may then be applied explicitly.
 - support selected board regions;
 - keep spatial rules visible in the search definition.
 
-### Stage 7: continuation and candidate investigation
+### Stage 7: continuation and candidate investigation — implemented
 
 - aggregate one immediate next move per distinct appearance;
 - normalise continuations across transformations and colour reversal;
 - distinguish local points, off-map moves, passes and ended games;
 - make continuation points selectable;
-- filter results to the games supporting a selected candidate;
+- filter results to the games supporting a selected candidate without
+  repeating the database-wide search;
+- show a frequency-ordered candidate list;
 - show appearances and distinct supporting-game counts;
-- present historical outcomes descriptively.
+- compare two candidate continuations as A and B;
+- show either candidate's supporting games directly;
+- present recorded SGF Black/White/draw/unknown outcomes descriptively.
 
 ### Stage 8: temporal filters and broader aggregate analysis
 
@@ -1076,10 +1138,10 @@ A move-range filter may then be applied explicitly.
 - expose independent search choices;
 - show the active search definition;
 - allow settings to be changed without reconstructing the board;
-- provide clear result and candidate summaries;
-- support navigation between appearances;
-- support comparison of candidate continuations;
-- make map and histogram refinements inspectable.
+- continue refining clear result and candidate summaries;
+- keep navigation between appearances explicit;
+- make map and histogram refinements inspectable;
+- keep evidence, filters and later evaluation layers visibly distinct.
 
 ### Stage 10: sequence search and external analysis
 

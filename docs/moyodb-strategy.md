@@ -526,21 +526,28 @@ visually distinct from both the continuation map and KataGo ownership.
 - distinct-appearance counting;
 - responsive asynchronous search;
 - accurate navigation to each occurrence;
-- a normalised immediate continuation map.
+- a normalised immediate continuation map;
+- selectable continuation points;
+- in-memory filtering to the games supporting a selected candidate;
+- a frequency-ordered Professional continuations list without treating
+  frequency as quality;
+- separate appearance and distinct-game counts;
+- explicit retention of passes, off-map moves and ended games in the
+  continuation evidence;
+- A/B comparison of two candidate continuations;
+- direct access to each candidate's supporting games;
+- descriptive SGF outcome summaries using recorded Black/White game colours.
 
-### Next priority: candidate investigation
+The candidate-investigation workflow is therefore established: a user can
+discover professional candidates, inspect how often they occurred, compare
+two of them, and move directly into the games that provide the evidence.
 
-- make continuation points selectable;
-- filter the result list to the games supporting the selected candidate;
-- show a frequency-ordered candidate list without labelling frequency as
-  quality;
-- report both appearances and distinct supporting games;
-- retain passes, off-map moves and ended games in the evidence summary;
-- allow direct replay of the position and subsequent sequence;
-- present game outcomes descriptively and as prompts for investigation;
-- prepare for comparison of two or more candidate continuations.
+Historical outcomes remain prompts for investigation rather than evaluations.
+Because ordinary searches include colour reversal, the current Black/White
+outcome counts describe the recorded supporting games; they are not presented
+as a chooser-relative candidate win rate.
 
-### Occurrence context
+### Next priority: occurrence context
 
 - first and last matching positions;
 - pattern duration;
@@ -551,14 +558,20 @@ visually distinct from both the continuation map and KataGo ownership.
 - board occupancy and local activity measurements;
 - grouping into appearances and local episodes.
 
+This is the next useful step because candidate frequency tells the user
+**what** professionals considered, while occurrence context begins to explain
+**what kind of situation** produced each example and whether it is a useful
+example for study.
+
 ### Broader aggregate views
 
 - pre-pattern formation maps;
 - post-pattern local-activity maps;
 - explainable ranking of useful examples;
 - result categories and representative examples;
-- an experimental, transparent influence-map prototype only after the
-  candidate-investigation workflow is established.
+- appearance-location and move-number distributions;
+- an experimental, transparent influence-map prototype only after occurrence
+  context and candidate investigation are mature.
 
 ### Engine integration
 
