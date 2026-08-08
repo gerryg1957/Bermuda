@@ -11,6 +11,7 @@ pub mod importer;
 pub mod index_build;
 pub mod indexer;
 pub mod move_file;
+pub mod occurrence_context;
 pub mod pattern;
 pub mod pattern_search;
 pub mod position;
@@ -27,6 +28,9 @@ pub use board::{Board, Colour, Move};
 pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use move_file::{read_move_file, write_move_file};
+pub use occurrence_context::{
+    LOCAL_ACTIVITY_MAX_DISTANCE, LocalActivity, NearbyMove, measure_local_activity,
+};
 pub use pattern::{BoardEdges, Pattern, PatternCell, PatternRect, PatternTransformation};
 pub use pattern_search::{
     NEXT_MOVE_DISPLAY_MARGIN, NextMoveDistribution, NextMovePointCount, PatternGameSummary,
