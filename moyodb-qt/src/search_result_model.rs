@@ -16,10 +16,11 @@ use std::{
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
 use moyodb::{
-    Board, Colour, NextMoveDistribution, NextMovePointCount, Pattern, PatternRect,
-    PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
-    PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
-    SearchSummaryReport, SearchSummaryResult, project_manager::ProjectManager,
+    Board, Colour, GameRecord, LocalActivity, NearbyMove, NextMoveDistribution, NextMovePointCount,
+    Pattern, PatternMatch, PatternRect, PatternSearchOptions, PatternSearchProgress,
+    PatternSearchQuery, PatternSearchScope, PatternTransformation, SearchEngine, SearchOccurrence,
+    SearchPatternSummaryReportOutcome, SearchSummaryReport, SearchSummaryResult,
+    measure_local_activity, project_manager::ProjectManager,
 };
 
 #[allow(non_camel_case_types)]
@@ -110,6 +111,7 @@ struct ContinuationBoardPoint {
 struct LoadedSearchOccurrence {
     occurrence: SearchOccurrence,
     continuation_points: Vec<ContinuationBoardPoint>,
+    local_activity: LocalActivity,
 }
 
 enum BackgroundOccurrenceResult {
@@ -914,18 +916,82 @@ fn create_game_occurrences(
         .map(|result| result.occurrences)
         .unwrap_or_default();
 
+    /*
+     * Occurrence context is deliberately measured here, after the user has
+     * selected one result game. The broad project search remains unchanged.
+     */
+    let project = ProjectManager::new()
+        .open(Path::new(&query.project_path))
+        .map_err(|error| error.to_string())?;
+
+    let indexer = project
+        .position_indexer()
+        .map_err(|error| error.to_string())?;
+    let record = indexer
+        .read_game_by_id(game_id)
+        .map_err(|error| error.to_string())?;
+
     occurrences
         .into_iter()
         .map(|occurrence| {
             let continuation_points =
                 continuation_points_for_occurrence(query, distribution, &occurrence)?;
 
+            let local_activity = local_activity_for_occurrence(
+                &record,
+                &pattern_query.pattern,
+                game_id,
+                &occurrence,
+            )?;
+
             Ok(LoadedSearchOccurrence {
                 occurrence,
                 continuation_points,
+                local_activity,
             })
         })
         .collect()
+}
+
+fn local_activity_for_occurrence(
+    record: &GameRecord,
+    pattern: &Pattern,
+    game_id: i64,
+    occurrence: &SearchOccurrence,
+) -> Result<LocalActivity, String> {
+    let side_to_move = occurrence
+        .side_to_move
+        .ok_or_else(|| "pattern occurrence has no side to move".to_string())?;
+
+    let left = occurrence
+        .left
+        .ok_or_else(|| "pattern occurrence has no left coordinate".to_string())?;
+
+    let bottom = occurrence
+        .bottom
+        .ok_or_else(|| "pattern occurrence has no bottom coordinate".to_string())?;
+
+    let transformation = occurrence
+        .transformation
+        .ok_or_else(|| "pattern occurrence has no transformation".to_string())?;
+
+    let colours_reversed = occurrence
+        .colours_reversed
+        .ok_or_else(|| "pattern occurrence has no colour-reversal state".to_string())?;
+
+    let appearance = PatternMatch {
+        game_id,
+        move_number: occurrence.move_number,
+        last_move_number: occurrence.last_move_number,
+        side_to_move,
+        ko_point: occurrence.ko_point,
+        left,
+        bottom,
+        transformation,
+        colours_reversed,
+    };
+
+    Ok(measure_local_activity(record, pattern, &appearance))
 }
 
 fn continuation_points_for_occurrence(
@@ -1089,6 +1155,11 @@ fn occurrences_to_json(occurrences: &[LoadedSearchOccurrence]) -> QString {
                     .copied()
                     .map(ContinuationPointJson::from)
                     .collect(),
+
+                local_activity: local_activity_to_json(
+                    &loaded.local_activity,
+                    occurrence.move_number,
+                ),
             }
         })
         .collect::<Vec<_>>();
@@ -1096,6 +1167,32 @@ fn occurrences_to_json(occurrences: &[LoadedSearchOccurrence]) -> QString {
     match serde_json::to_string(&occurrences) {
         Ok(json) => QString::from(json),
         Err(_) => QString::from("[]"),
+    }
+}
+
+fn nearby_move_to_json(
+    nearby: Option<NearbyMove>,
+    appearance_move_number: usize,
+) -> Option<NearbyMoveJson> {
+    nearby.map(|nearby| NearbyMoveJson {
+        move_number: i32::try_from(nearby.move_number).unwrap_or(i32::MAX),
+        x: nearby.x,
+        core_y: nearby.y,
+        distance: nearby.distance,
+        delay_moves: i32::try_from(nearby.delay_moves_from(appearance_move_number))
+            .unwrap_or(i32::MAX),
+    })
+}
+
+fn local_activity_to_json(
+    activity: &LocalActivity,
+    appearance_move_number: usize,
+) -> LocalActivityJson {
+    LocalActivityJson {
+        inside: nearby_move_to_json(activity.first_inside, appearance_move_number),
+        within_one: nearby_move_to_json(activity.first_within_one, appearance_move_number),
+        within_two: nearby_move_to_json(activity.first_within_two, appearance_move_number),
+        within_three: nearby_move_to_json(activity.first_within_three, appearance_move_number),
     }
 }
 
@@ -1200,6 +1297,36 @@ impl From<ContinuationBoardPoint> for ContinuationPointJson {
 }
 
 #[derive(Debug, serde::Serialize)]
+struct NearbyMoveJson {
+    #[serde(rename = "move")]
+    move_number: i32,
+
+    x: u8,
+
+    #[serde(rename = "coreY")]
+    core_y: u8,
+
+    distance: u8,
+
+    #[serde(rename = "delayMoves")]
+    delay_moves: i32,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct LocalActivityJson {
+    inside: Option<NearbyMoveJson>,
+
+    #[serde(rename = "withinOne")]
+    within_one: Option<NearbyMoveJson>,
+
+    #[serde(rename = "withinTwo")]
+    within_two: Option<NearbyMoveJson>,
+
+    #[serde(rename = "withinThree")]
+    within_three: Option<NearbyMoveJson>,
+}
+
+#[derive(Debug, serde::Serialize)]
 struct SearchOccurrenceJson {
     #[serde(rename = "move")]
     move_number: i32,
@@ -1219,6 +1346,9 @@ struct SearchOccurrenceJson {
 
     #[serde(rename = "continuationPoints")]
     continuation_points: Vec<ContinuationPointJson>,
+
+    #[serde(rename = "localActivity")]
+    local_activity: LocalActivityJson,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1366,7 +1496,7 @@ mod occurrence_continuation_tests {
     use super::*;
 
     #[test]
-    fn occurrence_json_exposes_first_last_and_duration() {
+    fn occurrence_json_exposes_span_and_local_activity() {
         let occurrence = LoadedSearchOccurrence {
             occurrence: SearchOccurrence {
                 move_number: 20,
@@ -1379,6 +1509,32 @@ mod occurrence_continuation_tests {
                 colours_reversed: Some(false),
             },
             continuation_points: Vec::new(),
+            local_activity: LocalActivity {
+                first_inside: Some(NearbyMove {
+                    move_number: 26,
+                    x: 8,
+                    y: 9,
+                    distance: 0,
+                }),
+                first_within_one: Some(NearbyMove {
+                    move_number: 24,
+                    x: 6,
+                    y: 9,
+                    distance: 1,
+                }),
+                first_within_two: Some(NearbyMove {
+                    move_number: 23,
+                    x: 5,
+                    y: 9,
+                    distance: 2,
+                }),
+                first_within_three: Some(NearbyMove {
+                    move_number: 21,
+                    x: 4,
+                    y: 9,
+                    distance: 3,
+                }),
+            },
         };
 
         let json = occurrences_to_json(&[occurrence]).to_string();
@@ -1387,6 +1543,19 @@ mod occurrence_continuation_tests {
         assert_eq!(value[0]["move"], 20);
         assert_eq!(value[0]["lastMove"], 25);
         assert_eq!(value[0]["durationMoves"], 5);
+
+        assert_eq!(value[0]["localActivity"]["inside"]["move"], 26);
+        assert_eq!(value[0]["localActivity"]["inside"]["delayMoves"], 6);
+        assert_eq!(value[0]["localActivity"]["inside"]["distance"], 0);
+        assert_eq!(value[0]["localActivity"]["inside"]["x"], 8);
+        assert_eq!(value[0]["localActivity"]["inside"]["coreY"], 9);
+
+        assert_eq!(value[0]["localActivity"]["withinOne"]["move"], 24);
+        assert_eq!(value[0]["localActivity"]["withinOne"]["delayMoves"], 4);
+        assert_eq!(value[0]["localActivity"]["withinTwo"]["move"], 23);
+        assert_eq!(value[0]["localActivity"]["withinTwo"]["delayMoves"], 3);
+        assert_eq!(value[0]["localActivity"]["withinThree"]["move"], 21);
+        assert_eq!(value[0]["localActivity"]["withinThree"]["delayMoves"], 1);
     }
 
     #[test]
