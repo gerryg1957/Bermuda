@@ -366,6 +366,20 @@ Kirigami.AbstractCard {
                 return
             }
 
+            game.preferredMatchIndex = 0
+
+            if (root.continuationFilterActive) {
+                for (let occurrenceIndex = 0;
+                     occurrenceIndex < game.matchOccurrences.length;
+                     ++occurrenceIndex) {
+                    if (game.matchOccurrences[occurrenceIndex]
+                            .selectedContinuationMatch === true) {
+                        game.preferredMatchIndex = occurrenceIndex
+                        break
+                    }
+                }
+            }
+
             root.gameSelected(game)
         }
     }

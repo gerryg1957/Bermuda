@@ -16,11 +16,11 @@ use std::{
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
 use moyodb::{
-    Board, Colour, GameRecord, LocalActivity, NearbyMove, NextMoveDistribution, NextMovePointCount,
-    Pattern, PatternMatch, PatternRect, PatternSearchOptions, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchScope, PatternTransformation, SearchEngine, SearchOccurrence,
-    SearchPatternSummaryReportOutcome, SearchSummaryReport, SearchSummaryResult,
-    measure_local_activity, project_manager::ProjectManager,
+    Board, Colour, GameRecord, LocalActivity, Move, NearbyMove, NextMoveDistribution,
+    NextMovePointCount, Pattern, PatternMatch, PatternRect, PatternSearchOptions,
+    PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternTransformation,
+    SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome, SearchSummaryReport,
+    SearchSummaryResult, measure_local_activity, project_manager::ProjectManager,
 };
 
 #[allow(non_camel_case_types)]
@@ -72,6 +72,7 @@ pub struct SearchResultModelRust {
     rows: Vec<SearchResultRow>,
     all_rows: Vec<SearchResultRow>,
     continuation_game_ids: HashMap<(i16, i16), Vec<i64>>,
+    selected_continuation: Option<(i16, i16)>,
 
     pub(crate) error_message: QString,
     pub(crate) next_move_distribution_json: QString,
@@ -112,6 +113,7 @@ struct LoadedSearchOccurrence {
     occurrence: SearchOccurrence,
     continuation_points: Vec<ContinuationBoardPoint>,
     local_activity: LocalActivity,
+    selected_continuation_match: bool,
 }
 
 enum BackgroundOccurrenceResult {
@@ -185,7 +187,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             return false;
         }
 
-        let (query, next_move_distribution, game_id, occurrence_load_id) = {
+        let (query, next_move_distribution, selected_continuation, game_id, occurrence_load_id) = {
             let mut rust = self.as_mut().rust_mut();
 
             if rust.occurrence_load_in_progress {
@@ -203,12 +205,14 @@ impl crate::game_list_model::ffi::SearchResultModel {
             };
 
             let next_move_distribution = rust.next_move_distribution.clone().unwrap_or_default();
+            let selected_continuation = rust.selected_continuation;
 
             rust.occurrence_load_id = rust.occurrence_load_id.wrapping_add(1);
 
             (
                 query,
                 next_move_distribution,
+                selected_continuation,
                 game_id,
                 rust.occurrence_load_id,
             )
@@ -219,8 +223,12 @@ impl crate::game_list_model::ffi::SearchResultModel {
         let qt_thread = self.qt_thread();
 
         std::thread::spawn(move || {
-            let completion = match create_game_occurrences(&query, &next_move_distribution, game_id)
-            {
+            let completion = match create_game_occurrences(
+                &query,
+                &next_move_distribution,
+                selected_continuation,
+                game_id,
+            ) {
                 Ok(occurrences) => BackgroundOccurrenceResult::Completed(occurrences),
 
                 Err(error) => BackgroundOccurrenceResult::Failed(error),
@@ -298,7 +306,11 @@ impl crate::game_list_model::ffi::SearchResultModel {
         };
 
         self.as_mut().begin_reset_model();
-        self.as_mut().rust_mut().rows = filtered_rows;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.rows = filtered_rows;
+            rust.selected_continuation = Some((normalised_x, normalised_y));
+        }
         self.as_mut().end_reset_model();
         true
     }
@@ -469,7 +481,11 @@ impl crate::game_list_model::ffi::SearchResultModel {
     pub(crate) fn clear_continuation_filter(mut self: Pin<&mut Self>) {
         let rows = self.as_ref().get_ref().rust().all_rows.clone();
         self.as_mut().begin_reset_model();
-        self.as_mut().rust_mut().rows = rows;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.rows = rows;
+            rust.selected_continuation = None;
+        }
         self.as_mut().end_reset_model();
     }
 
@@ -518,6 +534,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.rows.clear();
             rust.all_rows.clear();
             rust.continuation_game_ids.clear();
+            rust.selected_continuation = None;
             rust.search_query = Some(stored_query);
             rust.next_move_distribution = None;
             rust.cancel_token = Some(Arc::clone(&cancel_token));
@@ -890,6 +907,7 @@ fn is_current_search(
 fn create_game_occurrences(
     query: &StoredSearchQuery,
     distribution: &NextMoveDistribution,
+    selected_continuation: Option<(i16, i16)>,
     game_id: i64,
 ) -> Result<Vec<LoadedSearchOccurrence>, String> {
     let (search_engine, pattern_query) = create_search_engine_and_query(
@@ -944,13 +962,95 @@ fn create_game_occurrences(
                 &occurrence,
             )?;
 
+            let selected_continuation_match = occurrence_has_selected_continuation(
+                &record,
+                &pattern_query.pattern,
+                &occurrence,
+                selected_continuation,
+            )?;
+
             Ok(LoadedSearchOccurrence {
                 occurrence,
                 continuation_points,
                 local_activity,
+                selected_continuation_match,
             })
         })
         .collect()
+}
+
+fn occurrence_has_selected_continuation(
+    record: &GameRecord,
+    pattern: &Pattern,
+    occurrence: &SearchOccurrence,
+    selected_continuation: Option<(i16, i16)>,
+) -> Result<bool, String> {
+    /*
+     * Position N is followed by move N + 1 at zero-based record.moves[N].
+     * Immediate continuation is measured from the first matching position,
+     * not from the end of the appearance span.
+     */
+    let next_move = record.moves.get(occurrence.move_number).copied();
+
+    next_move_matches_selected_continuation(
+        record.board_size,
+        next_move,
+        pattern,
+        occurrence,
+        selected_continuation,
+    )
+}
+
+fn next_move_matches_selected_continuation(
+    board_size: u8,
+    next_move: Option<Move>,
+    pattern: &Pattern,
+    occurrence: &SearchOccurrence,
+    selected_continuation: Option<(i16, i16)>,
+) -> Result<bool, String> {
+    let Some(selected_continuation) = selected_continuation else {
+        return Ok(false);
+    };
+
+    let Some(next_move) = next_move else {
+        return Ok(false);
+    };
+
+    let Some(point) = next_move.point else {
+        return Ok(false);
+    };
+
+    let board_size = u16::from(board_size);
+    if board_size == 0 {
+        return Ok(false);
+    }
+
+    let board_points = board_size * board_size;
+    if point >= board_points {
+        return Ok(false);
+    }
+
+    let board_x = i16::try_from(point % board_size).expect("board x coordinate must fit in i16");
+    let board_y = i16::try_from(point / board_size).expect("board y coordinate must fit in i16");
+
+    let left = occurrence
+        .left
+        .ok_or_else(|| "pattern occurrence has no left coordinate".to_string())?;
+    let bottom = occurrence
+        .bottom
+        .ok_or_else(|| "pattern occurrence has no bottom coordinate".to_string())?;
+    let transformation = occurrence
+        .transformation
+        .ok_or_else(|| "pattern occurrence has no transformation".to_string())?;
+
+    let (normalised_x, normalised_y) = transformation.inverse_relative_point(
+        board_x - i16::from(left),
+        board_y - i16::from(bottom),
+        pattern.width,
+        pattern.height,
+    );
+
+    Ok((normalised_x, normalised_y) == selected_continuation)
 }
 
 fn local_activity_for_occurrence(
@@ -1160,6 +1260,8 @@ fn occurrences_to_json(occurrences: &[LoadedSearchOccurrence]) -> QString {
                     &loaded.local_activity,
                     occurrence.move_number,
                 ),
+
+                selected_continuation_match: loaded.selected_continuation_match,
             }
         })
         .collect::<Vec<_>>();
@@ -1349,6 +1451,9 @@ struct SearchOccurrenceJson {
 
     #[serde(rename = "localActivity")]
     local_activity: LocalActivityJson,
+
+    #[serde(rename = "selectedContinuationMatch")]
+    selected_continuation_match: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1495,6 +1600,132 @@ mod next_move_json_tests {
 mod occurrence_continuation_tests {
     use super::*;
 
+    fn continuation_test_pattern() -> Pattern {
+        let board = Board::new(19).expect("create test board");
+
+        Pattern::extract(
+            &board,
+            PatternRect {
+                left: 0,
+                bottom: 0,
+                width: 4,
+                height: 5,
+            },
+        )
+        .expect("extract test pattern")
+    }
+
+    fn continuation_test_occurrence(transformation: PatternTransformation) -> SearchOccurrence {
+        SearchOccurrence {
+            move_number: 20,
+            last_move_number: 20,
+            side_to_move: Some(Colour::White),
+            ko_point: None,
+            left: Some(7),
+            bottom: Some(8),
+            transformation: Some(transformation),
+            colours_reversed: Some(false),
+        }
+    }
+
+    fn continuation_test_move(x: u8, y: u8) -> Move {
+        Move {
+            colour: Colour::Black,
+            point: Some(u16::from(y) * 19 + u16::from(x)),
+        }
+    }
+
+    #[test]
+    fn selected_continuation_matches_identity_occurrence() {
+        let pattern = continuation_test_pattern();
+        let occurrence = continuation_test_occurrence(PatternTransformation::Identity);
+
+        /*
+         * Normalised (1, 2) at origin (7, 8) is board point (8, 10).
+         */
+        assert!(
+            next_move_matches_selected_continuation(
+                19,
+                Some(continuation_test_move(8, 10)),
+                &pattern,
+                &occurrence,
+                Some((1, 2)),
+            )
+            .expect("compare continuation")
+        );
+    }
+
+    #[test]
+    fn selected_continuation_rejects_different_move() {
+        let pattern = continuation_test_pattern();
+        let occurrence = continuation_test_occurrence(PatternTransformation::Identity);
+
+        assert!(
+            !next_move_matches_selected_continuation(
+                19,
+                Some(continuation_test_move(9, 10)),
+                &pattern,
+                &occurrence,
+                Some((1, 2)),
+            )
+            .expect("compare continuation")
+        );
+    }
+
+    #[test]
+    fn selected_continuation_matches_rotated_occurrence() {
+        let pattern = continuation_test_pattern();
+        let occurrence = continuation_test_occurrence(PatternTransformation::Rotate90Clockwise);
+
+        /*
+         * For a 4 x 5 pattern, normalised (1, 2) transforms to
+         * relative (2, 2). At origin (7, 8), that is board point (9, 10).
+         */
+        assert!(
+            next_move_matches_selected_continuation(
+                19,
+                Some(continuation_test_move(9, 10)),
+                &pattern,
+                &occurrence,
+                Some((1, 2)),
+            )
+            .expect("compare rotated continuation")
+        );
+    }
+
+    #[test]
+    fn selected_continuation_rejects_pass_and_game_end() {
+        let pattern = continuation_test_pattern();
+        let occurrence = continuation_test_occurrence(PatternTransformation::Identity);
+
+        let pass = Move {
+            colour: Colour::Black,
+            point: None,
+        };
+
+        assert!(
+            !next_move_matches_selected_continuation(
+                19,
+                Some(pass),
+                &pattern,
+                &occurrence,
+                Some((1, 2)),
+            )
+            .expect("compare pass")
+        );
+
+        assert!(
+            !next_move_matches_selected_continuation(
+                19,
+                None,
+                &pattern,
+                &occurrence,
+                Some((1, 2)),
+            )
+            .expect("compare game end")
+        );
+    }
+
     #[test]
     fn occurrence_json_exposes_span_and_local_activity() {
         let occurrence = LoadedSearchOccurrence {
@@ -1535,6 +1766,7 @@ mod occurrence_continuation_tests {
                     distance: 3,
                 }),
             },
+            selected_continuation_match: true,
         };
 
         let json = occurrences_to_json(&[occurrence]).to_string();
@@ -1543,6 +1775,7 @@ mod occurrence_continuation_tests {
         assert_eq!(value[0]["move"], 20);
         assert_eq!(value[0]["lastMove"], 25);
         assert_eq!(value[0]["durationMoves"], 5);
+        assert_eq!(value[0]["selectedContinuationMatch"], true);
 
         assert_eq!(value[0]["localActivity"]["inside"]["move"], 26);
         assert_eq!(value[0]["localActivity"]["inside"]["delayMoves"], 6);

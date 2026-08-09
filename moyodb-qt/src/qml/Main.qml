@@ -318,7 +318,18 @@ menuBar: MenuBar {
 
                         boardPane.matchWidth = game.matchWidth
                         boardPane.matchHeight = game.matchHeight
-                        boardPane.showMatch(0)
+
+                        const preferredMatchIndex =
+                            game.preferredMatchIndex === undefined
+                            ? 0
+                            : Number(game.preferredMatchIndex)
+
+                        boardPane.showMatch(
+                                    Math.max(
+                                        0,
+                                        Math.min(
+                                            preferredMatchIndex,
+                                            game.matchOccurrences.length - 1)))
                     } else {
                         boardPane.applyLoadedPosition()
                     }
