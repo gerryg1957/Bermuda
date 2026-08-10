@@ -324,16 +324,54 @@ impl Pattern {
     }
 
     pub fn matches_at(&self, board: &Board, left: u8, bottom: u8) -> Result<bool, PatternError> {
-        let rect = PatternRect {
-            left,
-            bottom,
-            width: self.width,
-            height: self.height,
+        if self.width == 0 || self.height == 0 {
+            return Err(PatternError::EmptyRectangle);
+        }
+
+        let right = left
+            .checked_add(self.width)
+            .ok_or(PatternError::RectangleOutsideBoard)?;
+
+        let top = bottom
+            .checked_add(self.height)
+            .ok_or(PatternError::RectangleOutsideBoard)?;
+
+        if right > board.size() || top > board.size() {
+            return Err(PatternError::RectangleOutsideBoard);
+        }
+
+        let expected_cells = usize::from(self.width) * usize::from(self.height);
+        if self.cells.len() != expected_cells {
+            return Ok(false);
+        }
+
+        let candidate_edges = BoardEdges {
+            left: left == 0,
+            right: right == board.size(),
+            bottom: bottom == 0,
+            top: top == board.size(),
         };
 
-        let candidate = Pattern::extract(board, rect)?;
+        if self.edges != candidate_edges {
+            return Ok(false);
+        }
 
-        Ok(self == &candidate)
+        for relative_y in 0..self.height {
+            for relative_x in 0..self.width {
+                let index =
+                    usize::from(relative_y) * usize::from(self.width) + usize::from(relative_x);
+
+                let point = board
+                    .point(left + relative_x, bottom + relative_y)
+                    .expect("validated pattern coordinates must lie on board");
+
+                if self.cells[index] != PatternCell::from(board.colour_at(point)) {
+                    return Ok(false);
+                }
+            }
+        }
+
+        Ok(true)
     }
 }
 

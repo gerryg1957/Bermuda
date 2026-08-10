@@ -198,6 +198,93 @@ struct PatternVariant {
     pattern: Pattern,
     transformation: PatternTransformation,
     colours_reversed: bool,
+    black_rows: Vec<u64>,
+    white_rows: Vec<u64>,
+    row_mask: u64,
+}
+
+impl PatternVariant {
+    fn new(
+        pattern: Pattern,
+        transformation: PatternTransformation,
+        colours_reversed: bool,
+    ) -> Self {
+        let width = usize::from(pattern.width);
+        let height = usize::from(pattern.height);
+
+        let mut black_rows = vec![0u64; height];
+        let mut white_rows = vec![0u64; height];
+
+        for y in 0..height {
+            for x in 0..width {
+                let bit = 1u64 << x;
+
+                match pattern.cells[y * width + x] {
+                    crate::pattern::PatternCell::Black => black_rows[y] |= bit,
+                    crate::pattern::PatternCell::White => white_rows[y] |= bit,
+                    crate::pattern::PatternCell::Empty => {}
+                }
+            }
+        }
+
+        let row_mask = (1u64 << width) - 1;
+
+        Self {
+            pattern,
+            transformation,
+            colours_reversed,
+            black_rows,
+            white_rows,
+            row_mask,
+        }
+    }
+
+    fn board_row_bits(words: &[u64], start: usize, width: usize, row_mask: u64) -> u64 {
+        let word_index = start / 64;
+        let shift = start % 64;
+
+        let mut bits = words[word_index] >> shift;
+
+        if shift + width > 64 {
+            bits |= words[word_index + 1] << (64 - shift);
+        }
+
+        bits & row_mask
+    }
+
+    fn matches_at(&self, board: &crate::Board, left: u8, bottom: u8) -> bool {
+        let right = left + self.pattern.width;
+        let top = bottom + self.pattern.height;
+
+        if self.pattern.edges.left != (left == 0)
+            || self.pattern.edges.right != (right == board.size())
+            || self.pattern.edges.bottom != (bottom == 0)
+            || self.pattern.edges.top != (top == board.size())
+        {
+            return false;
+        }
+
+        let board_size = usize::from(board.size());
+        let width = usize::from(self.pattern.width);
+
+        for y in 0..usize::from(self.pattern.height) {
+            let start = (usize::from(bottom) + y) * board_size + usize::from(left);
+
+            let black = Self::board_row_bits(board.black_words(), start, width, self.row_mask);
+
+            if black != self.black_rows[y] {
+                return false;
+            }
+
+            let white = Self::board_row_bits(board.white_words(), start, width, self.row_mask);
+
+            if white != self.white_rows[y] {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 pub struct PatternSearcher;
@@ -218,11 +305,11 @@ impl PatternSearcher {
             return;
         }
 
-        variants.push(PatternVariant {
+        variants.push(PatternVariant::new(
             pattern,
             transformation,
             colours_reversed,
-        });
+        ));
     }
 
     fn search_variants(pattern: &Pattern, options: PatternSearchOptions) -> Vec<PatternVariant> {
@@ -291,9 +378,25 @@ impl PatternSearcher {
         let max_left = board.size() - variant.pattern.width;
         let max_bottom = board.size() - variant.pattern.height;
 
-        for bottom in 0..=max_bottom {
-            for left in 0..=max_left {
-                if variant.pattern.matches_at(board, left, bottom)? {
+        let (first_left, last_left) = if variant.pattern.edges.left {
+            (0, 0)
+        } else if variant.pattern.edges.right {
+            (max_left, max_left)
+        } else {
+            (0, max_left)
+        };
+
+        let (first_bottom, last_bottom) = if variant.pattern.edges.bottom {
+            (0, 0)
+        } else if variant.pattern.edges.top {
+            (max_bottom, max_bottom)
+        } else {
+            (0, max_bottom)
+        };
+
+        for bottom in first_bottom..=last_bottom {
+            for left in first_left..=last_left {
+                if variant.matches_at(board, left, bottom) {
                     matches.push(PatternMatch {
                         game_id,
                         move_number,

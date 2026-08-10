@@ -321,6 +321,18 @@ enum Command {
 
         /// Rectangle height.
         height: u8,
+
+        /// Include rotated equivalents of the pattern.
+        #[arg(long)]
+        rotations: bool,
+
+        /// Include reflected equivalents of the pattern.
+        #[arg(long)]
+        reflections: bool,
+
+        /// Include equivalents with black and white reversed.
+        #[arg(long)]
+        reverse_colours: bool,
     },
 }
 
@@ -330,6 +342,9 @@ struct PatternSearchRequest {
     pattern_game_id: i64,
     pattern_move_number: usize,
     rect: PatternRect,
+    rotations: bool,
+    reflections: bool,
+    reverse_colours: bool,
 }
 
 #[derive(Debug)]
@@ -456,6 +471,9 @@ fn main() -> Result<()> {
             bottom,
             width,
             height,
+            rotations,
+            reflections,
+            reverse_colours,
         } => search_pattern_database(PatternSearchRequest {
             project_path: project,
             pattern_game_id,
@@ -466,6 +484,9 @@ fn main() -> Result<()> {
                 width,
                 height,
             },
+            rotations,
+            reflections,
+            reverse_colours,
         }),
 
         Command::ShowPosition {
@@ -959,6 +980,9 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
         pattern_game_id,
         pattern_move_number,
         rect,
+        rotations,
+        reflections,
+        reverse_colours,
     } = request;
 
     let project_manager = ProjectManager::new();
@@ -972,7 +996,11 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
 
     let query = PatternSearchQuery {
         pattern,
-        options: PatternSearchOptions::default(),
+        options: PatternSearchOptions {
+            include_rotations: rotations,
+            include_reflections: reflections,
+            include_reversed_colours: reverse_colours,
+        },
         scope: PatternSearchScope::Project,
     };
 
