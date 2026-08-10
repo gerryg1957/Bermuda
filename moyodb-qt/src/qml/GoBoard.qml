@@ -550,7 +550,7 @@ Item {
             }
         }
 
-                function drawContinuationMap(ctx, left, top, spacing) {
+            function drawContinuationMap(ctx, left, top, spacing) {
             if (root.continuationPoints === null
                     || root.continuationPoints.length === 0) {
                 return
@@ -567,6 +567,10 @@ Item {
             if (maximumCount <= 0)
                 return
 
+            let selectedRadius = -1
+            let selectedX = 0
+            let selectedY = 0
+
             ctx.save()
 
             for (const point of root.continuationPoints) {
@@ -575,59 +579,72 @@ Item {
                 if (count <= 0)
                     continue
 
+                /*
+                 * Circle area grows approximately with frequency while
+                 * keeping uncommon professional continuations visible.
+                 */
                 const strength =
                     Math.sqrt(count / maximumCount)
 
                 const radius =
-                    spacing * (0.20 + 0.27 * strength)
-
-                const alpha =
-                    0.18 + 0.50 * strength
+                    spacing * (0.24 + 0.20 * strength)
 
                 const x = left + point.x * spacing
                 const y = top + point.y * spacing
 
-                ctx.fillStyle =
-                    "rgba(190, 48, 35, " + alpha + ")"
-
-                ctx.strokeStyle =
-                    "rgba(100, 24, 18, "
-                    + Math.min(0.88, alpha + 0.18)
-                    + ")"
-
-                ctx.lineWidth =
-                    Math.max(1, spacing * 0.055)
+                /*
+                 * Frequency is communicated by size rather than colour
+                 * intensity. Every marker has the same visual status:
+                 * "a professional continuation was played here".
+                 */
+                ctx.fillStyle = "rgba(190, 48, 35, 0.14)"
+                ctx.strokeStyle = "rgba(125, 30, 22, 0.92)"
+                ctx.lineWidth = Math.max(1.25, spacing * 0.060)
 
                 ctx.beginPath()
                 ctx.arc(x, y, radius, 0, Math.PI * 2)
                 ctx.fill()
                 ctx.stroke()
+
+                /*
+                 * Anchor the marker precisely on the Go intersection.
+                 */
+                ctx.fillStyle = "rgba(110, 25, 19, 0.88)"
+                ctx.beginPath()
+                ctx.arc(
+                            x,
+                            y,
+                            Math.max(1.5, spacing * 0.055),
+                            0,
+                            Math.PI * 2)
+                ctx.fill()
+
+                if (point.x === root.selectedContinuationX
+                        && point.y === root.selectedContinuationY) {
+                    selectedX = x
+                    selectedY = y
+                    selectedRadius = radius
+                }
             }
 
-                        if (root.selectedContinuationX >= 0
-                    && root.selectedContinuationY >= 0) {
-                const selectedX =
-                    left + root.selectedContinuationX * spacing
-
-                const selectedY =
-                    top + root.selectedContinuationY * spacing
-
-                ctx.strokeStyle = "rgba(80, 20, 16, 0.95)"
-                ctx.lineWidth = Math.max(2, spacing * 0.075)
+            if (selectedRadius >= 0) {
+                ctx.strokeStyle = "rgba(75, 18, 14, 0.98)"
+                ctx.lineWidth = Math.max(2, spacing * 0.085)
 
                 ctx.beginPath()
-                ctx.arc(selectedX,
-                        selectedY,
-                        spacing * 0.53,
-                        0,
-                        Math.PI * 2)
+                ctx.arc(
+                            selectedX,
+                            selectedY,
+                            selectedRadius + spacing * 0.10,
+                            0,
+                            Math.PI * 2)
                 ctx.stroke()
             }
 
-ctx.restore()
+            ctx.restore()
         }
 
-        function drawLastMoveNumber(ctx, left, top, spacing) {
+    function drawLastMoveNumber(ctx, left, top, spacing) {
             if (root.lastMoveNumber <= 0
                     || root.lastMoveX < 0
                     || root.lastMoveY < 0) {

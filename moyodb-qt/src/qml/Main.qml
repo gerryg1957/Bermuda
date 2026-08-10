@@ -435,6 +435,20 @@ menuBar: MenuBar {
                     return
                 }
 
+                const visualY = goBoard.boardSize - 1 - coreY
+
+                /*
+                 * Selecting the active continuation again restores the
+                 * complete search result set. This makes board candidates
+                 * behave like natural toggle controls.
+                 */
+                if (gameList.continuationFilterActive
+                        && goBoard.selectedContinuationX === boardX
+                        && goBoard.selectedContinuationY === visualY) {
+                    gameList.clearContinuationFilter()
+                    return
+                }
+
                 const occurrence = matchOccurrences[matchIndex]
 
                 if (!gameList.filterContinuationAtOccurrence(
@@ -450,8 +464,7 @@ menuBar: MenuBar {
                 }
 
                 goBoard.selectedContinuationX = boardX
-                goBoard.selectedContinuationY =
-                    goBoard.boardSize - 1 - coreY
+                goBoard.selectedContinuationY = visualY
             }
 
             function showMatch(index) {
@@ -573,7 +586,16 @@ menuBar: MenuBar {
                     id: boardFrame
 
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+
+                    /*
+                     * Keep the goban physically stable while search filters,
+                     * game metadata and other information below it change.
+                     * The board-pane width is the authority for board size.
+                     */
+                    Layout.preferredHeight: width
+                    Layout.minimumHeight: width
+                    Layout.maximumHeight: width
+
                     padding: 4
 
                       GoBoard {
