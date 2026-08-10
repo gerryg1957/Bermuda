@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{Colour, Pattern, PatternTransformation, indexer::PositionIndexer};
+use crate::{Colour, Pattern, PatternTransformation, indexer::PositionIndexer, read_move_file};
 use anyhow::Result;
+use rayon::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatternMatch {
@@ -252,42 +253,128 @@ impl PatternVariant {
         bits & row_mask
     }
 
-    fn matches_at(&self, board: &crate::Board, left: u8, bottom: u8) -> bool {
-        let right = left + self.pattern.width;
-        let top = bottom + self.pattern.height;
+    fn matching_lefts_at_bottom(
+        &self,
+        board: &crate::Board,
+        bottom: u8,
+        first_left: u8,
+        last_left: u8,
+    ) -> u64 {
+        /*
+         * Each bit represents one possible horizontal origin.  Pattern
+         * constraints progressively clear origins that cannot match.
+         *
+         * For a pattern cell at horizontal offset x, board >> x places
+         * the board cell at left + x into candidate bit "left".  We can
+         * therefore test every horizontal placement with one bitwise AND.
+         */
+        let first_left = usize::from(first_left);
+        let last_left = usize::from(last_left);
+        let candidate_count = last_left - first_left + 1;
 
-        if self.pattern.edges.left != (left == 0)
-            || self.pattern.edges.right != (right == board.size())
-            || self.pattern.edges.bottom != (bottom == 0)
-            || self.pattern.edges.top != (top == board.size())
-        {
-            return false;
-        }
+        let legal_lefts = ((1u64 << candidate_count) - 1) << first_left;
+
+        let mut candidates = legal_lefts;
 
         let board_size = usize::from(board.size());
-        let width = usize::from(self.pattern.width);
+        let board_row_mask = (1u64 << board_size) - 1;
 
         for y in 0..usize::from(self.pattern.height) {
-            let start = (usize::from(bottom) + y) * board_size + usize::from(left);
+            let start = (usize::from(bottom) + y) * board_size;
 
-            let black = Self::board_row_bits(board.black_words(), start, width, self.row_mask);
+            let black =
+                Self::board_row_bits(board.black_words(), start, board_size, board_row_mask);
 
-            if black != self.black_rows[y] {
-                return false;
+            let white =
+                Self::board_row_bits(board.white_words(), start, board_size, board_row_mask);
+
+            /*
+             * Test occupied pattern points first.  These usually reject
+             * most possible origins very quickly.
+             */
+            let mut required_black = self.black_rows[y];
+
+            while required_black != 0 {
+                let x = required_black.trailing_zeros();
+                candidates &= black >> x;
+
+                if candidates == 0 {
+                    return 0;
+                }
+
+                required_black &= required_black - 1;
             }
 
-            let white = Self::board_row_bits(board.white_words(), start, width, self.row_mask);
+            let mut required_white = self.white_rows[y];
 
-            if white != self.white_rows[y] {
-                return false;
+            while required_white != 0 {
+                let x = required_white.trailing_zeros();
+                candidates &= white >> x;
+
+                if candidates == 0 {
+                    return 0;
+                }
+
+                required_white &= required_white - 1;
+            }
+
+            /*
+             * Empty intersections are part of an exact pattern too.
+             */
+            let board_empty = (!(black | white)) & board_row_mask;
+
+            let mut required_empty = self.row_mask & !(self.black_rows[y] | self.white_rows[y]);
+
+            while required_empty != 0 {
+                let x = required_empty.trailing_zeros();
+                candidates &= board_empty >> x;
+
+                if candidates == 0 {
+                    return 0;
+                }
+
+                required_empty &= required_empty - 1;
             }
         }
 
-        true
+        candidates & legal_lefts
     }
 }
 
 pub struct PatternSearcher;
+
+fn parallel_game_batch_size() -> usize {
+    rayon::current_num_threads().saturating_mul(4).max(32)
+}
+
+fn exact_origin_range(
+    max_origin: u8,
+    touches_low_edge: bool,
+    touches_high_edge: bool,
+) -> Option<(u8, u8)> {
+    match (touches_low_edge, touches_high_edge) {
+        /*
+         * Both edges can be touched only when the pattern spans the
+         * complete board in this dimension.
+         */
+        (true, true) => (max_origin == 0).then_some((0, 0)),
+
+        /*
+         * Touch the low edge but explicitly not the high edge.
+         */
+        (true, false) => (max_origin > 0).then_some((0, 0)),
+
+        /*
+         * Touch the high edge but explicitly not the low edge.
+         */
+        (false, true) => (max_origin > 0).then_some((max_origin, max_origin)),
+
+        /*
+         * An interior pattern must remain clear of both board edges.
+         */
+        (false, false) => (max_origin >= 2).then_some((1, max_origin - 1)),
+    }
+}
 
 impl PatternSearcher {
     #[must_use]
@@ -378,37 +465,46 @@ impl PatternSearcher {
         let max_left = board.size() - variant.pattern.width;
         let max_bottom = board.size() - variant.pattern.height;
 
-        let (first_left, last_left) = if variant.pattern.edges.left {
-            (0, 0)
-        } else if variant.pattern.edges.right {
-            (max_left, max_left)
-        } else {
-            (0, max_left)
+        let Some((first_left, last_left)) = exact_origin_range(
+            max_left,
+            variant.pattern.edges.left,
+            variant.pattern.edges.right,
+        ) else {
+            return Ok(matches);
         };
 
-        let (first_bottom, last_bottom) = if variant.pattern.edges.bottom {
-            (0, 0)
-        } else if variant.pattern.edges.top {
-            (max_bottom, max_bottom)
-        } else {
-            (0, max_bottom)
+        let Some((first_bottom, last_bottom)) = exact_origin_range(
+            max_bottom,
+            variant.pattern.edges.bottom,
+            variant.pattern.edges.top,
+        ) else {
+            return Ok(matches);
         };
 
         for bottom in first_bottom..=last_bottom {
-            for left in first_left..=last_left {
-                if variant.matches_at(board, left, bottom) {
-                    matches.push(PatternMatch {
-                        game_id,
-                        move_number,
-                        last_move_number: move_number,
-                        side_to_move,
-                        ko_point,
-                        left,
-                        bottom,
-                        transformation: variant.transformation,
-                        colours_reversed: variant.colours_reversed,
-                    });
-                }
+            let mut matching_lefts =
+                variant.matching_lefts_at_bottom(board, bottom, first_left, last_left);
+
+            /*
+             * trailing_zeros visits surviving origins from left to right,
+             * preserving the result ordering of the old nested loop.
+             */
+            while matching_lefts != 0 {
+                let left = matching_lefts.trailing_zeros() as u8;
+
+                matches.push(PatternMatch {
+                    game_id,
+                    move_number,
+                    last_move_number: move_number,
+                    side_to_move,
+                    ko_point,
+                    left,
+                    bottom,
+                    transformation: variant.transformation,
+                    colours_reversed: variant.colours_reversed,
+                });
+
+                matching_lefts &= matching_lefts - 1;
             }
         }
 
@@ -783,8 +879,8 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        let game_ids = indexer.game_ids()?;
-        let total_games = game_ids.len();
+        let games = indexer.games()?;
+        let total_games = games.len();
 
         let mut summaries = Vec::new();
         let mut matching_games = 0_usize;
@@ -801,63 +897,87 @@ impl PatternSearcher {
             matches_found,
         });
 
-        for (game_index, game_id) in game_ids.into_iter().enumerate() {
+        let batch_size = parallel_game_batch_size();
+        let mut games_examined = 0_usize;
+
+        for game_batch in games.chunks(batch_size) {
             if is_cancelled() {
                 return Ok(PatternSearchSummaryReportOutcome::Cancelled);
             }
 
             /*
-             * Load and replay the compact game record once. The same
-             * record then supplies the move immediately following each
-             * distinct appearance.
+             * SQLite has already supplied all move-file paths in one query.
+             * Each Rayon worker now loads and searches its own game, allowing
+             * file I/O, replay and pattern matching to overlap.
              */
-            let record = indexer.read_game_by_id(game_id)?;
+            let searched: Vec<Result<_>> = game_batch
+                .par_iter()
+                .map(|game| {
+                    let record = read_move_file(&game.move_file)?;
 
-            let raw_matches =
-                self.search_record_with_options(game_id, &record, pattern, options)?;
+                    let raw_matches =
+                        self.search_record_with_options(game.game_id, &record, pattern, options)?;
 
-            let game_matches = Self::distinct_appearances(raw_matches);
+                    Ok((record, Self::distinct_appearances(raw_matches)))
+                })
+                .collect();
 
-            if let Some(first_match) = game_matches.first().cloned() {
-                matching_games = matching_games.saturating_add(1);
-                matches_found = matches_found.saturating_add(game_matches.len());
-
-                next_moves.matching_games = next_moves.matching_games.saturating_add(1);
-
-                for found in &game_matches {
-                    /*
-                     * A match at position N is followed by move N + 1,
-                     * stored at zero-based record.moves[N].
-                     */
-                    let next_move = record.moves.get(found.move_number).copied();
-
-                    if let Some(point) = next_moves.record_appearance(
-                        &mut next_move_point_counts,
-                        pattern,
-                        found,
-                        record.board_size,
-                        next_move,
-                    ) {
-                        let game_ids = continuation_game_ids.entry(point).or_default();
-                        if !game_ids.contains(&game_id) {
-                            game_ids.push(game_id);
-                        }
-                    }
+            /*
+             * Consume worker results in original game order so progress,
+             * continuation statistics and visible result ordering remain
+             * deterministic.
+             */
+            for (game, searched_game) in game_batch.iter().zip(searched) {
+                if is_cancelled() {
+                    return Ok(PatternSearchSummaryReportOutcome::Cancelled);
                 }
 
-                summaries.push(PatternGameSummary {
-                    game_id,
-                    match_count: game_matches.len(),
-                    first_match,
+                let game_id = game.game_id;
+                let (record, game_matches) = searched_game?;
+
+                if let Some(first_match) = game_matches.first().cloned() {
+                    matching_games = matching_games.saturating_add(1);
+                    matches_found = matches_found.saturating_add(game_matches.len());
+
+                    next_moves.matching_games = next_moves.matching_games.saturating_add(1);
+
+                    for found in &game_matches {
+                        /*
+                         * A match at position N is followed by move N + 1,
+                         * stored at zero-based record.moves[N].
+                         */
+                        let next_move = record.moves.get(found.move_number).copied();
+
+                        if let Some(point) = next_moves.record_appearance(
+                            &mut next_move_point_counts,
+                            pattern,
+                            found,
+                            record.board_size,
+                            next_move,
+                        ) {
+                            let game_ids = continuation_game_ids.entry(point).or_default();
+                            if !game_ids.contains(&game_id) {
+                                game_ids.push(game_id);
+                            }
+                        }
+                    }
+
+                    summaries.push(PatternGameSummary {
+                        game_id,
+                        match_count: game_matches.len(),
+                        first_match,
+                    });
+                }
+
+                games_examined = games_examined.saturating_add(1);
+
+                on_progress(PatternSearchProgress {
+                    games_examined,
+                    total_games,
+                    matching_games,
+                    matches_found,
                 });
             }
-
-            on_progress(PatternSearchProgress {
-                games_examined: game_index + 1,
-                total_games,
-                matching_games,
-                matches_found,
-            });
         }
 
         next_moves.finish_points(next_move_point_counts);
@@ -922,8 +1042,8 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        let game_ids = indexer.game_ids()?;
-        let total_games = game_ids.len();
+        let games = indexer.games()?;
+        let total_games = games.len();
 
         let mut matches = Vec::new();
         let mut matching_games = 0_usize;
@@ -936,28 +1056,47 @@ impl PatternSearcher {
             matches_found,
         });
 
-        for (game_index, game_id) in game_ids.into_iter().enumerate() {
+        let batch_size = parallel_game_batch_size();
+        let mut games_examined = 0_usize;
+
+        for game_batch in games.chunks(batch_size) {
             if is_cancelled() {
                 return Ok(PatternSearchOutcome::Cancelled);
             }
 
-            let game_matches =
-                self.search_game_appearances_with_options(indexer, game_id, pattern, options)?;
+            let searched: Vec<Result<Vec<PatternMatch>>> = game_batch
+                .par_iter()
+                .map(|game| {
+                    let record = read_move_file(&game.move_file)?;
 
-            if !game_matches.is_empty() {
-                matching_games = matching_games.saturating_add(1);
+                    self.search_record_with_options(game.game_id, &record, pattern, options)
+                        .map(Self::distinct_appearances)
+                })
+                .collect();
+
+            for game_matches in searched {
+                if is_cancelled() {
+                    return Ok(PatternSearchOutcome::Cancelled);
+                }
+
+                let game_matches = game_matches?;
+
+                if !game_matches.is_empty() {
+                    matching_games = matching_games.saturating_add(1);
+                }
+
+                matches_found = matches_found.saturating_add(game_matches.len());
+                matches.extend(game_matches);
+
+                games_examined = games_examined.saturating_add(1);
+
+                on_progress(PatternSearchProgress {
+                    games_examined,
+                    total_games,
+                    matching_games,
+                    matches_found,
+                });
             }
-
-            matches_found = matches_found.saturating_add(game_matches.len());
-
-            matches.extend(game_matches);
-
-            on_progress(PatternSearchProgress {
-                games_examined: game_index + 1,
-                total_games,
-                matching_games,
-                matches_found,
-            });
         }
 
         Ok(PatternSearchOutcome::Completed(matches))

@@ -314,6 +314,44 @@ impl PositionIndexer {
         Ok(ids)
     }
 
+    /// Returns every stored game with its move-file path, ordered by game ID.
+    ///
+    /// This performs one database query so callers that process the complete
+    /// corpus do not need a separate SQLite lookup for every game.
+    pub fn games(&self) -> Result<Vec<GameToIndex>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+            SELECT id, move_file
+            FROM games
+            ORDER BY id
+            "#,
+            )
+            .context("preparing game query")?;
+
+        let rows = statement
+            .query_map([], |row| {
+                let game_id: i64 = row.get(0)?;
+                let relative_move_file: String = row.get(1)?;
+                Ok((game_id, relative_move_file))
+            })
+            .context("querying games")?;
+
+        let mut games = Vec::new();
+
+        for row in rows {
+            let (game_id, relative_move_file) = row.context("reading game")?;
+
+            games.push(GameToIndex {
+                game_id,
+                move_file: self.database_root.join(relative_move_file),
+            });
+        }
+
+        Ok(games)
+    }
+
     /// Returns the games that require indexing for the specified index version.
     ///
     /// Games already indexed at the requested version are excluded from the

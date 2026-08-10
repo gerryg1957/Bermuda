@@ -309,10 +309,27 @@ impl SearchEngine {
                 });
         }
 
+        /*
+         * Read preferred metadata in one catalogue operation rather
+         * than issuing a separate query for every matching game.
+         */
+        let catalogue_rows = self.catalogue.list(&GameListQuery {
+            sort_fields: Vec::new(),
+            limit: u32::MAX,
+            ..GameListQuery::default()
+        })?;
+
+        let mut games_by_id = catalogue_rows
+            .into_iter()
+            .map(|game| (game.game_id, game))
+            .collect::<HashMap<_, _>>();
+
         grouped_occurrences
             .into_iter()
             .map(|(game_id, occurrences)| {
-                let game = self.catalogue.get(game_id)?;
+                let game = games_by_id
+                    .remove(&game_id)
+                    .with_context(|| format!("game {game_id} does not exist"))?;
 
                 Ok(SearchResult {
                     game_id,
