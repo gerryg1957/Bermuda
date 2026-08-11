@@ -83,6 +83,21 @@ ApplicationWindow {
         operationModel: databaseOperation
     }
 
+  FolderDialog {
+      id: openDatabaseDialog
+
+      title: qsTr("Open Database")
+
+      onAccepted: {
+          const folderUrl = new URL(selectedFolder)
+          const folderPath =
+              decodeURIComponent(folderUrl.pathname)
+
+          root.clearProjectSelection()
+          root.projectPath = folderPath
+      }
+  }
+
   FileDialog {
     id: openSgfDialog
 
@@ -180,6 +195,14 @@ menuBar: MenuBar {
 
     Menu {
         title: qsTr("&Database")
+
+        Action {
+            text: qsTr("&Open Database…")
+
+            enabled: !databaseOperation.in_progress
+
+            onTriggered: openDatabaseDialog.open()
+        }
 
         Action {
             text: qsTr("&Create Database…")
