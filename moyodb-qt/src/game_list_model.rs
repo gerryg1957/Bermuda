@@ -1,5 +1,5 @@
 #![allow(clippy::too_many_arguments)]
-use cxx_qt::CxxQtType;
+use cxx_qt::{CxxQtType, Threading};
 use std::{fmt::Display, path::Path, pin::Pin};
 
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
@@ -28,21 +28,23 @@ const HANDICAP_ROLE: i32 = GAME_ID_ROLE + 9;
 #[derive(Clone, Debug, Default)]
 struct GameListRow {
     game_id: i64,
-    black_player: QString,
-    white_player: QString,
-    black_rank: QString,
-    white_rank: QString,
-    played_date: QString,
-    result: QString,
-    event: QString,
-    komi: QString,
-    handicap: QString,
+    black_player: String,
+    white_player: String,
+    black_rank: String,
+    white_rank: String,
+    played_date: String,
+    result: String,
+    event: String,
+    komi: String,
+    handicap: String,
 }
 
 #[derive(Default)]
 pub struct GameListModelRust {
     rows: Vec<GameListRow>,
     error_message: QString,
+    loading: bool,
+    load_generation: u64,
 }
 
 #[cxx_qt::bridge]
@@ -73,6 +75,7 @@ pub mod ffi {
         #[qml_element]
         #[base = QAbstractListModel]
         #[qproperty(QString, error_message)]
+        #[qproperty(bool, loading)]
         type GameListModel = super::GameListModelRust;
 
         #[qinvokable]
@@ -87,6 +90,10 @@ pub mod ffi {
             column: &QString,
             ascending: bool,
         ) -> bool;
+
+        #[qsignal]
+        #[cxx_name = "loadFinished"]
+        fn load_finished(self: Pin<&mut GameListModel>, success: bool);
 
         #[cxx_override]
         #[cxx_name = "rowCount"]
@@ -216,6 +223,7 @@ pub mod ffi {
         fn endResetModel(self: Pin<&mut SearchResultModel>);
     }
 
+    impl cxx_qt::Threading for GameListModel {}
     impl cxx_qt::Threading for SearchResultModel {}
 }
 
@@ -245,15 +253,15 @@ impl ffi::GameListModel {
 
         match role {
             GAME_ID_ROLE => QVariant::from(&row.game_id),
-            BLACK_PLAYER_ROLE => QVariant::from(&row.black_player),
-            WHITE_PLAYER_ROLE => QVariant::from(&row.white_player),
-            BLACK_RANK_ROLE => QVariant::from(&row.black_rank),
-            WHITE_RANK_ROLE => QVariant::from(&row.white_rank),
-            PLAYED_DATE_ROLE => QVariant::from(&row.played_date),
-            RESULT_ROLE => QVariant::from(&row.result),
-            EVENT_ROLE => QVariant::from(&row.event),
-            KOMI_ROLE => QVariant::from(&row.komi),
-            HANDICAP_ROLE => QVariant::from(&row.handicap),
+            BLACK_PLAYER_ROLE => QVariant::from(&QString::from(&row.black_player)),
+            WHITE_PLAYER_ROLE => QVariant::from(&QString::from(&row.white_player)),
+            BLACK_RANK_ROLE => QVariant::from(&QString::from(&row.black_rank)),
+            WHITE_RANK_ROLE => QVariant::from(&QString::from(&row.white_rank)),
+            PLAYED_DATE_ROLE => QVariant::from(&QString::from(&row.played_date)),
+            RESULT_ROLE => QVariant::from(&QString::from(&row.result)),
+            EVENT_ROLE => QVariant::from(&QString::from(&row.event)),
+            KOMI_ROLE => QVariant::from(&QString::from(&row.komi)),
+            HANDICAP_ROLE => QVariant::from(&QString::from(&row.handicap)),
             _ => QVariant::default(),
         }
     }
@@ -320,73 +328,96 @@ impl ffi::GameListModel {
     fn load_with_query(
         mut self: Pin<&mut Self>,
         project_path: &QString,
-        query: GameListQuery,
+        mut query: GameListQuery,
     ) -> bool {
-        self.as_mut().begin_reset_model();
-
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.rows.clear();
-            rust.error_message = QString::default();
-        }
-
         let path = project_path.to_string();
 
+        query.offset = 0;
+        query.limit = u32::MAX;
+
+        let generation = {
+            let mut rust = self.as_mut().rust_mut();
+            rust.load_generation = rust.load_generation.wrapping_add(1);
+            rust.load_generation
+        };
+
         if path.trim().is_empty() {
-            self.as_mut().end_reset_model();
+            self.as_mut().set_loading(false);
             return false;
         }
 
-        let result = ProjectManager::new()
-            .open(Path::new(&path))
-            .and_then(|project| project.catalogue())
-            .and_then(|catalogue| catalogue.list(&query));
+        self.as_mut().set_error_message(QString::default());
+        self.as_mut().set_loading(true);
 
-        let loaded = match result {
-            Ok(games) => {
-                let rows = games
-                    .into_iter()
-                    .map(|game| GameListRow {
-                        game_id: game.game_id,
-                        black_player: optional_text(&game.black_player),
-                        white_player: optional_text(&game.white_player),
-                        black_rank: QString::default(),
-                        white_rank: QString::default(),
-                        played_date: optional_text(&game.game_date),
-                        result: optional_text(&game.result),
-                        event: optional_text(&game.event),
-                        komi: optional_number(&game.komi),
-                        handicap: QString::default(),
-                    })
-                    .collect();
+        let qt_thread = self.qt_thread();
 
-                self.as_mut().rust_mut().rows = rows;
-                true
-            }
+        std::thread::spawn(move || {
+            let result = ProjectManager::new()
+                .open(Path::new(&path))
+                .and_then(|project| project.catalogue())
+                .and_then(|catalogue| catalogue.list(&query))
+                .map(|games| {
+                    games
+                        .into_iter()
+                        .map(|game| GameListRow {
+                            game_id: game.game_id,
+                            black_player: optional_text(&game.black_player),
+                            white_player: optional_text(&game.white_player),
+                            black_rank: String::new(),
+                            white_rank: String::new(),
+                            played_date: optional_text(&game.game_date),
+                            result: optional_text(&game.result),
+                            event: optional_text(&game.event),
+                            komi: optional_number(&game.komi),
+                            handicap: String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .map_err(|error| error.to_string());
 
-            Err(error) => {
-                self.as_mut().rust_mut().error_message = QString::from(error.to_string());
+            let _ = qt_thread.queue(move |mut model| {
+                if model.rust().load_generation != generation {
+                    return;
+                }
 
-                false
-            }
-        };
+                match result {
+                    Ok(rows) => {
+                        model.as_mut().begin_reset_model();
+                        model.as_mut().rust_mut().rows = rows;
+                        model.as_mut().end_reset_model();
 
-        self.as_mut().end_reset_model();
+                        model.as_mut().set_error_message(QString::default());
+                        model.as_mut().set_loading(false);
+                        model.as_mut().load_finished(true);
+                    }
 
-        loaded
+                    Err(error) => {
+                        model.as_mut().begin_reset_model();
+                        model.as_mut().rust_mut().rows.clear();
+                        model.as_mut().end_reset_model();
+
+                        model.as_mut().set_error_message(QString::from(error));
+                        model.as_mut().set_loading(false);
+                        model.as_mut().load_finished(false);
+                    }
+                }
+            });
+        });
+
+        true
     }
 }
 
-fn optional_text(value: &Option<String>) -> QString {
-    QString::from(value.as_deref().unwrap_or(""))
+fn optional_text(value: &Option<String>) -> String {
+    value.clone().unwrap_or_default()
 }
 
-fn optional_number<T>(value: &Option<T>) -> QString
+fn optional_number<T>(value: &Option<T>) -> String
 where
     T: Display,
 {
     match value {
-        Some(value) => QString::from(value.to_string()),
-        None => QString::default(),
+        Some(value) => value.to_string(),
+        None => String::new(),
     }
 }

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQml
 import org.kde.kirigami as Kirigami
 import org.moyodb.app
 
@@ -71,22 +72,26 @@ Kirigami.AbstractCard {
     property string sortColumn: "date"
 
     property bool sortAscending: false
+    readonly property bool catalogueLoading: gameModel.loading
+    property string loadingIndicatorStyle: "stones"
     padding: 0
 
 
 
         function loadProject() {
         selectedRow = -1
+        projectLoaded = false
 
         if (projectPath.length === 0) {
-            projectLoaded = false
             return
         }
 
-        projectLoaded = gameModel.loadSortedProject(
+        if (!gameModel.loadSortedProject(
                     projectPath,
                     sortColumn,
-                    sortAscending)
+                    sortAscending)) {
+            projectLoaded = false
+        }
     }
 
     function sortBy(column, firstAscending) {
@@ -106,6 +111,324 @@ Kirigami.AbstractCard {
 
     return title + (sortAscending ? " ▲" : " ▼")
 }
+
+    Connections {
+        target: gameModel
+
+        function onLoadFinished(success) {
+            root.projectLoaded = success
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.catalogueLoading
+        z: 1000
+        color: "#66000000"
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: Kirigami.Units.largeSpacing
+
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                radius: Kirigami.Units.largeSpacing
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                implicitWidth: Kirigami.Units.gridUnit * 20
+                implicitHeight: Kirigami.Units.gridUnit * 11
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Kirigami.Units.largeSpacing
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Item {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: root.loadingIndicatorStyle === "stones"
+                        implicitWidth: Kirigami.Units.gridUnit * 10
+                        implicitHeight: Kirigami.Units.gridUnit * 6.5
+
+                        Item {
+                            anchors.fill: parent
+
+                            Rectangle {
+                                id: boardSurface
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.bottom: parent.bottom
+                                width: parent.implicitWidth * 0.92
+                                height: Kirigami.Units.gridUnit * 2.4
+                                radius: Kirigami.Units.smallSpacing
+                                color: "#D8B57A"
+                                border.color: "#8C6A3A"
+                                border.width: 1
+                                opacity: 0.96
+                            }
+
+                            Repeater {
+                                model: 5
+
+                                delegate: Rectangle {
+                                    width: 1
+                                    height: boardSurface.height - Kirigami.Units.smallSpacing * 2
+                                    color: "#8C6A3A"
+                                    opacity: 0.40
+                                    x: boardSurface.x + Kirigami.Units.smallSpacing
+                                       + index * ((boardSurface.width - Kirigami.Units.smallSpacing * 2) / 4)
+                                    y: boardSurface.y + Kirigami.Units.smallSpacing
+                                }
+                            }
+
+                            Repeater {
+                                model: 4
+
+                                delegate: Rectangle {
+                                    width: boardSurface.width - Kirigami.Units.smallSpacing * 2
+                                    height: 1
+                                    color: "#8C6A3A"
+                                    opacity: 0.35
+                                    x: boardSurface.x + Kirigami.Units.smallSpacing
+                                    y: boardSurface.y + Kirigami.Units.smallSpacing
+                                       + index * ((boardSurface.height - Kirigami.Units.smallSpacing * 2) / 3)
+                                }
+                            }
+
+                            Rectangle {
+                                width: Kirigami.Units.gridUnit * 2.8
+                                height: Kirigami.Units.gridUnit * 0.35
+                                radius: height / 2
+                                color: "#30000000"
+                                x: Kirigami.Units.gridUnit * 0.9
+                                y: Kirigami.Units.gridUnit * 2.0
+                            }
+
+                            Item {
+                                id: loadingBowl
+                                width: Kirigami.Units.gridUnit * 3.3
+                                height: Kirigami.Units.gridUnit * 2.0
+                                x: Kirigami.Units.gridUnit * 0.9
+                                y: Kirigami.Units.gridUnit * 0.35
+                                rotation: -24
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: height * 0.48
+                                    color: "#9B6230"
+                                    border.color: "#6E441E"
+                                    border.width: 2
+                                }
+
+                                Rectangle {
+                                    x: width * 0.12
+                                    y: height * 0.22
+                                    width: parent.width * 0.76
+                                    height: parent.height * 0.28
+                                    radius: height / 2
+                                    color: "#B97C42"
+                                    opacity: 0.90
+                                }
+
+                                Rectangle {
+                                    x: width * 0.18
+                                    y: height * 0.52
+                                    width: parent.width * 0.52
+                                    height: parent.height * 0.16
+                                    radius: height / 2
+                                    color: "#D9A56D"
+                                    opacity: 0.35
+                                }
+
+                                Repeater {
+                                    model: 4
+
+                                    delegate: Rectangle {
+                                        required property int index
+                                        width: Kirigami.Units.gridUnit * 0.40
+                                        height: width
+                                        radius: width / 2
+                                        color: index % 2 === 0 ? "#202020" : "#F4F0E8"
+                                        border.color: index % 2 === 0 ? "#111111" : "#8A8478"
+                                        border.width: 1
+                                        x: Kirigami.Units.gridUnit * (0.40 + index * 0.38)
+                                        y: Kirigami.Units.gridUnit * (0.52 + (index % 2) * 0.10)
+                                    }
+                                }
+                            }
+
+                            Repeater {
+                                model: 7
+
+                                delegate: Rectangle {
+                                    required property int index
+
+                                    width: Kirigami.Units.gridUnit * 0.46
+                                    height: width
+                                    radius: width / 2
+                                    color: index % 2 === 0 ? "#202020" : "#F4F0E8"
+                                    border.color: index % 2 === 0 ? "#111111" : "#8A8478"
+                                    border.width: 1
+                                    opacity: 0
+                                    scale: 0.90
+
+                                    property real startX: loadingBowl.x + loadingBowl.width * 0.76
+                                    property real startY: loadingBowl.y + loadingBowl.height * 0.22
+                                    property real endX: Kirigami.Units.gridUnit * (5.15 + (index % 3) * 0.50)
+                                    property real endY: boardSurface.y + Kirigami.Units.gridUnit * (0.62 + (index % 2) * 0.18)
+
+                                    x: startX
+                                    y: startY
+
+                                    SequentialAnimation on x {
+                                        running: root.catalogueLoading
+                                                 && root.loadingIndicatorStyle === "stones"
+                                        loops: Animation.Infinite
+
+                                        PauseAnimation { duration: index * 135 }
+
+                                        NumberAnimation {
+                                            from: parent.startX
+                                            to: parent.endX
+                                            duration: 980
+                                            easing.type: Easing.InOutQuad
+                                        }
+
+                                        PauseAnimation { duration: 260 }
+                                    }
+
+                                    SequentialAnimation on y {
+                                        running: root.catalogueLoading
+                                                 && root.loadingIndicatorStyle === "stones"
+                                        loops: Animation.Infinite
+
+                                        PauseAnimation { duration: index * 135 }
+
+                                        NumberAnimation {
+                                            from: parent.startY
+                                            to: boardSurface.y - Kirigami.Units.gridUnit * 0.18
+                                            duration: 450
+                                            easing.type: Easing.OutQuad
+                                        }
+
+                                        NumberAnimation {
+                                            to: parent.endY
+                                            duration: 530
+                                            easing.type: Easing.InQuad
+                                        }
+
+                                        PauseAnimation { duration: 260 }
+                                    }
+
+                                    SequentialAnimation on opacity {
+                                        running: root.catalogueLoading
+                                                 && root.loadingIndicatorStyle === "stones"
+                                        loops: Animation.Infinite
+
+                                        PauseAnimation { duration: index * 135 }
+                                        NumberAnimation { from: 0; to: 1; duration: 90 }
+                                        PauseAnimation { duration: 700 }
+                                        NumberAnimation { from: 1; to: 0; duration: 180 }
+                                        PauseAnimation { duration: 190 }
+                                    }
+
+                                    SequentialAnimation on scale {
+                                        running: root.catalogueLoading
+                                                 && root.loadingIndicatorStyle === "stones"
+                                        loops: Animation.Infinite
+
+                                        PauseAnimation { duration: index * 135 }
+                                        NumberAnimation { from: 0.90; to: 1.00; duration: 300 }
+                                        PauseAnimation { duration: 520 }
+                                        NumberAnimation { from: 1.00; to: 0.94; duration: 340 }
+                                        PauseAnimation { duration: 300 }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: Kirigami.Units.gridUnit * 2.6
+                                height: Kirigami.Units.gridUnit * 0.32
+                                radius: height / 2
+                                color: "#24000000"
+                                x: Kirigami.Units.gridUnit * 4.9
+                                y: boardSurface.y + Kirigami.Units.gridUnit * 1.1
+                            }
+
+                            Repeater {
+                                model: 8
+
+                                delegate: Rectangle {
+                                    required property int index
+
+                                    width: Kirigami.Units.gridUnit * 0.48
+                                    height: width
+                                    radius: width / 2
+                                    color: index % 2 === 0 ? "#202020" : "#F4F0E8"
+                                    border.color: index % 2 === 0 ? "#111111" : "#8A8478"
+                                    border.width: 1
+
+                                    x: Kirigami.Units.gridUnit * (
+                                           5.00
+                                           + [0.00, 0.38, 0.76, 0.22, 0.60, 0.98, 0.42, 0.82][index]
+                                       )
+                                    y: boardSurface.y + Kirigami.Units.gridUnit * (
+                                           [0.78, 0.72, 0.82, 0.48, 0.52, 0.58, 0.28, 0.34][index]
+                                       )
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        id: loadingCat
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: root.loadingIndicatorStyle === "cat"
+                        text: "🐱"
+                        font.pixelSize: Kirigami.Units.gridUnit * 3
+                        horizontalAlignment: Text.AlignHCenter
+
+                        SequentialAnimation on rotation {
+                            running: root.catalogueLoading
+                                     && root.loadingIndicatorStyle === "cat"
+                            loops: Animation.Infinite
+
+                            NumberAnimation {
+                                from: -12
+                                to: 12
+                                duration: 220
+                                easing.type: Easing.InOutQuad
+                            }
+
+                            NumberAnimation {
+                                from: 12
+                                to: -12
+                                duration: 220
+                                easing.type: Easing.InOutQuad
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: qsTr("Loading catalogue…")
+                        font.bold: true
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.loadingIndicatorStyle === "stones"
+                              ? qsTr("Preparing the full game catalogue.")
+                              : qsTr("Please wait while the games are loaded.")
+                        wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+        }
+    }
 
     function clearSearchResults() {
         selectedSearchRow = -1
