@@ -106,7 +106,7 @@ impl Parser<'_> {
         self.skip_whitespace();
         let mut node = Node::default();
 
-        while matches!(self.peek(), Some(b'A'..=b'Z')) {
+        while self.peek().is_some_and(|byte| byte.is_ascii_alphabetic()) {
             let identifier = self.parse_identifier()?;
             self.skip_whitespace();
 
@@ -133,7 +133,7 @@ impl Parser<'_> {
 
     fn parse_identifier(&mut self) -> Result<String, SgfError> {
         let start = self.pos;
-        while matches!(self.peek(), Some(b'A'..=b'Z')) {
+        while self.peek().is_some_and(|byte| byte.is_ascii_alphabetic()) {
             self.pos += 1;
         }
         if self.pos == start {
@@ -201,5 +201,21 @@ impl Parser<'_> {
         let byte = self.peek()?;
         self.pos += 1;
         Some(byte)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_mixed_case_property_identifier() {
+        let collection = parse_collection(b"(;FF[4]GM[1]CoPyright[test]SZ[19];B[pd])")
+            .expect("mixed-case property identifier should parse");
+
+        let root = &collection.trees[0].sequence[0];
+
+        assert_eq!(root.first("CoPyright"), Some("test"));
+        assert_eq!(root.first("SZ"), Some("19"));
     }
 }
