@@ -68,6 +68,32 @@ pub struct PositionIndexer {
     connection: Connection,
 }
 
+pub(crate) fn replay_game_for_index(game: &GameToIndex) -> Result<IndexedPositionStream> {
+    if !game.move_file.is_file() {
+        bail!(
+            "move file for game {} does not exist: {}",
+            game.game_id,
+            game.move_file.display()
+        );
+    }
+
+    let record = read_move_file(&game.move_file).with_context(|| {
+        format!(
+            "reading move file for game {} from {}",
+            game.game_id,
+            game.move_file.display()
+        )
+    })?;
+
+    let occurrences = position_stream(&record)
+        .with_context(|| format!("building position stream for game {}", game.game_id))?;
+
+    Ok(IndexedPositionStream {
+        game_id: game.game_id,
+        occurrences,
+    })
+}
+
 impl PositionIndexer {
     /// Opens the MoyoDB database stored at `database_root`.
     ///
@@ -96,29 +122,7 @@ impl PositionIndexer {
     /// subsequent position reached during the game. This method is primarily
     /// used when building or rebuilding the position index.
     pub fn replay_game(&self, game: &GameToIndex) -> Result<IndexedPositionStream> {
-        if !game.move_file.is_file() {
-            bail!(
-                "move file for game {} does not exist: {}",
-                game.game_id,
-                game.move_file.display()
-            );
-        }
-
-        let record = read_move_file(&game.move_file).with_context(|| {
-            format!(
-                "reading move file for game {} from {}",
-                game.game_id,
-                game.move_file.display()
-            )
-        })?;
-
-        let occurrences = position_stream(&record)
-            .with_context(|| format!("building position stream for game {}", game.game_id))?;
-
-        Ok(IndexedPositionStream {
-            game_id: game.game_id,
-            occurrences,
-        })
+        replay_game_for_index(game)
     }
 
     /// Builds or rebuilds the position index for a single game.
@@ -126,19 +130,51 @@ impl PositionIndexer {
     /// Any existing index entries for the game are replaced. The number of
     /// indexed positions written is returned.
     pub fn index_game(&mut self, game: &GameToIndex, index_version: i64) -> Result<usize> {
+        let stream = self.replay_game(game)?;
+        self.index_stream(&stream, index_version)
+    }
+
+    pub(crate) fn index_stream(
+        &mut self,
+        stream: &IndexedPositionStream,
+        index_version: i64,
+    ) -> Result<usize> {
+        self.index_stream_inner(stream, index_version, true)
+    }
+
+    /// Writes a position stream during a fresh bulk index build.
+    ///
+    /// Games supplied by the bulk builder have no committed index rows, so
+    /// there is nothing to delete. Avoiding the DELETE is essential while
+    /// the game-id secondary index is deliberately absent.
+    pub(crate) fn index_stream_bulk(
+        &mut self,
+        stream: &IndexedPositionStream,
+        index_version: i64,
+    ) -> Result<usize> {
+        self.index_stream_inner(stream, index_version, false)
+    }
+
+    fn index_stream_inner(
+        &mut self,
+        stream: &IndexedPositionStream,
+        index_version: i64,
+        remove_existing: bool,
+    ) -> Result<usize> {
         if index_version <= 0 {
             bail!("index version must be positive");
         }
 
-        let stream = self.replay_game(game)?;
         let occurrence_count = stream.occurrences.len();
 
         let tx = self.connection.transaction()?;
 
-        tx.execute(
-            "DELETE FROM exact_positions WHERE game_id = ?1",
-            [game.game_id],
-        )?;
+        if remove_existing {
+            tx.execute(
+                "DELETE FROM exact_positions WHERE game_id = ?1",
+                [stream.game_id],
+            )?;
+        }
 
         {
             let mut stmt = tx.prepare(
@@ -157,7 +193,7 @@ impl PositionIndexer {
             for occurrence in &stream.occurrences {
                 stmt.execute(params![
                     occurrence.fingerprint.as_slice(),
-                    game.game_id,
+                    stream.game_id,
                     occurrence.move_number as i64,
                     colour_value(occurrence.side_to_move),
                     occurrence.ko_point.map(i64::from),
@@ -178,7 +214,7 @@ impl PositionIndexer {
             occurrence_count = excluded.occurrence_count,
             indexed_at = CURRENT_TIMESTAMP
         "#,
-            params![game.game_id, index_version, occurrence_count as i64,],
+            params![stream.game_id, index_version, occurrence_count as i64,],
         )?;
 
         tx.commit()?;
@@ -416,6 +452,80 @@ impl PositionIndexer {
             .context("counting games awaiting position indexing")?;
 
         u64::try_from(count).context("negative game count returned by SQLite")
+    }
+
+    /// Returns true when no position-index work has ever been committed.
+    pub(crate) fn position_index_is_empty(&self) -> Result<bool> {
+        let empty: i64 = self
+            .connection
+            .query_row(
+                r#"
+                SELECT
+                    NOT EXISTS(SELECT 1 FROM exact_positions LIMIT 1)
+                    AND
+                    NOT EXISTS(SELECT 1 FROM indexed_games LIMIT 1)
+                "#,
+                [],
+                |row| row.get(0),
+            )
+            .context("checking whether the position index is empty")?;
+
+        Ok(empty != 0)
+    }
+
+    /// Returns true when a bulk position-index build is in progress.
+    ///
+    /// The absence of either secondary index is used as durable state, so
+    /// an interrupted bulk build can be resumed safely by a later process.
+    pub(crate) fn position_index_bulk_mode_active(&self) -> Result<bool> {
+        let count: i64 = self
+            .connection
+            .query_row(
+                r#"
+                SELECT COUNT(*)
+                FROM sqlite_master
+                WHERE type = 'index'
+                  AND name IN (
+                      'exact_positions_hash',
+                      'exact_positions_game'
+                  )
+                "#,
+                [],
+                |row| row.get(0),
+            )
+            .context("checking position-index secondary indexes")?;
+
+        Ok(count != 2)
+    }
+
+    /// Starts a fresh bulk position-index build.
+    ///
+    /// Secondary indexes are rebuilt once, after all position rows have
+    /// been loaded, rather than being maintained for every INSERT.
+    pub(crate) fn begin_bulk_position_index_build(&self) -> Result<()> {
+        self.connection
+            .execute_batch(
+                r#"
+                DROP INDEX IF EXISTS exact_positions_hash;
+                DROP INDEX IF EXISTS exact_positions_game;
+                "#,
+            )
+            .context("dropping secondary indexes for bulk position indexing")
+    }
+
+    /// Finishes a bulk build by restoring the exact-position search indexes.
+    pub(crate) fn finish_bulk_position_index_build(&self) -> Result<()> {
+        self.connection
+            .execute_batch(
+                r#"
+                CREATE INDEX IF NOT EXISTS exact_positions_hash
+                    ON exact_positions(position_hash);
+
+                CREATE INDEX IF NOT EXISTS exact_positions_game
+                    ON exact_positions(game_id);
+                "#,
+            )
+            .context("rebuilding secondary indexes after bulk position indexing")
     }
 
     /// Finds every occurrence of an exact board position.

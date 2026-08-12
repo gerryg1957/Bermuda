@@ -1,11 +1,17 @@
 use anyhow::Result;
+use rayon::prelude::*;
 use std::{
     fs,
     path::{Path, PathBuf},
     time::Instant,
 };
 
-use crate::{indexer::POSITION_INDEX_VERSION, project::Project};
+use crate::{
+    indexer::{POSITION_INDEX_VERSION, replay_game_for_index},
+    project::Project,
+};
+
+const REPLAY_CHUNK_SIZE: usize = 256;
 
 #[derive(Debug, Clone, Default)]
 pub struct IndexBuildSummary {
@@ -82,6 +88,15 @@ where
     let mut indexer = project.position_indexer()?;
     let games = indexer.games_to_index(POSITION_INDEX_VERSION)?;
 
+    let bulk_mode = if indexer.position_index_bulk_mode_active()? {
+        true
+    } else if !games.is_empty() && indexer.position_index_is_empty()? {
+        indexer.begin_bulk_position_index_build()?;
+        true
+    } else {
+        false
+    };
+
     let mut summary = IndexBuildSummary {
         index_version: POSITION_INDEX_VERSION,
         total_games: games.len(),
@@ -92,45 +107,70 @@ where
 
     on_progress(progress_snapshot(&summary, started, None, None));
 
-    for game in &games {
+    for chunk in games.chunks(REPLAY_CHUNK_SIZE) {
         if is_cancelled() {
             let summary = finish_summary(project, summary, started, &error_messages)?;
 
             return Ok(IndexBuildOutcome::Cancelled(summary));
         }
 
-        let current_game_id = Some(game.game_id);
-        let current_move_file = Some(game.move_file.as_path());
+        let replayed = chunk
+            .par_iter()
+            .map(|game| (game, replay_game_for_index(game)))
+            .collect::<Vec<_>>();
 
-        match indexer.index_game(game, POSITION_INDEX_VERSION) {
-            Ok(occurrence_count) => {
-                summary.indexed_games = summary.indexed_games.saturating_add(1);
+        for (game, replay_result) in replayed {
+            if is_cancelled() {
+                let summary = finish_summary(project, summary, started, &error_messages)?;
 
-                summary.indexed_positions = summary
-                    .indexed_positions
-                    .saturating_add(u64::try_from(occurrence_count).unwrap_or(u64::MAX));
+                return Ok(IndexBuildOutcome::Cancelled(summary));
             }
 
-            Err(error) => {
-                summary.errors = summary.errors.saturating_add(1);
+            let current_game_id = Some(game.game_id);
+            let current_move_file = Some(game.move_file.as_path());
 
-                error_messages.push(format!(
-                    "Failed to index game {} from {}: \
-                     {error:#}",
-                    game.game_id,
-                    game.move_file.display(),
-                ));
+            let result = replay_result.and_then(|stream| {
+                if bulk_mode {
+                    indexer.index_stream_bulk(&stream, POSITION_INDEX_VERSION)
+                } else {
+                    indexer.index_stream(&stream, POSITION_INDEX_VERSION)
+                }
+            });
+
+            match result {
+                Ok(occurrence_count) => {
+                    summary.indexed_games = summary.indexed_games.saturating_add(1);
+
+                    summary.indexed_positions = summary
+                        .indexed_positions
+                        .saturating_add(u64::try_from(occurrence_count).unwrap_or(u64::MAX));
+                }
+
+                Err(error) => {
+                    summary.errors = summary.errors.saturating_add(1);
+
+                    error_messages.push(format!(
+                        "Failed to index game {} from {}: \
+                         {error:#}",
+                        game.game_id,
+                        game.move_file.display(),
+                    ));
+                }
             }
+
+            summary.processed_games = summary.processed_games.saturating_add(1);
+
+            on_progress(progress_snapshot(
+                &summary,
+                started,
+                current_game_id,
+                current_move_file,
+            ));
         }
+    }
 
-        summary.processed_games = summary.processed_games.saturating_add(1);
-
-        on_progress(progress_snapshot(
-            &summary,
-            started,
-            current_game_id,
-            current_move_file,
-        ));
+    if bulk_mode {
+        indexer.finish_bulk_position_index_build()?;
     }
 
     let summary = finish_summary(project, summary, started, &error_messages)?;
