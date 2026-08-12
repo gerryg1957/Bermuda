@@ -176,15 +176,20 @@ pub fn replay(record: &GameRecord) -> Result<Board, GameError> {
         })?;
     }
     for (index, &mv) in record.moves.iter().enumerate() {
-        board.play(mv).map_err(|source| GameError::Replay {
-            move_number: index + 1,
-            source,
-        })?;
+        board
+            .play_archival(mv)
+            .map_err(|source| GameError::Replay {
+                move_number: index + 1,
+                source,
+            })?;
     }
     Ok(board)
 }
 fn move_coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
-    if value.is_empty() || (size <= 19 && value.eq_ignore_ascii_case("tt")) {
+    if value.is_empty()
+        || (size <= 19 && value.eq_ignore_ascii_case("tt"))
+        || (size == 19 && value.eq_ignore_ascii_case("yy"))
+    {
         return Ok(None);
     }
 

@@ -31,7 +31,7 @@ pub fn replay_positions(record: &GameRecord) -> Result<Vec<PositionState>> {
 
     for (index, &mv) in record.moves.iter().enumerate() {
         board
-            .play(mv)
+            .play_archival(mv)
             .with_context(|| format!("replaying move {}", index + 1))?;
 
         let side_to_move = record

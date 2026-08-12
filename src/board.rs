@@ -127,6 +127,20 @@ impl Board {
     }
 
     pub fn play(&mut self, mv: Move) -> Result<Vec<u16>, BoardError> {
+        self.play_inner(mv, true)
+    }
+
+    /// Replay a recorded move faithfully while ignoring simple-ko legality.
+    ///
+    /// SGF game records may contain an immediate ko recapture.  Archival
+    /// replay must reproduce the recorded position rather than reject the
+    /// whole game.  Other legality checks, including occupied points and
+    /// suicide, remain enforced.
+    pub fn play_archival(&mut self, mv: Move) -> Result<Vec<u16>, BoardError> {
+        self.play_inner(mv, false)
+    }
+
+    fn play_inner(&mut self, mv: Move, enforce_simple_ko: bool) -> Result<Vec<u16>, BoardError> {
         let Some(point) = mv.point else {
             self.ko = None;
             return Ok(Vec::new());
@@ -135,7 +149,7 @@ impl Board {
         if self.colour_at(point).is_some() {
             return Err(BoardError::Occupied(point));
         }
-        if self.ko == Some(point) {
+        if enforce_simple_ko && self.ko == Some(point) {
             return Err(BoardError::Ko(point));
         }
 
