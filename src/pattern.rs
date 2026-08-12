@@ -6,6 +6,7 @@ pub enum PatternCell {
     Empty,
     Black,
     White,
+    Any,
 }
 
 impl From<Option<Colour>> for PatternCell {
@@ -312,6 +313,7 @@ impl Pattern {
                 PatternCell::Empty => PatternCell::Empty,
                 PatternCell::Black => PatternCell::White,
                 PatternCell::White => PatternCell::Black,
+                PatternCell::Any => PatternCell::Any,
             })
             .collect();
 
@@ -365,7 +367,11 @@ impl Pattern {
                     .point(left + relative_x, bottom + relative_y)
                     .expect("validated pattern coordinates must lie on board");
 
-                if self.cells[index] != PatternCell::from(board.colour_at(point)) {
+                let pattern_cell = self.cells[index];
+
+                if pattern_cell != PatternCell::Any
+                    && pattern_cell != PatternCell::from(board.colour_at(point))
+                {
                     return Ok(false);
                 }
             }
@@ -726,6 +732,62 @@ fn does_not_match_different_location() {
     .unwrap();
 
     assert!(!pattern.matches_at(&board, 6, 6).unwrap());
+}
+
+#[test]
+fn any_cell_matches_empty_black_and_white() {
+    let mut board = Board::new(19).unwrap();
+
+    board
+        .set_setup(Colour::Black, board.point(6, 5).unwrap())
+        .unwrap();
+    board
+        .set_setup(Colour::White, board.point(7, 5).unwrap())
+        .unwrap();
+
+    let pattern = Pattern {
+        width: 1,
+        height: 1,
+        cells: vec![PatternCell::Any],
+        edges: BoardEdges {
+            left: false,
+            right: false,
+            bottom: false,
+            top: false,
+        },
+    };
+
+    assert!(pattern.matches_at(&board, 5, 5).unwrap());
+    assert!(pattern.matches_at(&board, 6, 5).unwrap());
+    assert!(pattern.matches_at(&board, 7, 5).unwrap());
+}
+
+#[test]
+fn empty_cell_still_requires_an_empty_intersection() {
+    let mut board = Board::new(19).unwrap();
+
+    board
+        .set_setup(Colour::Black, board.point(6, 5).unwrap())
+        .unwrap();
+    board
+        .set_setup(Colour::White, board.point(7, 5).unwrap())
+        .unwrap();
+
+    let pattern = Pattern {
+        width: 1,
+        height: 1,
+        cells: vec![PatternCell::Empty],
+        edges: BoardEdges {
+            left: false,
+            right: false,
+            bottom: false,
+            top: false,
+        },
+    };
+
+    assert!(pattern.matches_at(&board, 5, 5).unwrap());
+    assert!(!pattern.matches_at(&board, 6, 5).unwrap());
+    assert!(!pattern.matches_at(&board, 7, 5).unwrap());
 }
 
 #[cfg(test)]

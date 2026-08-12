@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{Colour, Pattern, PatternTransformation, indexer::PositionIndexer, read_move_file};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +185,7 @@ pub struct PatternSearchOptions {
     pub include_rotations: bool,
     pub include_reflections: bool,
     pub include_reversed_colours: bool,
+    pub max_match_move: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +202,7 @@ struct PatternVariant {
     colours_reversed: bool,
     black_rows: Vec<u64>,
     white_rows: Vec<u64>,
+    any_rows: Vec<u64>,
     row_mask: u64,
 }
 
@@ -215,6 +217,7 @@ impl PatternVariant {
 
         let mut black_rows = vec![0u64; height];
         let mut white_rows = vec![0u64; height];
+        let mut any_rows = vec![0u64; height];
 
         for y in 0..height {
             for x in 0..width {
@@ -223,6 +226,7 @@ impl PatternVariant {
                 match pattern.cells[y * width + x] {
                     crate::pattern::PatternCell::Black => black_rows[y] |= bit,
                     crate::pattern::PatternCell::White => white_rows[y] |= bit,
+                    crate::pattern::PatternCell::Any => any_rows[y] |= bit,
                     crate::pattern::PatternCell::Empty => {}
                 }
             }
@@ -236,6 +240,7 @@ impl PatternVariant {
             colours_reversed,
             black_rows,
             white_rows,
+            any_rows,
             row_mask,
         }
     }
@@ -323,7 +328,8 @@ impl PatternVariant {
              */
             let board_empty = (!(black | white)) & board_row_mask;
 
-            let mut required_empty = self.row_mask & !(self.black_rows[y] | self.white_rows[y]);
+            let mut required_empty =
+                self.row_mask & !(self.black_rows[y] | self.white_rows[y] | self.any_rows[y]);
 
             while required_empty != 0 {
                 let x = required_empty.trailing_zeros();
@@ -676,19 +682,88 @@ impl PatternSearcher {
         pattern: &Pattern,
         options: PatternSearchOptions,
     ) -> Result<Vec<PatternMatch>> {
-        let states = crate::replay_positions(record)?;
         let variants = Self::search_variants(pattern, options);
+
+        self.search_record_with_variants(game_id, record, &variants, options.max_match_move)
+    }
+
+    fn search_record_with_variants(
+        &self,
+        game_id: i64,
+        record: &crate::GameRecord,
+        variants: &[PatternVariant],
+        max_match_move: Option<usize>,
+    ) -> Result<Vec<PatternMatch>> {
+        /*
+         * Pattern searching needs only the current board.  It does not need
+         * the PositionState fingerprint or a stored clone of every position,
+         * so replay directly onto one live board.
+         *
+         * Replay continues beyond max_match_move so later illegal moves are
+         * still detected, preserving the behaviour of replay_positions().
+         */
+        let mut board = crate::Board::new(record.board_size).context("creating replay board")?;
+
+        for setup in &record.setup {
+            match *setup {
+                crate::SetupStone::Add { colour, point } => {
+                    board.set_setup(colour, point)?;
+                }
+
+                crate::SetupStone::Remove { point } => {
+                    board.clear_setup(point)?;
+                }
+            }
+        }
+
+        let initial_side = record
+            .moves
+            .first()
+            .map(|mv| mv.colour)
+            .unwrap_or(Colour::Black);
 
         let mut matches = Vec::new();
 
-        for state in states {
-            for variant in &variants {
+        /*
+         * Position zero is part of the normal search stream.
+         */
+        for variant in variants {
+            matches.extend(Self::search_position(
+                game_id,
+                0,
+                initial_side,
+                board.ko_point(),
+                &board,
+                variant,
+            )?);
+        }
+
+        for (index, &mv) in record.moves.iter().enumerate() {
+            board
+                .play_archival(mv)
+                .with_context(|| format!("replaying move {}", index + 1))?;
+
+            let move_number = index + 1;
+
+            if let Some(max_match_move) = max_match_move
+                && move_number > max_match_move
+            {
+                continue;
+            }
+
+            let side_to_move = record
+                .moves
+                .get(index + 1)
+                .map(|next| next.colour)
+                .unwrap_or_else(|| mv.colour.opponent());
+
+            for variant in variants {
                 matches.extend(Self::search_position(
                     game_id,
-                    state.occurrence.move_number,
-                    state.occurrence.side_to_move,
-                    state.occurrence.ko_point,
-                    &state.board,
+                    move_number,
+                    side_to_move,
+                    board.ko_point(),
+                    &board,
                     variant,
                 )?);
             }
@@ -897,6 +972,7 @@ impl PatternSearcher {
             matches_found,
         });
 
+        let variants = Self::search_variants(pattern, options);
         let batch_size = parallel_game_batch_size();
         let mut games_examined = 0_usize;
 
@@ -915,8 +991,12 @@ impl PatternSearcher {
                 .map(|game| {
                     let record = read_move_file(&game.move_file)?;
 
-                    let raw_matches =
-                        self.search_record_with_options(game.game_id, &record, pattern, options)?;
+                    let raw_matches = self.search_record_with_variants(
+                        game.game_id,
+                        &record,
+                        &variants,
+                        options.max_match_move,
+                    )?;
 
                     Ok((record, Self::distinct_appearances(raw_matches)))
                 })
@@ -1056,6 +1136,7 @@ impl PatternSearcher {
             matches_found,
         });
 
+        let variants = Self::search_variants(pattern, options);
         let batch_size = parallel_game_batch_size();
         let mut games_examined = 0_usize;
 
@@ -1069,8 +1150,13 @@ impl PatternSearcher {
                 .map(|game| {
                     let record = read_move_file(&game.move_file)?;
 
-                    self.search_record_with_options(game.game_id, &record, pattern, options)
-                        .map(Self::distinct_appearances)
+                    self.search_record_with_variants(
+                        game.game_id,
+                        &record,
+                        &variants,
+                        options.max_match_move,
+                    )
+                    .map(Self::distinct_appearances)
                 })
                 .collect();
 
@@ -1136,6 +1222,49 @@ mod option_tests {
     }
 
     #[test]
+    fn fast_matcher_treats_any_as_wildcard_but_empty_as_empty() {
+        let mut board = crate::Board::new(19).unwrap();
+
+        let black_point = board.point(6, 5).unwrap();
+        board.set_setup(crate::Colour::Black, black_point).unwrap();
+
+        let white_point = board.point(7, 5).unwrap();
+        board.set_setup(crate::Colour::White, white_point).unwrap();
+
+        let pattern = |cell| Pattern {
+            width: 1,
+            height: 1,
+            cells: vec![cell],
+            edges: BoardEdges {
+                left: false,
+                right: false,
+                bottom: false,
+                top: false,
+            },
+        };
+
+        let any_variant = PatternVariant::new(
+            pattern(PatternCell::Any),
+            PatternTransformation::Identity,
+            false,
+        );
+
+        let any_matches = any_variant.matching_lefts_at_bottom(&board, 5, 5, 7);
+
+        assert_eq!(any_matches, (1u64 << 5) | (1u64 << 6) | (1u64 << 7));
+
+        let empty_variant = PatternVariant::new(
+            pattern(PatternCell::Empty),
+            PatternTransformation::Identity,
+            false,
+        );
+
+        let empty_matches = empty_variant.matching_lefts_at_bottom(&board, 5, 5, 7);
+
+        assert_eq!(empty_matches, 1u64 << 5);
+    }
+
+    #[test]
     fn default_options_generate_only_the_exact_pattern() {
         let variants = PatternSearcher::search_variants(
             &asymmetric_pattern(),
@@ -1155,6 +1284,7 @@ mod option_tests {
                 include_rotations: true,
                 include_reflections: true,
                 include_reversed_colours: true,
+                max_match_move: None,
             },
         );
 
@@ -1193,6 +1323,7 @@ mod option_tests {
                 include_rotations: true,
                 include_reflections: true,
                 include_reversed_colours: true,
+                max_match_move: None,
             },
         );
 

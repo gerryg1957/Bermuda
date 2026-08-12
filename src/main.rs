@@ -200,6 +200,10 @@ enum Command {
 
         /// Position after this move number.
         move_number: usize,
+
+        /// Include all rotations and reflections of the whole-board position.
+        #[arg(long)]
+        symmetries: bool,
     },
 
     /// Display a position from a game and move number.
@@ -333,6 +337,14 @@ enum Command {
         /// Include equivalents with black and white reversed.
         #[arg(long)]
         reverse_colours: bool,
+
+        /// Treat empty intersections in the extracted pattern as unconstrained.
+        #[arg(long)]
+        wildcard_empty: bool,
+
+        /// Ignore candidate positions after this move number.
+        #[arg(long)]
+        max_match_move: Option<usize>,
     },
 }
 
@@ -345,6 +357,8 @@ struct PatternSearchRequest {
     rotations: bool,
     reflections: bool,
     reverse_colours: bool,
+    wildcard_empty: bool,
+    max_match_move: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -431,7 +445,8 @@ fn main() -> Result<()> {
             project,
             game_id,
             move_number,
-        } => find_position(project, game_id, move_number),
+            symmetries,
+        } => find_position(project, game_id, move_number, symmetries),
 
         Command::ReplayGame {
             project,
@@ -474,6 +489,8 @@ fn main() -> Result<()> {
             rotations,
             reflections,
             reverse_colours,
+            wildcard_empty,
+            max_match_move,
         } => search_pattern_database(PatternSearchRequest {
             project_path: project,
             pattern_game_id,
@@ -487,6 +504,8 @@ fn main() -> Result<()> {
             rotations,
             reflections,
             reverse_colours,
+            wildcard_empty,
+            max_match_move,
         }),
 
         Command::ShowPosition {
@@ -856,62 +875,90 @@ fn find_position_by_fingerprint(project_path: PathBuf, fingerprint: String) -> R
     Ok(())
 }
 
-fn find_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Result<()> {
+fn find_position(
+    project_path: PathBuf,
+    game_id: i64,
+    move_number: usize,
+    symmetries: bool,
+) -> Result<()> {
     let project_manager = ProjectManager::new();
     let project = project_manager.open(&project_path)?;
 
     let indexer = project.position_indexer()?;
 
-    let occurrence = indexer.position_from_game(game_id, move_number)?;
-
-    let fingerprint = occurrence
-        .fingerprint
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-
-    let matches = indexer.find_exact_position_with_metadata(&fingerprint)?;
-
     println!("Game {} move {}", game_id, move_number);
 
-    println!("Matches: {}", matches.len());
-    println!();
+    if symmetries {
+        let matches = indexer.find_symmetric_matches_from_game(game_id, move_number)?;
 
-    for m in matches {
-        let side = match m.side_to_move {
-            moyodb::Colour::Black => "Black",
-            moyodb::Colour::White => "White",
-        };
-
-        println!("Game {}", m.game_id);
-        println!("Move {}", m.move_number);
-        println!("{side} to move");
-
-        if let Some(player) = m.black_player {
-            println!("Black: {player}");
-        }
-
-        if let Some(player) = m.white_player {
-            println!("White: {player}");
-        }
-
-        if let Some(event) = m.event {
-            println!("Event: {event}");
-        }
-
-        if let Some(date) = m.date {
-            println!("Date: {date}");
-        }
-
-        if let Some(result) = m.result {
-            println!("Result: {result}");
-        }
-
-        if let Some(ko) = m.ko_point {
-            println!("Ko point: {ko}");
-        }
-
+        println!("Matches with board symmetries: {}", matches.len());
         println!();
+
+        for m in matches {
+            let side = match m.side_to_move {
+                moyodb::Colour::Black => "Black",
+                moyodb::Colour::White => "White",
+            };
+
+            println!(
+                "Game {} — move {} — {} to move — {:?}",
+                m.game_id, m.move_number, side, m.transformation
+            );
+
+            if let Some(ko) = m.ko_point {
+                println!("  Ko point: {ko}");
+            }
+        }
+    } else {
+        let occurrence = indexer.position_from_game(game_id, move_number)?;
+
+        let fingerprint = occurrence
+            .fingerprint
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        let matches = indexer.find_exact_position_with_metadata(&fingerprint)?;
+
+        println!("Matches: {}", matches.len());
+        println!();
+
+        for m in matches {
+            let side = match m.side_to_move {
+                moyodb::Colour::Black => "Black",
+                moyodb::Colour::White => "White",
+            };
+
+            println!("Game {}", m.game_id);
+            println!("Move {}", m.move_number);
+            println!("{side} to move");
+
+            if let Some(player) = m.black_player {
+                println!("Black: {player}");
+            }
+
+            if let Some(player) = m.white_player {
+                println!("White: {player}");
+            }
+
+            if let Some(event) = m.event {
+                println!("Event: {event}");
+            }
+
+            if let Some(date) = m.date {
+                println!("Date: {date}");
+            }
+
+            if let Some(result) = m.result {
+                println!("Result: {result}");
+            }
+
+            if let Some(ko) = m.ko_point {
+                println!("Ko point: {ko}");
+            }
+
+            println!();
+        }
     }
 
     let state = indexer.replay_board_position(game_id, move_number)?;
@@ -983,6 +1030,8 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
         rotations,
         reflections,
         reverse_colours,
+        wildcard_empty,
+        max_match_move,
     } = request;
 
     let project_manager = ProjectManager::new();
@@ -992,7 +1041,15 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
 
     let pattern_state = indexer.replay_board_position(pattern_game_id, pattern_move_number)?;
 
-    let pattern = Pattern::extract(&pattern_state.board, rect)?;
+    let mut pattern = Pattern::extract(&pattern_state.board, rect)?;
+
+    if wildcard_empty {
+        for cell in &mut pattern.cells {
+            if *cell == moyodb::PatternCell::Empty {
+                *cell = moyodb::PatternCell::Any;
+            }
+        }
+    }
 
     let query = PatternSearchQuery {
         pattern,
@@ -1000,6 +1057,7 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
             include_rotations: rotations,
             include_reflections: reflections,
             include_reversed_colours: reverse_colours,
+            max_match_move,
         },
         scope: PatternSearchScope::Project,
     };

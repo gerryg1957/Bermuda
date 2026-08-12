@@ -24,6 +24,9 @@ mod ffi {
         #[qproperty(i32, move_count)]
         #[qproperty(i32, last_move_x)]
         #[qproperty(i32, last_move_y)]
+        #[qproperty(QString, black_player)]
+        #[qproperty(QString, white_player)]
+        #[qproperty(QString, komi)]
         #[qproperty(QString, error_message)]
         type MoyoDbApp = super::MoyoDbAppRust;
 
@@ -53,6 +56,9 @@ struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
     editable: bool,
+    black_player: Option<String>,
+    white_player: Option<String>,
+    komi: Option<f32>,
 }
 
 pub struct MoyoDbAppRust {
@@ -62,6 +68,9 @@ pub struct MoyoDbAppRust {
     move_count: i32,
     last_move_x: i32,
     last_move_y: i32,
+    black_player: QString,
+    white_player: QString,
+    komi: QString,
     error_message: QString,
 
     loaded_document: Option<LoadedDocument>,
@@ -76,6 +85,9 @@ impl Default for MoyoDbAppRust {
             move_count: 0,
             last_move_x: -1,
             last_move_y: -1,
+            black_player: QString::default(),
+            white_player: QString::default(),
+            komi: QString::default(),
             error_message: QString::default(),
 
             loaded_document: None,
@@ -100,6 +112,18 @@ impl ffi::MoyoDbApp {
             }
         };
 
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
@@ -121,6 +145,18 @@ impl ffi::MoyoDbApp {
             }
         };
 
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
@@ -140,6 +176,18 @@ impl ffi::MoyoDbApp {
             }
         };
 
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
@@ -221,6 +269,9 @@ impl ffi::MoyoDbApp {
         self.as_mut().set_move_count(0);
         self.as_mut().set_last_move_x(-1);
         self.as_mut().set_last_move_y(-1);
+        self.as_mut().set_black_player(QString::default());
+        self.as_mut().set_white_player(QString::default());
+        self.as_mut().set_komi(QString::default());
     }
 }
 
@@ -248,6 +299,9 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         description: format!("game {game_id}"),
         positions,
         editable: false,
+        black_player: None,
+        white_player: None,
+        komi: None,
     })
 }
 
@@ -273,6 +327,9 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
         description: format!("SGF {}", path.display()),
         positions,
         editable: false,
+        black_player: record.metadata.black_player.clone(),
+        white_player: record.metadata.white_player.clone(),
+        komi: record.metadata.komi,
     })
 }
 
@@ -286,6 +343,9 @@ fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
         description: "untitled position".to_owned(),
         positions: vec![editable_position_state(board)],
         editable: true,
+        black_player: None,
+        white_player: None,
+        komi: None,
     })
 }
 

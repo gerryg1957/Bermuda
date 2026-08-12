@@ -38,7 +38,9 @@ pub use pattern_search::{
     PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
     PatternSearchSummaryReport, PatternSearchSummaryReportOutcome, PatternSearcher,
 };
-pub use position::{position_fingerprint, position_fingerprint_hex};
+pub use position::{
+    position_fingerprint, position_fingerprint_hex, transformed_position_fingerprint,
+};
 pub use position_stream::{PositionOccurrence, position_stream};
 pub use replay::{PositionState, replay_positions};
 pub use search::{

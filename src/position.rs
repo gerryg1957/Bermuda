@@ -1,4 +1,4 @@
-use crate::{Board, Colour};
+use crate::{Board, Colour, PatternTransformation};
 use sha2::{Digest, Sha256};
 
 const POSITION_FORMAT_VERSION: u8 = 1;
@@ -17,22 +17,91 @@ const POSITION_MAGIC: &[u8] = b"MOYODB-EXACT-POSITION";
 ///
 /// Game metadata and move number are deliberately excluded.
 pub fn position_fingerprint(board: &Board, side_to_move: Colour) -> [u8; 32] {
+    fingerprint_from_parts(
+        board.size(),
+        board.black_words(),
+        board.white_words(),
+        side_to_move,
+        board.ko_point(),
+    )
+}
+
+/// Computes the exact-position fingerprint after applying a board symmetry.
+///
+/// The transformation is applied to every stone and to the simple-ko point.
+/// Colour and side to move are deliberately unchanged.
+pub fn transformed_position_fingerprint(
+    board: &Board,
+    side_to_move: Colour,
+    transformation: PatternTransformation,
+) -> [u8; 32] {
+    if transformation == PatternTransformation::Identity {
+        return position_fingerprint(board, side_to_move);
+    }
+
+    let size = board.size();
+    let point_count = u16::from(size) * u16::from(size);
+    let mut black = [0u64; 6];
+    let mut white = [0u64; 6];
+
+    for point in 0..point_count {
+        let Some(colour) = board.colour_at(point) else {
+            continue;
+        };
+
+        let transformed = transform_board_point(point, size, transformation);
+        let word = usize::from(transformed / 64);
+        let bit = u32::from(transformed % 64);
+
+        match colour {
+            Colour::Black => black[word] |= 1u64 << bit,
+            Colour::White => white[word] |= 1u64 << bit,
+        }
+    }
+
+    let ko_point = board
+        .ko_point()
+        .map(|point| transform_board_point(point, size, transformation));
+
+    fingerprint_from_parts(size, &black, &white, side_to_move, ko_point)
+}
+
+fn transform_board_point(point: u16, size: u8, transformation: PatternTransformation) -> u16 {
+    let size_u16 = u16::from(size);
+    let x = i16::try_from(point % size_u16).expect("board x coordinate fits in i16");
+    let y = i16::try_from(point / size_u16).expect("board y coordinate fits in i16");
+
+    let (x, y) = transformation.transform_relative_point(x, y, size, size);
+
+    let x = u16::try_from(x).expect("transformed board x coordinate is non-negative");
+    let y = u16::try_from(y).expect("transformed board y coordinate is non-negative");
+
+    y * size_u16 + x
+}
+
+fn fingerprint_from_parts(
+    size: u8,
+    black_words: &[u64],
+    white_words: &[u64],
+    side_to_move: Colour,
+    ko_point: Option<u16>,
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
 
     hasher.update(POSITION_MAGIC);
     hasher.update([POSITION_FORMAT_VERSION]);
-    hasher.update([board.size()]);
+    hasher.update([size]);
     hasher.update([colour_byte(side_to_move)]);
 
-    for word in board.black_words() {
+    for word in black_words {
         hasher.update(word.to_be_bytes());
     }
 
-    for word in board.white_words() {
+    for word in white_words {
         hasher.update(word.to_be_bytes());
     }
 
-    match board.ko_point() {
+    match ko_point {
         Some(point) => {
             hasher.update([1]);
             hasher.update(point.to_be_bytes());

@@ -122,14 +122,25 @@ ApplicationWindow {
 
             boardPane.editingPosition = false
 
+            const blackPlayer = gameController.black_player
+            const whitePlayer = gameController.white_player
+            const hasPlayerData = blackPlayer.length > 0
+                                  || whitePlayer.length > 0
+
             boardPane.selectedGame = {
                 gameId: -1,
-                black: qsTr("External SGF"),
-                white: fileName,
+                black: hasPlayerData
+                       ? qsTr("(B) %1").arg(
+                             blackPlayer.length > 0 ? blackPlayer : qsTr("Black"))
+                       : qsTr("External SGF"),
+                white: hasPlayerData
+                       ? qsTr("(W) %1").arg(
+                             whitePlayer.length > 0 ? whitePlayer : qsTr("White"))
+                       : fileName,
                 gameDate: "",
                 result: "",
                 eventName: "",
-                komi: ""
+                komi: gameController.komi
             }
 
             boardPane.applyLoadedPosition()

@@ -735,6 +735,7 @@ fn create_search_engine_and_query(
             include_rotations,
             include_reflections,
             include_reversed_colours,
+            max_match_move: None,
         },
     };
 

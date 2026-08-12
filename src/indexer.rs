@@ -7,10 +7,12 @@ use crate::database;
 use crate::game_store::{load_game_record, load_position_at, load_positions};
 use crate::project::Project;
 use crate::{
-    Colour, GameRecord, PositionOccurrence, PositionState, position_stream, read_move_file,
+    Colour, GameRecord, PatternTransformation, PositionOccurrence, PositionState, position_stream,
+    read_move_file, transformed_position_fingerprint,
 };
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, params};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub const POSITION_INDEX_VERSION: i64 = 1;
@@ -33,6 +35,15 @@ pub struct ExactPositionMatch {
     pub move_number: usize,
     pub side_to_move: Colour,
     pub ko_point: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymmetricExactPositionMatch {
+    pub game_id: i64,
+    pub move_number: usize,
+    pub side_to_move: Colour,
+    pub ko_point: Option<u16>,
+    pub transformation: PatternTransformation,
 }
 
 /// A single exact-position match together with the preferred game metadata.
@@ -302,6 +313,69 @@ impl PositionIndexer {
             .collect::<String>();
 
         self.find_exact_position(&fingerprint)
+    }
+
+    /// Finds exact occurrences of a game position under all eight board symmetries.
+    ///
+    /// The stored position index remains orientation-specific.  The query
+    /// position is transformed instead, producing at most eight indexed
+    /// fingerprint lookups.  Matches are deduplicated by game and move number.
+    pub fn find_symmetric_matches_from_game(
+        &self,
+        game_id: i64,
+        move_number: usize,
+    ) -> Result<Vec<SymmetricExactPositionMatch>> {
+        let state = self.replay_board_position(game_id, move_number)?;
+
+        let transformations = [
+            PatternTransformation::Identity,
+            PatternTransformation::Rotate90Clockwise,
+            PatternTransformation::Rotate180,
+            PatternTransformation::Rotate270Clockwise,
+            PatternTransformation::MirrorLeftRight,
+            PatternTransformation::MirrorTopBottom,
+            PatternTransformation::MirrorMainDiagonal,
+            PatternTransformation::MirrorAntiDiagonal,
+        ];
+
+        let mut seen_fingerprints = HashSet::new();
+        let mut seen_occurrences = HashSet::new();
+        let mut matches = Vec::new();
+
+        for transformation in transformations {
+            let fingerprint = transformed_position_fingerprint(
+                &state.board,
+                state.occurrence.side_to_move,
+                transformation,
+            );
+
+            if !seen_fingerprints.insert(fingerprint) {
+                continue;
+            }
+
+            let fingerprint_hex = fingerprint
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+
+            for position_match in self.find_exact_position(&fingerprint_hex)? {
+                if !seen_occurrences.insert((position_match.game_id, position_match.move_number)) {
+                    continue;
+                }
+
+                matches.push(SymmetricExactPositionMatch {
+                    game_id: position_match.game_id,
+                    move_number: position_match.move_number,
+                    side_to_move: position_match.side_to_move,
+                    ko_point: position_match.ko_point,
+                    transformation,
+                });
+            }
+        }
+
+        matches.sort_by_key(|position_match| (position_match.game_id, position_match.move_number));
+
+        Ok(matches)
     }
 
     fn game_by_id(&self, game_id: i64) -> Result<Option<GameToIndex>> {
