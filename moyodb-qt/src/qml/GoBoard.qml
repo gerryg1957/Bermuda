@@ -62,20 +62,19 @@ Item {
     implicitWidth: Kirigami.Units.gridUnit * 28
     implicitHeight: implicitWidth
 
-    function rebuildInfluenceValues() {
-        if (!root.influenceVisible
-                || root.stones === null
-                || root.stones.length === 0) {
-            root.influenceValues = []
-            root.enclosureValues = []
-            return
+    function evaluateInfluence(stones) {
+        if (stones === null || stones.length === 0) {
+            return {
+                "influence": [],
+                "enclosure": []
+            }
         }
 
         const size = root.boardSize
         const pointCount = size * size
         const occupied = new Array(pointCount).fill("")
 
-        for (const stone of root.stones) {
+        for (const stone of stones) {
             const x = Number(stone.x)
             const y = Number(stone.y)
 
@@ -446,8 +445,24 @@ Item {
                 Math.sign(resistanceDifference) * strength
         }
 
-        root.influenceValues = combined
-        root.enclosureValues = enclosure
+        return {
+            "influence": combined,
+            "enclosure": enclosure
+        }
+    }
+
+    function rebuildInfluenceValues() {
+        if (!root.influenceVisible) {
+            root.influenceValues = []
+            root.enclosureValues = []
+            return
+        }
+
+        const result =
+            evaluateInfluence(root.stones)
+
+        root.influenceValues = result.influence
+        root.enclosureValues = result.enclosure
     }
 
     function clearPatternSelection() {

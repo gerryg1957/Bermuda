@@ -579,6 +579,285 @@ menuBar: MenuBar {
                 goBoard.lastMoveX = gameController.last_move_x
                 goBoard.lastMoveY = gameController.last_move_y
                 goBoard.lastMoveNumber = gameController.move_number
+
+                /*
+                 * Temporary leverage plumbing diagnostic.
+                 *
+                 * D11 is x = 3 and QML y = 8 on a 19 x 19 board.
+                 * The Rust controller clones the displayed PositionState,
+                 * plays the hypothetical move legally, and returns the
+                 * resulting stones without modifying the loaded game.
+                 */
+                if (gameController.move_number === 92) {
+                    function goLabel(x, y) {
+                        const letters =
+                            "ABCDEFGHJKLMNOPQRST"
+
+                        return letters.charAt(x)
+                            + String(goBoard.boardSize - y)
+                    }
+
+                    function replySearch(
+                            firstLabel,
+                            firstX,
+                            firstY,
+                            firstColour,
+                            replyColour) {
+                        const originalEvaluation =
+                            goBoard.evaluateInfluence(
+                                goBoard.stones)
+
+                        const firstJson =
+                            gameController.hypotheticalMoveStones(
+                                92,
+                                firstX,
+                                firstY,
+                                firstColour)
+
+                        if (firstJson.length === 0) {
+                            console.log(
+                                "Reply diagnostic:",
+                                firstLabel,
+                                firstColour,
+                                "first move illegal:",
+                                gameController.error_message)
+                            return
+                        }
+
+                        const firstEvaluation =
+                            goBoard.evaluateInfluence(
+                                JSON.parse(firstJson))
+
+                        const size = goBoard.boardSize
+                        const searchRadius = 3
+                        const measureRadius = 4
+                        const results = []
+
+                        function localDistance(
+                                fromEvaluation,
+                                toEvaluation,
+                                excludeX,
+                                excludeY) {
+                            let total = 0.0
+                            let points = 0
+
+                            for (let yy =
+                                     Math.max(
+                                         0,
+                                         firstY - measureRadius);
+                                 yy <=
+                                     Math.min(
+                                         size - 1,
+                                         firstY + measureRadius);
+                                 ++yy) {
+                                for (let xx =
+                                         Math.max(
+                                             0,
+                                             firstX - measureRadius);
+                                     xx <=
+                                         Math.min(
+                                             size - 1,
+                                             firstX + measureRadius);
+                                     ++xx) {
+                                    const dx =
+                                        xx - firstX
+                                    const dy =
+                                        yy - firstY
+
+                                    if (dx * dx + dy * dy
+                                            > measureRadius
+                                              * measureRadius) {
+                                        continue
+                                    }
+
+                                    /*
+                                     * Ignore the first played point and,
+                                     * when supplied, the reply point itself.
+                                     * Those intersections contain automatic
+                                     * stone-value changes rather than useful
+                                     * surrounding influence information.
+                                     */
+                                    if (xx === firstX
+                                            && yy === firstY) {
+                                        continue
+                                    }
+
+                                    if (excludeX >= 0
+                                            && xx === excludeX
+                                            && yy === excludeY) {
+                                        continue
+                                    }
+
+                                    const index =
+                                        yy * size + xx
+
+                                    total +=
+                                        Math.abs(
+                                            Number(
+                                                fromEvaluation
+                                                .influence[index])
+                                            - Number(
+                                                toEvaluation
+                                                .influence[index])
+                                        )
+
+                                    ++points
+                                }
+                            }
+
+                            if (points === 0)
+                                return 0.0
+
+                            return total / points
+                        }
+
+                        const firstEffect =
+                            localDistance(
+                                originalEvaluation,
+                                firstEvaluation,
+                                -1,
+                                -1)
+
+                        for (let replyY =
+                                 Math.max(0, firstY - searchRadius);
+                             replyY <=
+                                 Math.min(
+                                     size - 1,
+                                     firstY + searchRadius);
+                             ++replyY) {
+                            for (let replyX =
+                                     Math.max(
+                                         0,
+                                         firstX - searchRadius);
+                                 replyX <=
+                                     Math.min(
+                                         size - 1,
+                                         firstX + searchRadius);
+                                 ++replyX) {
+                                const dx =
+                                    replyX - firstX
+                                const dy =
+                                    replyY - firstY
+
+                                if (dx * dx + dy * dy
+                                        > searchRadius
+                                          * searchRadius) {
+                                    continue
+                                }
+
+                                if (replyX === firstX
+                                        && replyY === firstY) {
+                                    continue
+                                }
+
+                                const sequenceJson =
+                                    gameController
+                                    .hypotheticalSequenceStones(
+                                        92,
+                                        firstX,
+                                        firstY,
+                                        firstColour,
+                                        replyX,
+                                        replyY,
+                                        replyColour)
+
+                                if (sequenceJson.length === 0)
+                                    continue
+
+                                const replyEvaluation =
+                                    goBoard.evaluateInfluence(
+                                        JSON.parse(sequenceJson))
+
+                                const remainingEffect =
+                                    localDistance(
+                                        originalEvaluation,
+                                        replyEvaluation,
+                                        replyX,
+                                        replyY)
+
+                                const neutralised =
+                                    firstEffect - remainingEffect
+
+                                results.push({
+                                    "x": replyX,
+                                    "y": replyY,
+                                    "firstEffect": firstEffect,
+                                    "remainingEffect":
+                                        remainingEffect,
+                                    "neutralised":
+                                        neutralised
+                                })
+                            }
+                        }
+
+                        results.sort(
+                            function(a, b) {
+                                return b.neutralised
+                                    - a.neutralised
+                            })
+
+                        console.log(
+                            "Reply diagnostic:",
+                            firstColour,
+                            firstLabel,
+                            "reply=" + replyColour,
+                            "firstEffect="
+                                + firstEffect.toFixed(4),
+                            "legalReplies="
+                                + results.length)
+
+                        if (results.length > 0) {
+                            const best = results[0]
+
+                            const persistence =
+                                firstEffect > 0.0
+                                ? best.remainingEffect / firstEffect
+                                : 0.0
+
+                            console.log(
+                                "Reply-aware influence:",
+                                firstLabel,
+                                "bestReply="
+                                    + goLabel(best.x, best.y),
+                                "firstEffect="
+                                    + firstEffect.toFixed(4),
+                                "remaining="
+                                    + best.remainingEffect.toFixed(4),
+                                "persistence="
+                                    + (100.0 * persistence)
+                                      .toFixed(1) + "%"
+                            )
+                        }
+                    }
+
+                    replySearch(
+                        "J19",
+                        8,
+                        0,
+                        "black",
+                        "white")
+
+                    replySearch(
+                        "S12",
+                        17,
+                        7,
+                        "white",
+                        "black")
+
+                    replySearch(
+                        "D11",
+                        3,
+                        8,
+                        "black",
+                        "white")
+
+                    replySearch(
+                        "K2",
+                        9,
+                        17,
+                        "black",
+                        "white")
+                }
             }
 
             function showMove(moveNumber) {

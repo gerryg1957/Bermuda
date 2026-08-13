@@ -1,10 +1,12 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::{fmt::Write as _, fs, path::Path, pin::Pin};
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 use moyodb::{
-    Board, Colour, PositionOccurrence, PositionState, extract_main_variation, parse_collection,
-    position_fingerprint, project_manager::ProjectManager, replay_positions,
+    Board, Colour, Move, PositionOccurrence, PositionState, extract_main_variation,
+    parse_collection, position_fingerprint, project_manager::ProjectManager, replay_positions,
 };
 
 #[cxx_qt::bridge]
@@ -49,6 +51,29 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "showPosition"]
         fn show_position(self: Pin<&mut MoyoDbApp>, move_number: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "hypotheticalMoveStones"]
+        fn hypothetical_move_stones(
+            self: Pin<&mut MoyoDbApp>,
+            move_number: i32,
+            x: i32,
+            y: i32,
+            colour: &QString,
+        ) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "hypotheticalSequenceStones"]
+        fn hypothetical_sequence_stones(
+            self: Pin<&mut MoyoDbApp>,
+            move_number: i32,
+            first_x: i32,
+            first_y: i32,
+            first_colour: &QString,
+            second_x: i32,
+            second_y: i32,
+            second_colour: &QString,
+        ) -> QString;
     }
 }
 
@@ -220,6 +245,218 @@ impl ffi::MoyoDbApp {
 
     fn show_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
         self.as_mut().show_cached_position(move_number)
+    }
+
+    fn hypothetical_move_stones(
+        mut self: Pin<&mut Self>,
+        move_number: i32,
+        x: i32,
+        y: i32,
+        colour: &QString,
+    ) -> QString {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            let document = match rust.loaded_document.as_ref() {
+                Some(document) => document,
+                None => {
+                    self.as_mut()
+                        .set_error_message(QString::from("no game is loaded"));
+                    return QString::default();
+                }
+            };
+
+            let requested_move = match usize::try_from(move_number) {
+                Ok(value) => value,
+                Err(_) => {
+                    self.as_mut()
+                        .set_error_message(QString::from("move number cannot be negative"));
+                    return QString::default();
+                }
+            };
+
+            let position = match document.positions.get(requested_move) {
+                Some(position) => position,
+                None => {
+                    self.as_mut().set_error_message(QString::from(format!(
+                        "requested move {move_number} is outside the loaded game"
+                    )));
+                    return QString::default();
+                }
+            };
+
+            let board_size = position.board.size();
+
+            let qml_x = match u8::try_from(x) {
+                Ok(value) if value < board_size => value,
+                _ => {
+                    self.as_mut()
+                        .set_error_message(QString::from("x-coordinate lies outside the board"));
+                    return QString::default();
+                }
+            };
+
+            let qml_y = match u8::try_from(y) {
+                Ok(value) if value < board_size => value,
+                _ => {
+                    self.as_mut()
+                        .set_error_message(QString::from("y-coordinate lies outside the board"));
+                    return QString::default();
+                }
+            };
+
+            let core_y = match qml_y_to_core(board_size, qml_y) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.as_mut().set_error_message(QString::from(error));
+                    return QString::default();
+                }
+            };
+
+            let colour = match colour.to_string().as_str() {
+                "black" => Colour::Black,
+                "white" => Colour::White,
+                other => {
+                    self.as_mut().set_error_message(QString::from(format!(
+                        "unknown hypothetical move colour {other:?}"
+                    )));
+                    return QString::default();
+                }
+            };
+
+            let point = match position.board.point(qml_x, core_y) {
+                Ok(point) => point,
+                Err(error) => {
+                    self.as_mut()
+                        .set_error_message(QString::from(error.to_string()));
+                    return QString::default();
+                }
+            };
+
+            let mut board = position.board.clone();
+
+            match board.play(Move {
+                colour,
+                point: Some(point),
+            }) {
+                Ok(_) => Ok(board_stones_json(&board)),
+                Err(error) => Err(error.to_string()),
+            }
+        };
+
+        match result {
+            Ok(stones) => stones,
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                QString::default()
+            }
+        }
+    }
+
+    fn hypothetical_sequence_stones(
+        mut self: Pin<&mut Self>,
+        move_number: i32,
+        first_x: i32,
+        first_y: i32,
+        first_colour: &QString,
+        second_x: i32,
+        second_y: i32,
+        second_colour: &QString,
+    ) -> QString {
+        self.as_mut().set_error_message(QString::default());
+
+        fn parse_colour(value: &QString) -> Result<Colour, String> {
+            match value.to_string().as_str() {
+                "black" => Ok(Colour::Black),
+                "white" => Ok(Colour::White),
+                other => Err(format!("unknown hypothetical move colour {other:?}")),
+            }
+        }
+
+        fn qml_point(board: &Board, x: i32, y: i32) -> Result<u16, String> {
+            let board_size = board.size();
+
+            let qml_x =
+                u8::try_from(x).map_err(|_| "x-coordinate lies outside the board".to_owned())?;
+
+            if qml_x >= board_size {
+                return Err("x-coordinate lies outside the board".to_owned());
+            }
+
+            let qml_y =
+                u8::try_from(y).map_err(|_| "y-coordinate lies outside the board".to_owned())?;
+
+            if qml_y >= board_size {
+                return Err("y-coordinate lies outside the board".to_owned());
+            }
+
+            let core_y = qml_y_to_core(board_size, qml_y)?;
+
+            board
+                .point(qml_x, core_y)
+                .map_err(|error| error.to_string())
+        }
+
+        let result: Result<QString, String> = (|| {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            let document = rust
+                .loaded_document
+                .as_ref()
+                .ok_or_else(|| "no game is loaded".to_owned())?;
+
+            let requested_move = usize::try_from(move_number)
+                .map_err(|_| "move number cannot be negative".to_owned())?;
+
+            let position =
+                document.positions.get(requested_move)
+                    .ok_or_else(|| {
+                        format!(
+                            "requested move {move_number}                              is outside the loaded game"
+                        )
+                    })?;
+
+            let first_colour = parse_colour(first_colour)?;
+
+            let second_colour = parse_colour(second_colour)?;
+
+            let first_point = qml_point(&position.board, first_x, first_y)?;
+
+            let mut board = position.board.clone();
+
+            board
+                .play(Move {
+                    colour: first_colour,
+                    point: Some(first_point),
+                })
+                .map_err(|error| format!("first hypothetical move: {error}"))?;
+
+            let second_point = qml_point(&board, second_x, second_y)?;
+
+            board
+                .play(Move {
+                    colour: second_colour,
+                    point: Some(second_point),
+                })
+                .map_err(|error| format!("second hypothetical move: {error}"))?;
+
+            Ok(board_stones_json(&board))
+        })();
+
+        match result {
+            Ok(stones) => stones,
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+
+                QString::default()
+            }
+        }
     }
 
     fn show_cached_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
