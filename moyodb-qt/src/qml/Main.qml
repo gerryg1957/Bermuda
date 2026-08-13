@@ -708,6 +708,14 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          text: qsTr("Influence")
+                          checkable: true
+                          checked: goBoard.influenceVisible
+
+                          onToggled: goBoard.influenceVisible = checked
+                      }
+
+                      ToolButton {
                           text: qsTr("Search Database")
 
                           enabled: goBoard.patternSelectionValid

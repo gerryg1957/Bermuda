@@ -12,11 +12,26 @@ Item {
         property int boardSize: 19
     property var stones: []
     property var continuationPoints: []
+
+    /*
+     * A lightweight strategic influence field derived from the current
+     * board position. Positive values represent Black influence and
+     * negative values White influence.
+     */
+    property bool influenceVisible: false
+    property var influenceValues: []
+    property var enclosureValues: []
+
     property int selectedContinuationX: -1
     property int selectedContinuationY: -1
 
     onContinuationPointsChanged: boardCanvas.requestPaint()
     onSelectedContinuationXChanged: boardCanvas.requestPaint()
+
+    onInfluenceVisibleChanged: {
+        rebuildInfluenceValues()
+        boardCanvas.requestPaint()
+    }
     onSelectedContinuationYChanged: boardCanvas.requestPaint()
 
     property bool showCoordinates: true
@@ -46,6 +61,394 @@ Item {
 
     implicitWidth: Kirigami.Units.gridUnit * 28
     implicitHeight: implicitWidth
+
+    function rebuildInfluenceValues() {
+        if (!root.influenceVisible
+                || root.stones === null
+                || root.stones.length === 0) {
+            root.influenceValues = []
+            root.enclosureValues = []
+            return
+        }
+
+        const size = root.boardSize
+        const pointCount = size * size
+        const occupied = new Array(pointCount).fill("")
+
+        for (const stone of root.stones) {
+            const x = Number(stone.x)
+            const y = Number(stone.y)
+
+            if (x >= 0 && x < size && y >= 0 && y < size)
+                occupied[y * size + x] = stone.color
+        }
+
+        /*
+         * Propagate one colour's influence through the board.
+         *
+         * Own stones are sources. Empty points transmit influence with
+         * attenuation. Opposing stones are barriers: influence must go
+         * around them rather than passing straight through them.
+         *
+         * We retain the strongest path to each point rather than summing
+         * every nearby stone. This prevents a dense group from acquiring
+         * exaggerated influence simply because it contains many stones.
+         */
+        function propagatedField(colour) {
+            const opponent = colour === "black" ? "white" : "black"
+            const values = new Array(pointCount).fill(0.0)
+            const queue = []
+            let queueIndex = 0
+
+            for (let index = 0; index < pointCount; ++index) {
+                if (occupied[index] === colour) {
+                    values[index] = 1.0
+                    queue.push(index)
+                }
+            }
+
+            const directions = [
+                [ 1,  0, 0.76],
+                [-1,  0, 0.76],
+                [ 0,  1, 0.76],
+                [ 0, -1, 0.76],
+
+                /*
+                * Diagonal propagation keeps the field visually rounded,
+                * but is weaker than orthogonal propagation.
+
+                */
+                [ 1,  1, 0.60],
+                [ 1, -1, 0.60],
+                [-1,  1, 0.60],
+                [-1, -1, 0.60]
+                                ]
+
+            while (queueIndex < queue.length) {
+                const index = queue[queueIndex++]
+                const x = index % size
+                const y = Math.floor(index / size)
+                const current = values[index]
+
+                for (const direction of directions) {
+                    const nx = x + direction[0]
+                    const ny = y + direction[1]
+
+                    if (nx < 0 || nx >= size || ny < 0 || ny >= size)
+                        continue
+
+                    const neighbour = ny * size + nx
+
+                    /*
+                     * Enemy stones stop this colour's field completely.
+                     */
+                    if (occupied[neighbour] === opponent)
+                        continue
+
+                    /*
+                     * Own stones are already full-strength sources.
+                     */
+                    if (occupied[neighbour] === colour)
+                        continue
+
+                    const candidate = current * direction[2]
+
+                    /*
+                     * Once the field becomes visually insignificant there
+                     * is no benefit in propagating it farther.
+                     */
+                    if (candidate < 0.025)
+                        continue
+
+                    if (candidate <= values[neighbour] + 0.001)
+                        continue
+
+                    values[neighbour] = candidate
+                    queue.push(neighbour)
+                }
+            }
+
+            return values
+        }
+
+        const black = propagatedField("black")
+        const white = propagatedField("white")
+        const combined = new Array(pointCount).fill(0.0)
+
+        /*
+         * The displayed value is comparative influence.
+         *
+         * A value near zero deliberately means "neither side has a clear
+         * claim here". This is important: the map should be able to show
+         * contested or dame-like areas instead of always choosing a colour.
+         */
+        for (let index = 0; index < pointCount; ++index) {
+            if (occupied[index] !== "") {
+                combined[index] =
+                    occupied[index] === "black" ? 1.0 : -1.0
+                continue
+            }
+
+            combined[index] = black[index] - white[index]
+        }
+
+        /*
+         * Estimate enclosure by escape resistance.
+         *
+         * The Go board is treated as a discrete graph of intersections.
+         * Empty intersections connect orthogonally. Stones are hard barriers.
+         *
+         * First identify genuinely open / contested empty intersections.
+         * Then ask how difficult it is to reach that open space from every
+         * other empty intersection.
+         *
+         * A point inside Black's sphere should require crossing substantial
+         * Black influence to escape; likewise for White. Merely being far
+         * from open space is not enough, so weighted escape distance is
+         * compared with ordinary graph distance.
+         */
+        const enclosure = new Array(pointCount).fill(0.0)
+
+        const orthogonalDirections = [
+            [ 1,  0],
+            [-1,  0],
+            [ 0,  1],
+            [ 0, -1]
+        ]
+
+        const openSeeds = []
+
+        for (let index = 0; index < pointCount; ++index) {
+            if (occupied[index] !== "")
+                continue
+
+            /*
+             * Near-balance is deliberately treated as open/contested.
+             *
+             * K2/L2-type points should therefore act as exits rather than
+             * accidentally becoming territorial centres.
+             */
+            if (Math.abs(combined[index]) <= 0.10)
+                openSeeds.push(index)
+        }
+
+        /*
+         * A position can theoretically contain no near-balanced empty point.
+         * In that case use the least-dominated empty points as fallback exits.
+         */
+        if (openSeeds.length === 0) {
+            const candidates = []
+
+            for (let index = 0; index < pointCount; ++index) {
+                if (occupied[index] === "") {
+                    candidates.push({
+                        index: index,
+                        magnitude: Math.abs(combined[index])
+                    })
+                }
+            }
+
+            candidates.sort(
+                (a, b) => a.magnitude - b.magnitude
+            )
+
+            for (let n = 0;
+                 n < Math.min(8, candidates.length);
+                 ++n) {
+                openSeeds.push(candidates[n].index)
+            }
+        }
+
+        /*
+         * Dijkstra on a 19 x 19 board is tiny. Using a simple O(N^2)
+         * implementation keeps the code clear and deterministic.
+         *
+         * colourSign:
+         *   0  -> ordinary graph distance
+         *  +1  -> resistance through Black influence
+         *  -1  -> resistance through White influence
+         */
+        function escapeDistances(colourSign) {
+            const infinity = 1.0e30
+            const distances =
+                new Array(pointCount).fill(infinity)
+            const visited =
+                new Array(pointCount).fill(false)
+
+            for (const seed of openSeeds)
+                distances[seed] = 0.0
+
+            for (let iteration = 0;
+                 iteration < pointCount;
+                 ++iteration) {
+                let bestIndex = -1
+                let bestDistance = infinity
+
+                for (let index = 0;
+                     index < pointCount;
+                     ++index) {
+                    if (!visited[index]
+                            && distances[index] < bestDistance) {
+                        bestDistance = distances[index]
+                        bestIndex = index
+                    }
+                }
+
+                if (bestIndex < 0)
+                    break
+
+                visited[bestIndex] = true
+
+                const x = bestIndex % size
+                const y = Math.floor(bestIndex / size)
+
+                for (const direction of orthogonalDirections) {
+                    const nx = x + direction[0]
+                    const ny = y + direction[1]
+
+                    if (nx < 0 || nx >= size
+                            || ny < 0 || ny >= size) {
+                        /*
+                         * The physical board edge is a wall, not an escape.
+                         */
+                        continue
+                    }
+
+                    const neighbour = ny * size + nx
+
+                    if (occupied[neighbour] !== "")
+                        continue
+
+                    let stepCost = 1.0
+
+                    if (colourSign !== 0) {
+                        const support =
+                            Math.max(
+                                0.0,
+                                colourSign * combined[neighbour]
+                            )
+
+                        /*
+                         * Moving through intersections dominated by this
+                         * colour is increasingly difficult. The quadratic
+                         * component makes genuinely strong influence much
+                         * more significant than a faint local preference.
+                         */
+                        stepCost +=
+                            3.2 * support
+                            + 3.8 * support * support
+                    }
+
+                    const candidate =
+                        distances[bestIndex] + stepCost
+
+                    if (candidate < distances[neighbour])
+                        distances[neighbour] = candidate
+                }
+            }
+
+            return distances
+        }
+
+        const plainEscape =
+            escapeDistances(0)
+
+        const blackEscape =
+            escapeDistances(1)
+
+        const whiteEscape =
+            escapeDistances(-1)
+
+        for (let index = 0; index < pointCount; ++index) {
+            if (occupied[index] !== "")
+                continue
+
+            if (plainEscape[index] >= 1.0e29)
+                continue
+
+            const blackResistance =
+                Math.max(
+                    0.0,
+                    blackEscape[index] - plainEscape[index]
+                )
+
+            const whiteResistance =
+                Math.max(
+                    0.0,
+                    whiteEscape[index] - plainEscape[index]
+                )
+
+            /*
+             * Compare the two possible enclosing colours directly.
+             */
+            const resistanceDifference =
+                blackResistance - whiteResistance
+
+            const totalResistance =
+                blackResistance + whiteResistance
+
+            if (totalResistance < 0.20)
+                continue
+
+            /*
+             * Strength measures how difficult escape is beyond mere
+             * geometrical distance.
+             */
+            let strength =
+                Math.abs(resistanceDifference)
+                / (2.2 + Math.abs(resistanceDifference))
+
+            /*
+             * Board edges provide containing geometry. They do not choose
+             * a colour, but they strengthen an already-supported enclosure.
+             *
+             * This is particularly relevant to genuine corner pockets such
+             * as A19.
+             */
+            const x = index % size
+            const y = Math.floor(index / size)
+
+            const edgeDistances = [
+                x,
+                size - 1 - x,
+                y,
+                size - 1 - y
+            ]
+
+            let edgeSupport = 0.0
+
+            for (const distance of edgeDistances) {
+                if (distance === 0)
+                    edgeSupport += 0.15
+                else if (distance === 1)
+                    edgeSupport += 0.09
+                else if (distance === 2)
+                    edgeSupport += 0.04
+            }
+
+            strength =
+                Math.min(
+                    0.95,
+                    strength + Math.min(0.24, edgeSupport)
+                )
+
+            /*
+             * A tiny resistance difference should remain unresolved even
+             * near an edge.
+             */
+            if (Math.abs(resistanceDifference) < 0.18)
+                continue
+
+            if (strength < 0.18)
+                continue
+
+            enclosure[index] =
+                Math.sign(resistanceDifference) * strength
+        }
+
+        root.influenceValues = combined
+        root.enclosureValues = enclosure
+    }
 
     function clearPatternSelection() {
         patternSelectionDragging = false
@@ -96,6 +499,8 @@ Item {
                 (height - side) / 2,
                 side
             )
+
+            drawInfluenceMap(ctx, left, top, spacing)
 
             ctx.strokeStyle = root.lineColor
             ctx.lineWidth = 1
@@ -344,6 +749,157 @@ Item {
                 )
                 ctx.fill()
             }
+        }
+
+        function drawInfluenceMap(ctx, left, top, spacing) {
+            if (!root.influenceVisible
+                    || root.influenceValues === null
+                    || root.influenceValues.length
+                       !== root.boardSize * root.boardSize) {
+                return
+            }
+
+            ctx.save()
+
+            /*
+             * Each intersection retains its calculated influence value.
+             * Adjacent cells overlap slightly so there are no gaps, but
+             * values are deliberately not interpolated: the differences
+             * in strength are useful strategic information.
+             */
+            const halfCell = spacing * 0.53
+
+            for (let y = 0; y < root.boardSize; ++y) {
+                for (let x = 0; x < root.boardSize; ++x) {
+                    const index = y * root.boardSize + x
+                    const influence =
+                        Number(root.influenceValues[index])
+
+                    const enclosure =
+                        root.enclosureValues !== null
+                        && root.enclosureValues.length
+                           === root.boardSize * root.boardSize
+                        ? Number(root.enclosureValues[index])
+                        : 0.0
+
+                    let score = influence
+
+                    /*
+                     * Strong enclosure reinforces an influence field of the
+                     * same colour. It can also make an otherwise quiet point
+                     * visibly territory-like, but opposing evidence is not
+                     * allowed simply to overwrite the influence result.
+                     */
+                    if (Math.abs(enclosure) >= 0.45) {
+                        const sameDirection =
+                            influence === 0.0
+                            || Math.sign(influence)
+                               === Math.sign(enclosure)
+
+                        if (sameDirection) {
+                            const enclosureStrength =
+                                0.42
+                                + 0.52 * Math.abs(enclosure)
+
+                            if (Math.abs(score)
+                                    < enclosureStrength) {
+                                score =
+                                    Math.sign(enclosure)
+                                    * enclosureStrength
+                            }
+                        }
+                    }
+
+                    const magnitude = Math.abs(score)
+                    const enclosureMagnitude = Math.abs(enclosure)
+
+                    /*
+                     * This is a discrete Go board, not a sampled continuous
+                     * image. Render useful categories at intersections rather
+                     * than implying precision through a continuous gradient.
+                     *
+                     * Strong enclosure supplies a consistent regional base
+                     * colour. Local influence still matters, but no longer
+                     * makes a recognised territorial region look patchy.
+                     */
+                    const enclosureAgrees =
+                        enclosureMagnitude >= 0.50
+                        && (
+                            score === 0.0
+                            || Math.sign(enclosure) === Math.sign(score)
+                        )
+
+                    let displayScore = score
+
+                    if (enclosureAgrees) {
+                        const enclosureBase =
+                            0.52 + 0.34 * Math.min(1.0, enclosureMagnitude)
+
+                        if (Math.abs(displayScore) < enclosureBase) {
+                            displayScore =
+                                Math.sign(enclosure) * enclosureBase
+                        }
+                    }
+
+                    const displayMagnitude = Math.abs(displayScore)
+
+                    /*
+                     * Leave genuinely neutral points uncoloured, but retain
+                     * a faint fourth band for low yet meaningful influence.
+                     */
+                    if (displayMagnitude < 0.06)
+                        continue
+
+                    let alpha
+
+                    if (enclosureAgrees) {
+                        /*
+                         * Territory-like / strongly enclosed region.
+                         * Use a firm, consistent base colour.
+                         */
+                        alpha = displayScore > 0.0 ? 0.40 : 0.52
+                    } else if (displayMagnitude >= 0.40) {
+                        /*
+                         * Clear but not necessarily enclosed influence.
+                         */
+                        alpha = displayScore > 0.0 ? 0.25 : 0.33
+                    } else if (displayMagnitude >= 0.15) {
+                        /*
+                         * Weak influence.
+                         */
+                        alpha = displayScore > 0.0 ? 0.13 : 0.17
+                    } else {
+                        /*
+                         * Very faint influence: enough to show that the
+                         * intersection is not strategically blank, without
+                         * implying secure control.
+                         */
+                        alpha = displayScore > 0.0 ? 0.065 : 0.085
+                    }
+
+                    const centreX = left + x * spacing
+                    const centreY = top + y * spacing
+
+                    if (displayScore > 0.0) {
+                        ctx.fillStyle =
+                            "rgba(20, 20, 22, "
+                            + alpha.toFixed(3) + ")"
+                    } else {
+                        ctx.fillStyle =
+                            "rgba(255, 255, 246, "
+                            + alpha.toFixed(3) + ")"
+                    }
+
+                    ctx.fillRect(
+                        centreX - halfCell,
+                        centreY - halfCell,
+                        halfCell * 2,
+                        halfCell * 2
+                    )
+                }
+            }
+
+            ctx.restore()
         }
 
         function drawStones(ctx, left, top, spacing) {
@@ -992,10 +1548,12 @@ Item {
         target: root
 
         function onStonesChanged() {
+            root.rebuildInfluenceValues()
             boardCanvas.requestPaint()
         }
 
         function onBoardSizeChanged() {
+            root.rebuildInfluenceValues()
             boardCanvas.requestPaint()
         }
 
