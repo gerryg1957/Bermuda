@@ -7,7 +7,8 @@ fn main() {
             .qml_file("src/qml/DatabaseImportDialog.qml")
             .qml_file("src/qml/DatabaseProgressDialog.qml")
             .qml_file("src/qml/GameList.qml")
-            .qml_file("src/qml/GoBoard.qml"),
+            .qml_file("src/qml/GoBoard.qml")
+            .qml_file("src/qml/ReplyInfluenceAnalysis.qml"),
     )
     .file("src/app.rs")
     .file("src/database_operation_model.rs")
