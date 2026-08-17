@@ -179,11 +179,37 @@ fn result_condition(result: GameResultFilter) -> &'static str {
     }
 }
 
+fn is_year_only(value: &str) -> bool {
+    value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn normalise_date_from(value: Option<&str>) -> Option<String> {
+    value.map(|value| {
+        if is_year_only(value) {
+            format!("{value}-01-01")
+        } else {
+            value.to_owned()
+        }
+    })
+}
+
+fn normalise_date_to(value: Option<&str>) -> Option<String> {
+    value.map(|value| {
+        if is_year_only(value) {
+            format!("{value}-12-31")
+        } else {
+            value.to_owned()
+        }
+    })
+}
+
 pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<GameListRow>> {
     let order_by = order_by_clause(query);
     let player_condition = player_condition(query.colour, "?3");
     let matchup_condition = matchup_condition(query.colour, "?3", "?4");
     let result_condition = result_condition(query.result);
+    let date_from = normalise_date_from(query.date_from.as_deref());
+    let date_to = normalise_date_to(query.date_to.as_deref());
 
     let sql = format!(
         r#"
@@ -302,8 +328,8 @@ ORDER BY {order_by}
                 query.player.as_deref(),
                 query.versus.as_deref(),
                 query.event.as_deref(),
-                query.date_from.as_deref(),
-                query.date_to.as_deref(),
+                date_from.as_deref(),
+                date_to.as_deref(),
             ],
             |row| {
                 Ok(GameListRow {
@@ -329,6 +355,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
     let player_condition = player_condition(query.colour, "?1");
     let matchup_condition = matchup_condition(query.colour, "?1", "?2");
     let result_condition = result_condition(query.result);
+    let date_from = normalise_date_from(query.date_from.as_deref());
+    let date_to = normalise_date_to(query.date_to.as_deref());
 
     let sql = format!(
         r#"
@@ -428,8 +456,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                 query.player.as_deref(),
                 query.versus.as_deref(),
                 query.event.as_deref(),
-                query.date_from.as_deref(),
-                query.date_to.as_deref(),
+                date_from.as_deref(),
+                date_to.as_deref(),
             ],
             |row| row.get(0),
         )
@@ -972,6 +1000,62 @@ VALUES (
         };
 
         assert_eq!(count_games(&connection, &query)?, 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn year_only_from_date_includes_the_whole_year() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            date_from: Some("2026".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &query)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn year_only_to_date_includes_the_whole_year() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            date_to: Some("2025".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &query)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn year_only_date_range_is_inclusive() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            date_from: Some("2025".to_owned()),
+            date_to: Some("2026".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(list_games(&connection, &query)?.len(), 2);
+        assert_eq!(count_games(&connection, &query)?, 2);
 
         Ok(())
     }

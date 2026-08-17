@@ -5,7 +5,7 @@ use std::{fmt::Display, path::Path, pin::Pin};
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
 use moyodb::{
-    game_list::{GameColumn, GameListQuery, SortField},
+    game_list::{GameColumn, GameListQuery, GameResultFilter, PlayerColour, SortField},
     project_manager::ProjectManager,
 };
 
@@ -89,6 +89,22 @@ pub mod ffi {
             project_path: &QString,
             column: &QString,
             ascending: bool,
+        ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "loadFilteredProject"]
+        fn load_filtered_project(
+            self: Pin<&mut GameListModel>,
+            project_path: &QString,
+            column: &QString,
+            ascending: bool,
+            player: &QString,
+            versus: &QString,
+            colour: &QString,
+            event: &QString,
+            date_from: &QString,
+            date_to: &QString,
+            result: &QString,
         ) -> bool;
 
         #[qsignal]
@@ -318,6 +334,96 @@ impl ffi::GameListModel {
         };
 
         let query = GameListQuery {
+            sort_fields: vec![primary_sort],
+            ..GameListQuery::default()
+        };
+
+        self.as_mut().load_with_query(project_path, query)
+    }
+
+    fn load_filtered_project(
+        mut self: Pin<&mut Self>,
+        project_path: &QString,
+        column: &QString,
+        ascending: bool,
+        player: &QString,
+        versus: &QString,
+        colour: &QString,
+        event: &QString,
+        date_from: &QString,
+        date_to: &QString,
+        result: &QString,
+    ) -> bool {
+        let column_name = column.to_string();
+
+        let game_column = match column_name.as_str() {
+            "black" => GameColumn::BlackPlayer,
+            "white" => GameColumn::WhitePlayer,
+            "date" => GameColumn::Date,
+            "result" => GameColumn::Result,
+            "event" => GameColumn::Event,
+
+            _ => {
+                self.as_mut().set_error_message(QString::from(format!(
+                    "unknown sort column: {column_name}"
+                )));
+                return false;
+            }
+        };
+
+        let primary_sort = if ascending {
+            SortField::ascending(game_column)
+        } else {
+            SortField::descending(game_column)
+        };
+
+        let colour_name = colour.to_string();
+
+        let player_colour = match colour_name.as_str() {
+            "black" => PlayerColour::Black,
+            "white" => PlayerColour::White,
+            "either" => PlayerColour::Either,
+
+            _ => {
+                self.as_mut().set_error_message(QString::from(format!(
+                    "unknown player colour filter: {colour_name}"
+                )));
+                return false;
+            }
+        };
+
+        let result_name = result.to_string();
+
+        let result_filter = match result_name.as_str() {
+            "any" => GameResultFilter::Any,
+            "black-win" => GameResultFilter::BlackWin,
+            "white-win" => GameResultFilter::WhiteWin,
+            "jigo" => GameResultFilter::Jigo,
+            "void" => GameResultFilter::Void,
+
+            _ => {
+                self.as_mut().set_error_message(QString::from(format!(
+                    "unknown game result filter: {result_name}"
+                )));
+                return false;
+            }
+        };
+
+        fn optional_filter(value: &QString) -> Option<String> {
+            let value = value.to_string();
+            let value = value.trim();
+
+            (!value.is_empty()).then(|| value.to_owned())
+        }
+
+        let query = GameListQuery {
+            player: optional_filter(player),
+            versus: optional_filter(versus),
+            colour: player_colour,
+            event: optional_filter(event),
+            date_from: optional_filter(date_from),
+            date_to: optional_filter(date_to),
+            result: result_filter,
             sort_fields: vec![primary_sort],
             ..GameListQuery::default()
         };

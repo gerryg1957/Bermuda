@@ -72,6 +72,15 @@ Kirigami.AbstractCard {
     property string sortColumn: "date"
 
     property bool sortAscending: false
+
+    property string cataloguePlayer: ""
+    property string catalogueVersus: ""
+    property string catalogueColour: "either"
+    property string catalogueEvent: ""
+    property string catalogueDateFrom: ""
+    property string catalogueDateTo: ""
+    property string catalogueResult: "any"
+
     readonly property bool catalogueLoading: gameModel.loading
     property string loadingIndicatorStyle: "stones"
     padding: 0
@@ -86,10 +95,17 @@ Kirigami.AbstractCard {
             return
         }
 
-        if (!gameModel.loadSortedProject(
+        if (!gameModel.loadFilteredProject(
                     projectPath,
                     sortColumn,
-                    sortAscending)) {
+                    sortAscending,
+                    cataloguePlayer,
+                    catalogueVersus,
+                    catalogueColour,
+                    catalogueEvent,
+                    catalogueDateFrom,
+                    catalogueDateTo,
+                    catalogueResult)) {
             projectLoaded = false
         }
     }
@@ -1145,6 +1161,205 @@ Kirigami.AbstractCard {
 
 
 
+
+        Frame {
+            Layout.fillWidth: true
+            visible: catalogueTabs.currentIndex === 0
+            padding: Kirigami.Units.smallSpacing
+
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Label {
+                        text: qsTr("Player")
+                    }
+
+                    TextField {
+                        id: cataloguePlayerField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Exact player name")
+                        text: root.cataloguePlayer
+                        onTextChanged: root.cataloguePlayer = text
+                        onAccepted: root.loadProject()
+                    }
+
+                    ComboBox {
+                        id: catalogueColourBox
+                        model: [
+                            qsTr("Either colour"),
+                            qsTr("Black"),
+                            qsTr("White")
+                        ]
+
+                        currentIndex:
+                            root.catalogueColour === "black"
+                            ? 1
+                            : root.catalogueColour === "white"
+                              ? 2
+                              : 0
+
+                        onActivated: function(index) {
+                            root.catalogueColour =
+                                index === 1
+                                ? "black"
+                                : index === 2
+                                  ? "white"
+                                  : "either"
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("Versus")
+                    }
+
+                    TextField {
+                        id: catalogueVersusField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Exact opponent name")
+                        text: root.catalogueVersus
+                        onTextChanged: root.catalogueVersus = text
+                        onAccepted: root.loadProject()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Label {
+                        text: qsTr("Event")
+                    }
+
+                    TextField {
+                        id: catalogueEventField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Tournament or event contains…")
+                        text: root.catalogueEvent
+                        onTextChanged: root.catalogueEvent = text
+                        onAccepted: root.loadProject()
+                    }
+
+                    Label {
+                        text: qsTr("From")
+                    }
+
+                    TextField {
+                        id: catalogueDateFromField
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        placeholderText: qsTr("YYYY-MM-DD")
+                        text: root.catalogueDateFrom
+                        onTextChanged:
+                            root.catalogueDateFrom = text
+                        onAccepted: root.loadProject()
+                    }
+
+                    Label {
+                        text: qsTr("To")
+                    }
+
+                    TextField {
+                        id: catalogueDateToField
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        placeholderText: qsTr("YYYY-MM-DD")
+                        text: root.catalogueDateTo
+                        onTextChanged:
+                            root.catalogueDateTo = text
+                        onAccepted: root.loadProject()
+                    }
+
+                    Label {
+                        text: qsTr("Result")
+                    }
+
+                    ComboBox {
+                        id: catalogueResultBox
+
+                        model: [
+                            qsTr("Any"),
+                            qsTr("Black win"),
+                            qsTr("White win"),
+                            qsTr("Jigo"),
+                            qsTr("Void")
+                        ]
+
+                        currentIndex:
+                            root.catalogueResult === "black-win"
+                            ? 1
+                            : root.catalogueResult === "white-win"
+                              ? 2
+                              : root.catalogueResult === "jigo"
+                                ? 3
+                                : root.catalogueResult === "void"
+                                  ? 4
+                                  : 0
+
+                        onActivated: function(index) {
+                            root.catalogueResult =
+                                index === 1
+                                ? "black-win"
+                                : index === 2
+                                  ? "white-win"
+                                  : index === 3
+                                    ? "jigo"
+                                    : index === 4
+                                      ? "void"
+                                      : "any"
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Search")
+                        enabled: !root.catalogueLoading
+
+                        onClicked: root.loadProject()
+                    }
+
+                    Button {
+                        text: qsTr("Clear")
+                        enabled: !root.catalogueLoading
+
+                        onClicked: {
+                            root.cataloguePlayer = ""
+                            root.catalogueVersus = ""
+                            root.catalogueColour = "either"
+                            root.catalogueEvent = ""
+                            root.catalogueDateFrom = ""
+                            root.catalogueDateTo = ""
+                            root.catalogueResult = "any"
+
+                            cataloguePlayerField.text = ""
+                            catalogueVersusField.text = ""
+                            catalogueEventField.text = ""
+                            catalogueDateFromField.text = ""
+                            catalogueDateToField.text = ""
+
+                            catalogueColourBox.currentIndex = 0
+                            catalogueResultBox.currentIndex = 0
+
+                            root.loadProject()
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible:
+                        root.catalogueVersus.trim().length > 0
+                        && root.cataloguePlayer.trim().length === 0
+
+                    text: qsTr(
+                        "Enter a Player as well as Versus to search a match-up.")
+                    color: Kirigami.Theme.neutralTextColor
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
 
         Rectangle {
             Layout.fillWidth: true
