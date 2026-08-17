@@ -11,6 +11,7 @@ use moyodb::{
     import_directory,
     importer::ImportOutcome,
     index_build,
+    pattern_index_build,
     project_manager::ProjectManager,
 };
 use std::path::PathBuf;
@@ -220,6 +221,12 @@ enum Command {
 
     /// Build or resume the exact-position index.
     BuildPositionIndex {
+        /// MoyoDB project directory.
+        project: PathBuf,
+    },
+
+    /// Build the persistent packed pattern-position index.
+    BuildPatternIndex {
         /// MoyoDB project directory.
         project: PathBuf,
     },
@@ -516,6 +523,7 @@ fn main() -> Result<()> {
 
         Command::Replay { input, move_number } => commands::replay_move_file(input, move_number),
         Command::BuildPositionIndex { project } => build_position_index(project),
+        Command::BuildPatternIndex { project } => build_pattern_index(project),
     }
 }
 
@@ -772,6 +780,83 @@ fn import_one(project_path: PathBuf, source: String, version: String, sgf: PathB
         ImportOutcome::SkippedBoardSize { board_size } => {
             println!("Skipped: unsupported professional board size {board_size}x{board_size}");
         }
+    }
+
+    Ok(())
+}
+
+fn build_pattern_index(project_path: PathBuf) -> Result<()> {
+    let project_manager = ProjectManager::new();
+    let project = project_manager.open(&project_path)?;
+
+    let mut last_reported = 0_usize;
+
+    let outcome = pattern_index_build::run_with_progress(
+        &project,
+        || false,
+        |progress| {
+            if progress.processed_games == 0
+                || progress.processed_games == last_reported
+            {
+                return;
+            }
+
+            if progress.processed_games.is_multiple_of(1_000)
+                || progress.processed_games == progress.total_games
+            {
+                println!(
+                    "Processed {}/{} games ({:.1} games/second)...",
+                    progress.processed_games,
+                    progress.total_games,
+                    progress.rate(),
+                );
+
+                last_reported = progress.processed_games;
+            }
+        },
+    )?;
+
+    let summary = match outcome {
+        pattern_index_build::PatternIndexBuildOutcome::Completed(summary) => {
+            summary
+        }
+
+        pattern_index_build::PatternIndexBuildOutcome::Cancelled(_) => {
+            unreachable!("the command-line pattern-index build cannot cancel")
+        }
+    };
+
+    println!(
+        "Pattern index format version: {}",
+        summary.format_version
+    );
+    println!("Games in project           : {}", summary.total_games);
+    println!();
+    println!("Pattern indexing finished");
+    println!("Games processed : {}", summary.processed_games);
+    println!("Games indexed   : {}", summary.indexed_games);
+    println!("Positions       : {}", summary.indexed_positions);
+    println!("Errors          : {}", summary.errors);
+    println!("Elapsed         : {:.2} seconds", summary.elapsed_seconds);
+    println!("Rate            : {:.1} games/second", summary.rate());
+
+    if let Some(index_path) = summary.index_path {
+        println!("Index path      : {}", index_path.display());
+        println!(
+            "Index size      : {} bytes ({:.2} GiB)",
+            summary.index_bytes,
+            summary.index_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+        );
+    } else if summary.errors != 0 {
+        println!(
+            "Index not published because {} game(s) failed.",
+            summary.errors
+        );
+        println!("Any existing pattern index was left unchanged.");
+    }
+
+    if let Some(error_log) = summary.error_log {
+        println!("Error log       : {}", error_log.display());
     }
 
     Ok(())
