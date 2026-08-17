@@ -43,6 +43,86 @@ pub struct PatternIndexGameBlock {
     pub positions: Vec<PatternIndexStoredPosition>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PatternIndexGameBlockView<'a> {
+    pub game_id: i64,
+    pub board_size: u8,
+    pub position_count: usize,
+    board_bytes: &'a [u8],
+    metadata_bytes: &'a [u8],
+}
+
+impl PatternIndexGameBlockView<'_> {
+    /// Read the twelve packed board words for one position without
+    /// allocating or decoding the complete game block.
+    pub fn board_words(
+        &self,
+        position: usize,
+    ) -> Result<([u64; BOARD_WORDS], [u64; BOARD_WORDS])> {
+        if position >= self.position_count {
+            bail!(
+                "pattern-index position {position} out of range for {} positions",
+                self.position_count
+            );
+        }
+
+        let start = position
+            .checked_mul(BOARD_BYTES_PER_POSITION)
+            .ok_or_else(|| anyhow!("pattern-index board offset overflow"))?;
+
+        let end = start
+            .checked_add(BOARD_BYTES_PER_POSITION)
+            .ok_or_else(|| anyhow!("pattern-index board offset overflow"))?;
+
+        let bytes = self
+            .board_bytes
+            .get(start..end)
+            .ok_or_else(|| anyhow!("truncated pattern-index board data"))?;
+
+        let mut black = [0_u64; BOARD_WORDS];
+        let mut white = [0_u64; BOARD_WORDS];
+        let mut offset = 0_usize;
+
+        for word in &mut black {
+            *word = u64::from_le_bytes(take::<8>(bytes, &mut offset)?);
+        }
+
+        for word in &mut white {
+            *word = u64::from_le_bytes(take::<8>(bytes, &mut offset)?);
+        }
+
+        Ok((black, white))
+    }
+
+    pub fn metadata_word(&self, position: usize) -> Result<u32> {
+        if position >= self.position_count {
+            bail!(
+                "pattern-index position {position} out of range for {} positions",
+                self.position_count
+            );
+        }
+
+        let start = position
+            .checked_mul(METADATA_BYTES_PER_POSITION)
+            .ok_or_else(|| anyhow!("pattern-index metadata offset overflow"))?;
+
+        let end = start
+            .checked_add(METADATA_BYTES_PER_POSITION)
+            .ok_or_else(|| anyhow!("pattern-index metadata offset overflow"))?;
+
+        let bytes = self
+            .metadata_bytes
+            .get(start..end)
+            .ok_or_else(|| anyhow!("truncated pattern-index metadata"))?;
+
+        Ok(u32::from_le_bytes(
+            bytes
+                .try_into()
+                .map_err(|_| anyhow!("invalid pattern-index metadata width"))?,
+        ))
+    }
+}
+
 /// Encode one game as an independently decodable pattern-index block.
 pub fn encode_game_block(game_id: i64, record: &GameRecord) -> Result<Vec<u8>> {
     let positions = pattern_positions_from_record(game_id, record)?;
@@ -91,6 +171,71 @@ pub fn encode_game_block(game_id: i64, record: &GameRecord) -> Result<Vec<u8>> {
     debug_assert_eq!(output.len(), capacity);
 
     Ok(output)
+}
+
+/// Borrow the first game block in `bytes` without allocating position objects.
+///
+/// The returned byte count allows callers to walk concatenated game blocks.
+pub fn view_game_block(bytes: &[u8]) -> Result<(PatternIndexGameBlockView<'_>, usize)> {
+    let mut offset = 0_usize;
+
+    let magic = take::<8>(bytes, &mut offset)?;
+    if &magic != MAGIC {
+        bail!("invalid pattern-index block magic");
+    }
+
+    let version = u32::from_le_bytes(take::<4>(bytes, &mut offset)?);
+    if version != PATTERN_INDEX_FORMAT_VERSION {
+        bail!(
+            "unsupported pattern-index format version {version}; expected {}",
+            PATTERN_INDEX_FORMAT_VERSION
+        );
+    }
+
+    let game_id = i64::from_le_bytes(take::<8>(bytes, &mut offset)?);
+    let board_size = take::<1>(bytes, &mut offset)?[0];
+
+    if !(1..=crate::board::MAX_BOARD_SIZE).contains(&board_size) {
+        bail!("invalid board size {board_size} in pattern-index block");
+    }
+
+    let position_count =
+        u32::from_le_bytes(take::<4>(bytes, &mut offset)?) as usize;
+
+    let board_bytes_len = position_count
+        .checked_mul(BOARD_BYTES_PER_POSITION)
+        .ok_or_else(|| anyhow!("pattern-index block size overflow"))?;
+
+    let metadata_bytes_len = position_count
+        .checked_mul(METADATA_BYTES_PER_POSITION)
+        .ok_or_else(|| anyhow!("pattern-index block size overflow"))?;
+
+    let board_end = offset
+        .checked_add(board_bytes_len)
+        .ok_or_else(|| anyhow!("pattern-index block size overflow"))?;
+
+    let block_end = board_end
+        .checked_add(metadata_bytes_len)
+        .ok_or_else(|| anyhow!("pattern-index block size overflow"))?;
+
+    let board_bytes = bytes
+        .get(offset..board_end)
+        .ok_or_else(|| anyhow!("truncated pattern-index board data"))?;
+
+    let metadata_bytes = bytes
+        .get(board_end..block_end)
+        .ok_or_else(|| anyhow!("truncated pattern-index metadata"))?;
+
+    Ok((
+        PatternIndexGameBlockView {
+            game_id,
+            board_size,
+            position_count,
+            board_bytes,
+            metadata_bytes,
+        },
+        block_end,
+    ))
 }
 
 /// Decode the first game block in `bytes`.
@@ -338,6 +483,36 @@ mod tests {
                 stored.next_move,
                 game.moves.get(stored.move_number).copied()
             );
+        }
+    }
+
+    #[test]
+    fn borrowed_view_matches_decoded_positions() {
+        let game = record(
+            "(;FF[4]GM[1]SZ[19]
+               ;B[pd]
+               ;W[dd]
+               ;B[qp])",
+        );
+
+        let encoded = encode_game_block(77, &game).unwrap();
+        let (view, consumed) = view_game_block(&encoded).unwrap();
+        let (decoded, decoded_consumed) = decode_game_block(&encoded).unwrap();
+
+        assert_eq!(consumed, encoded.len());
+        assert_eq!(decoded_consumed, encoded.len());
+        assert_eq!(view.game_id, 77);
+        assert_eq!(view.board_size, 19);
+        assert_eq!(view.position_count, decoded.positions.len());
+
+        for (position, decoded_position) in decoded.positions.iter().enumerate() {
+            let (black, white) = view.board_words(position).unwrap();
+
+            assert_eq!(black, decoded_position.black);
+            assert_eq!(white, decoded_position.white);
+
+            let metadata = view.metadata_word(position).unwrap();
+            assert_ne!(metadata, u32::MAX);
         }
     }
 
