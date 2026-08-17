@@ -783,8 +783,6 @@ menuBar: MenuBar {
                       Layout.rightMargin: 8
                       spacing: 4
 
-                      visible: boardPane.selectedGame !== null
-
                       ToolButton {
                           text: qsTr("Select Pattern")
                           checkable: true
@@ -815,6 +813,40 @@ menuBar: MenuBar {
                           checked: goBoard.influenceVisible
 
                           onToggled: goBoard.influenceVisible = checked
+                      }
+
+                      ToolButton {
+                          text: qsTr("↔")
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Flip board left to right")
+
+                          onClicked: goBoard.flipViewLeftRight()
+                      }
+
+                      ToolButton {
+                          text: qsTr("↕")
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Flip board top to bottom")
+
+                          onClicked: goBoard.flipViewTopBottom()
+                      }
+
+                      ToolButton {
+                          text: qsTr("↺")
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Rotate board 90° counter-clockwise")
+
+                          onClicked: goBoard.rotateViewCounterClockwise()
+                      }
+
+                      ToolButton {
+                          text: qsTr("B/W")
+                          checkable: true
+                          checked: goBoard.reverseColours
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Swap displayed Black and White")
+
+                          onToggled: goBoard.reverseColours = checked
                       }
 
                       ToolButton {

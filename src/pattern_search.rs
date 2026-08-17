@@ -188,16 +188,84 @@ pub struct PatternSearchOptions {
     pub max_match_move: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PatternBoardContext {
+    pub left: u8,
+    pub right: u8,
+    pub bottom: u8,
+    pub top: u8,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatternSearchQuery {
     pub pattern: Pattern,
+    pub board_context: Option<PatternBoardContext>,
     pub scope: PatternSearchScope,
     pub options: PatternSearchOptions,
+}
+
+impl PatternBoardContext {
+    #[must_use]
+    pub fn transformed(self, transformation: PatternTransformation) -> Self {
+        match transformation {
+            PatternTransformation::Identity => self,
+
+            PatternTransformation::Rotate90Clockwise => Self {
+                left: self.bottom,
+                right: self.top,
+                bottom: self.right,
+                top: self.left,
+            },
+
+            PatternTransformation::Rotate180 => Self {
+                left: self.right,
+                right: self.left,
+                bottom: self.top,
+                top: self.bottom,
+            },
+
+            PatternTransformation::Rotate270Clockwise => Self {
+                left: self.top,
+                right: self.bottom,
+                bottom: self.left,
+                top: self.right,
+            },
+
+            PatternTransformation::MirrorLeftRight => Self {
+                left: self.right,
+                right: self.left,
+                bottom: self.bottom,
+                top: self.top,
+            },
+
+            PatternTransformation::MirrorTopBottom => Self {
+                left: self.left,
+                right: self.right,
+                bottom: self.top,
+                top: self.bottom,
+            },
+
+            PatternTransformation::MirrorMainDiagonal => Self {
+                left: self.bottom,
+                right: self.top,
+                bottom: self.left,
+                top: self.right,
+            },
+
+            PatternTransformation::MirrorAntiDiagonal => Self {
+                left: self.top,
+                right: self.bottom,
+                bottom: self.right,
+                top: self.left,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PatternVariant {
     pattern: Pattern,
+    board_context: Option<PatternBoardContext>,
     transformation: PatternTransformation,
     colours_reversed: bool,
     black_rows: Vec<u64>,
@@ -209,6 +277,7 @@ struct PatternVariant {
 impl PatternVariant {
     fn new(
         pattern: Pattern,
+        board_context: Option<PatternBoardContext>,
         transformation: PatternTransformation,
         colours_reversed: bool,
     ) -> Self {
@@ -236,6 +305,7 @@ impl PatternVariant {
 
         Self {
             pattern,
+            board_context,
             transformation,
             colours_reversed,
             black_rows,
@@ -391,21 +461,30 @@ impl PatternSearcher {
     fn push_variant(
         variants: &mut Vec<PatternVariant>,
         pattern: Pattern,
+        board_context: Option<PatternBoardContext>,
         transformation: PatternTransformation,
         colours_reversed: bool,
     ) {
-        if variants.iter().any(|existing| existing.pattern == pattern) {
+        if variants
+            .iter()
+            .any(|existing| existing.pattern == pattern && existing.board_context == board_context)
+        {
             return;
         }
 
         variants.push(PatternVariant::new(
             pattern,
+            board_context,
             transformation,
             colours_reversed,
         ));
     }
 
-    fn search_variants(pattern: &Pattern, options: PatternSearchOptions) -> Vec<PatternVariant> {
+    fn search_variants(
+        pattern: &Pattern,
+        board_context: Option<PatternBoardContext>,
+        options: PatternSearchOptions,
+    ) -> Vec<PatternVariant> {
         let transformations = [
             PatternTransformation::Identity,
             PatternTransformation::Rotate90Clockwise,
@@ -439,12 +518,22 @@ impl PatternSearcher {
 
             let transformed = pattern.transformed(transformation);
 
-            Self::push_variant(&mut variants, transformed.clone(), transformation, false);
+            let transformed_context =
+                board_context.map(|context| context.transformed(transformation));
+
+            Self::push_variant(
+                &mut variants,
+                transformed.clone(),
+                transformed_context,
+                transformation,
+                false,
+            );
 
             if options.include_reversed_colours {
                 Self::push_variant(
                     &mut variants,
                     transformed.reversed_colours(),
+                    transformed_context,
                     transformation,
                     true,
                 );
@@ -471,19 +560,47 @@ impl PatternSearcher {
         let max_left = board.size() - variant.pattern.width;
         let max_bottom = board.size() - variant.pattern.height;
 
-        let Some((first_left, last_left)) = exact_origin_range(
-            max_left,
-            variant.pattern.edges.left,
-            variant.pattern.edges.right,
-        ) else {
+        let horizontal_range = if let Some(context) = variant.board_context {
+            let expected_left = context.left;
+
+            let expected_right = max_left.saturating_sub(expected_left);
+
+            if expected_left > max_left || expected_right != context.right {
+                return Ok(matches);
+            }
+
+            Some((expected_left, expected_left))
+        } else {
+            exact_origin_range(
+                max_left,
+                variant.pattern.edges.left,
+                variant.pattern.edges.right,
+            )
+        };
+
+        let Some((first_left, last_left)) = horizontal_range else {
             return Ok(matches);
         };
 
-        let Some((first_bottom, last_bottom)) = exact_origin_range(
-            max_bottom,
-            variant.pattern.edges.bottom,
-            variant.pattern.edges.top,
-        ) else {
+        let vertical_range = if let Some(context) = variant.board_context {
+            let expected_bottom = context.bottom;
+
+            let expected_top = max_bottom.saturating_sub(expected_bottom);
+
+            if expected_bottom > max_bottom || expected_top != context.top {
+                return Ok(matches);
+            }
+
+            Some((expected_bottom, expected_bottom))
+        } else {
+            exact_origin_range(
+                max_bottom,
+                variant.pattern.edges.bottom,
+                variant.pattern.edges.top,
+            )
+        };
+
+        let Some((first_bottom, last_bottom)) = vertical_range else {
             return Ok(matches);
         };
 
@@ -557,10 +674,11 @@ impl PatternSearcher {
                     return Ok(PatternSearchOutcome::Cancelled);
                 }
 
-                let matches = self.search_game_appearances_with_options(
+                let matches = self.search_game_appearances_with_context(
                     indexer,
                     game_id,
                     &query.pattern,
+                    query.board_context,
                     query.options,
                 )?;
 
@@ -576,9 +694,10 @@ impl PatternSearcher {
                 Ok(PatternSearchOutcome::Completed(matches))
             }
 
-            PatternSearchScope::Project => self.search_database_with_options_with_progress(
+            PatternSearchScope::Project => self.search_database_with_context_with_progress(
                 indexer,
                 &query.pattern,
+                query.board_context,
                 query.options,
                 is_cancelled,
                 on_progress,
@@ -612,10 +731,11 @@ impl PatternSearcher {
                     return Ok(PatternSearchSummaryOutcome::Cancelled);
                 }
 
-                let matches = self.search_game_appearances_with_options(
+                let matches = self.search_game_appearances_with_context(
                     indexer,
                     game_id,
                     &query.pattern,
+                    query.board_context,
                     query.options,
                 )?;
 
@@ -644,9 +764,10 @@ impl PatternSearcher {
             }
 
             PatternSearchScope::Project => self
-                .search_database_summaries_with_options_with_progress(
+                .search_database_summaries_with_context_with_progress(
                     indexer,
                     &query.pattern,
+                    query.board_context,
                     query.options,
                     is_cancelled,
                     on_progress,
@@ -682,7 +803,7 @@ impl PatternSearcher {
         pattern: &Pattern,
         options: PatternSearchOptions,
     ) -> Result<Vec<PatternMatch>> {
-        let variants = Self::search_variants(pattern, options);
+        let variants = Self::search_variants(pattern, None, options);
 
         self.search_record_with_variants(game_id, record, &variants, options.max_match_move)
     }
@@ -858,6 +979,23 @@ impl PatternSearcher {
         Ok(Self::distinct_appearances(raw_matches))
     }
 
+    fn search_game_appearances_with_context(
+        &self,
+        indexer: &PositionIndexer,
+        game_id: i64,
+        pattern: &Pattern,
+        board_context: Option<PatternBoardContext>,
+        options: PatternSearchOptions,
+    ) -> Result<Vec<PatternMatch>> {
+        let record = indexer.read_game_by_id(game_id)?;
+        let variants = Self::search_variants(pattern, board_context, options);
+
+        let raw_matches =
+            self.search_record_with_variants(game_id, &record, &variants, options.max_match_move)?;
+
+        Ok(Self::distinct_appearances(raw_matches))
+    }
+
     pub fn search_database_summaries(
         &self,
         indexer: &PositionIndexer,
@@ -883,19 +1021,21 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        self.search_database_summaries_with_options_with_progress(
+        self.search_database_summaries_with_context_with_progress(
             indexer,
             pattern,
+            None,
             PatternSearchOptions::default(),
             is_cancelled,
             on_progress,
         )
     }
 
-    fn search_database_summaries_with_options_with_progress<C, P>(
+    fn search_database_summaries_with_context_with_progress<C, P>(
         &self,
         indexer: &PositionIndexer,
         pattern: &Pattern,
+        board_context: Option<PatternBoardContext>,
         options: PatternSearchOptions,
         is_cancelled: C,
         on_progress: P,
@@ -904,9 +1044,10 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        match self.search_database_summary_report_with_progress(
+        match self.search_database_summary_report_with_context_with_progress(
             indexer,
             pattern,
+            board_context,
             options,
             is_cancelled,
             on_progress,
@@ -947,6 +1088,29 @@ impl PatternSearcher {
         indexer: &PositionIndexer,
         pattern: &Pattern,
         options: PatternSearchOptions,
+        is_cancelled: C,
+        on_progress: P,
+    ) -> Result<PatternSearchSummaryReportOutcome>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(PatternSearchProgress),
+    {
+        self.search_database_summary_report_with_context_with_progress(
+            indexer,
+            pattern,
+            None,
+            options,
+            is_cancelled,
+            on_progress,
+        )
+    }
+
+    fn search_database_summary_report_with_context_with_progress<C, P>(
+        &self,
+        indexer: &PositionIndexer,
+        pattern: &Pattern,
+        board_context: Option<PatternBoardContext>,
+        options: PatternSearchOptions,
         mut is_cancelled: C,
         mut on_progress: P,
     ) -> Result<PatternSearchSummaryReportOutcome>
@@ -972,7 +1136,7 @@ impl PatternSearcher {
             matches_found,
         });
 
-        let variants = Self::search_variants(pattern, options);
+        let variants = Self::search_variants(pattern, board_context, options);
         let batch_size = parallel_game_batch_size();
         let mut games_examined = 0_usize;
 
@@ -1101,19 +1265,21 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        self.search_database_with_options_with_progress(
+        self.search_database_with_context_with_progress(
             indexer,
             pattern,
+            None,
             PatternSearchOptions::default(),
             is_cancelled,
             on_progress,
         )
     }
 
-    fn search_database_with_options_with_progress<C, P>(
+    fn search_database_with_context_with_progress<C, P>(
         &self,
         indexer: &PositionIndexer,
         pattern: &Pattern,
+        board_context: Option<PatternBoardContext>,
         options: PatternSearchOptions,
         mut is_cancelled: C,
         mut on_progress: P,
@@ -1136,7 +1302,7 @@ impl PatternSearcher {
             matches_found,
         });
 
-        let variants = Self::search_variants(pattern, options);
+        let variants = Self::search_variants(pattern, board_context, options);
         let batch_size = parallel_game_batch_size();
         let mut games_examined = 0_usize;
 
@@ -1245,6 +1411,7 @@ mod option_tests {
 
         let any_variant = PatternVariant::new(
             pattern(PatternCell::Any),
+            None,
             PatternTransformation::Identity,
             false,
         );
@@ -1255,6 +1422,7 @@ mod option_tests {
 
         let empty_variant = PatternVariant::new(
             pattern(PatternCell::Empty),
+            None,
             PatternTransformation::Identity,
             false,
         );
@@ -1268,6 +1436,7 @@ mod option_tests {
     fn default_options_generate_only_the_exact_pattern() {
         let variants = PatternSearcher::search_variants(
             &asymmetric_pattern(),
+            None,
             PatternSearchOptions::default(),
         );
 
@@ -1280,6 +1449,7 @@ mod option_tests {
     fn enabled_options_generate_transformed_and_reversed_variants() {
         let variants = PatternSearcher::search_variants(
             &asymmetric_pattern(),
+            None,
             PatternSearchOptions {
                 include_rotations: true,
                 include_reflections: true,
@@ -1319,6 +1489,7 @@ mod option_tests {
 
         let variants = PatternSearcher::search_variants(
             &pattern,
+            None,
             PatternSearchOptions {
                 include_rotations: true,
                 include_reflections: true,

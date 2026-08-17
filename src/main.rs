@@ -996,6 +996,7 @@ fn search_pattern(request: SingleGamePatternSearchRequest) -> Result<()> {
 
     let query = PatternSearchQuery {
         pattern,
+        board_context: None,
         options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Game(search_game_id),
     };
@@ -1053,12 +1054,14 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
 
     let query = PatternSearchQuery {
         pattern,
+        board_context: None,
         options: PatternSearchOptions {
             include_rotations: rotations,
             include_reflections: reflections,
             include_reversed_colours: reverse_colours,
             max_match_move,
         },
+
         scope: PatternSearchScope::Project,
     };
 

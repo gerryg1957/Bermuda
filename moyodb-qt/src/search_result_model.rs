@@ -17,10 +17,11 @@ use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QStri
 
 use moyodb::{
     Board, Colour, GameRecord, LocalActivity, Move, NearbyMove, NextMoveDistribution,
-    NextMovePointCount, Pattern, PatternMatch, PatternRect, PatternSearchOptions,
-    PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternTransformation,
-    SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome, SearchSummaryReport,
-    SearchSummaryResult, measure_local_activity, project_manager::ProjectManager,
+    NextMovePointCount, Pattern, PatternBoardContext, PatternMatch, PatternRect,
+    PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
+    PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
+    SearchSummaryReport, SearchSummaryResult, measure_local_activity,
+    project_manager::ProjectManager,
 };
 
 #[allow(non_camel_case_types)]
@@ -728,8 +729,26 @@ fn create_search_engine_and_query(
 
     let pattern = Pattern::extract(&board, rect).map_err(|error| error.to_string())?;
 
+    let right = rect
+        .left
+        .checked_add(rect.width)
+        .ok_or_else(|| "pattern rectangle lies outside the board".to_owned())?;
+
+    let top = rect
+        .bottom
+        .checked_add(rect.height)
+        .ok_or_else(|| "pattern rectangle lies outside the board".to_owned())?;
+
+    let board_context = PatternBoardContext {
+        left: rect.left,
+        right: board.size() - right,
+        bottom: rect.bottom,
+        top: board.size() - top,
+    };
+
     let query = PatternSearchQuery {
         pattern,
+        board_context: Some(board_context),
         scope,
         options: PatternSearchOptions {
             include_rotations,

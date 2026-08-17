@@ -33,9 +33,9 @@ pub use occurrence_context::{
 };
 pub use pattern::{BoardEdges, Pattern, PatternCell, PatternRect, PatternTransformation};
 pub use pattern_search::{
-    NEXT_MOVE_DISPLAY_MARGIN, NextMoveDistribution, NextMovePointCount, PatternGameSummary,
-    PatternMatch, PatternSearchOptions, PatternSearchOutcome, PatternSearchProgress,
-    PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
+    NEXT_MOVE_DISPLAY_MARGIN, NextMoveDistribution, NextMovePointCount, PatternBoardContext,
+    PatternGameSummary, PatternMatch, PatternSearchOptions, PatternSearchOutcome,
+    PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
     PatternSearchSummaryReport, PatternSearchSummaryReportOutcome, PatternSearcher,
 };
 pub use position::{

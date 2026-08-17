@@ -13,6 +13,83 @@ Item {
     property var stones: []
     property var continuationPoints: []
 
+    property int viewA: 1
+    property int viewB: 0
+    property int viewC: 0
+    property int viewD: 1
+
+    property bool reverseColours: false
+
+    function viewOffsetX() {
+        const maximum = root.boardSize - 1
+        return (root.viewA < 0 ? maximum : 0)
+             + (root.viewB < 0 ? maximum : 0)
+    }
+
+    function viewOffsetY() {
+        const maximum = root.boardSize - 1
+        return (root.viewC < 0 ? maximum : 0)
+             + (root.viewD < 0 ? maximum : 0)
+    }
+
+    function boardToViewPoint(x, y) {
+        return {
+            "x": root.viewA * x
+                 + root.viewB * y
+                 + root.viewOffsetX(),
+            "y": root.viewC * x
+                 + root.viewD * y
+                 + root.viewOffsetY()
+        }
+    }
+
+    function viewToBoardPoint(x, y) {
+        const shiftedX = x - root.viewOffsetX()
+        const shiftedY = y - root.viewOffsetY()
+
+        return {
+            "x": root.viewA * shiftedX
+                 + root.viewC * shiftedY,
+            "y": root.viewB * shiftedX
+                 + root.viewD * shiftedY
+        }
+    }
+
+    function flipViewLeftRight() {
+        root.viewA = -root.viewA
+        root.viewB = -root.viewB
+        boardCanvas.requestPaint()
+    }
+
+    function flipViewTopBottom() {
+        root.viewC = -root.viewC
+        root.viewD = -root.viewD
+        boardCanvas.requestPaint()
+    }
+
+    function rotateViewCounterClockwise() {
+        const oldA = root.viewA
+        const oldB = root.viewB
+        const oldC = root.viewC
+        const oldD = root.viewD
+
+        root.viewA = oldC
+        root.viewB = oldD
+        root.viewC = -oldA
+        root.viewD = -oldB
+
+        boardCanvas.requestPaint()
+    }
+
+    function displayedColour(colour) {
+        if (!root.reverseColours)
+            return colour
+
+        return colour === "black" ? "white" : "black"
+    }
+
+    onReverseColoursChanged: boardCanvas.requestPaint()
+
     /*
      * A lightweight strategic influence field derived from the current
      * board position. Positive values represent Black influence and
@@ -787,15 +864,21 @@ Item {
             for (let y = 0; y < root.boardSize; ++y) {
                 for (let x = 0; x < root.boardSize; ++x) {
                     const index = y * root.boardSize + x
+                    const colourSign =
+                        root.reverseColours ? -1.0 : 1.0
+
                     const influence =
                         Number(root.influenceValues[index])
+                        * colourSign
 
                     const enclosure =
-                        root.enclosureValues !== null
-                        && root.enclosureValues.length
-                           === root.boardSize * root.boardSize
-                        ? Number(root.enclosureValues[index])
-                        : 0.0
+                        (
+                            root.enclosureValues !== null
+                            && root.enclosureValues.length
+                               === root.boardSize * root.boardSize
+                            ? Number(root.enclosureValues[index])
+                            : 0.0
+                        ) * colourSign
 
                     let score = influence
 
@@ -892,8 +975,14 @@ Item {
                         alpha = displayScore > 0.0 ? 0.065 : 0.085
                     }
 
-                    const centreX = left + x * spacing
-                    const centreY = top + y * spacing
+                    const viewPoint =
+                        root.boardToViewPoint(x, y)
+
+                    const centreX =
+                        left + viewPoint.x * spacing
+
+                    const centreY =
+                        top + viewPoint.y * spacing
 
                     if (displayScore > 0.0) {
                         ctx.fillStyle =
@@ -921,10 +1010,17 @@ Item {
             const radius = spacing * 0.46
 
             for (const stone of root.stones) {
-                const x = left + stone.x * spacing
-                const y = top + stone.y * spacing
+                const viewPoint =
+                    root.boardToViewPoint(
+                        Number(stone.x),
+                        Number(stone.y))
 
-                if (stone.color === "black") {
+                const x = left + viewPoint.x * spacing
+                const y = top + viewPoint.y * spacing
+                const stoneColour =
+                    root.displayedColour(stone.color)
+
+                if (stoneColour === "black") {
                     const gradient = ctx.createRadialGradient(
                         x - radius * 0.35,
                         y - radius * 0.35,
@@ -1160,8 +1256,13 @@ Item {
                 const radius =
                     spacing * (0.24 + 0.20 * strength)
 
-                const x = left + point.x * spacing
-                const y = top + point.y * spacing
+                const viewPoint =
+                    root.boardToViewPoint(
+                        Number(point.x),
+                        Number(point.y))
+
+                const x = left + viewPoint.x * spacing
+                const y = top + viewPoint.y * spacing
 
                 /*
                  * Frequency is communicated by size rather than colour
@@ -1227,7 +1328,8 @@ Item {
             for (const stone of root.stones) {
                 if (stone.x === root.lastMoveX
                         && stone.y === root.lastMoveY) {
-                    stoneColor = stone.color
+                    stoneColor =
+                        root.displayedColour(stone.color)
                     break
                 }
             }
@@ -1235,8 +1337,13 @@ Item {
             if (stoneColor.length === 0)
                 return
 
-            const x = left + root.lastMoveX * spacing
-            const y = top + root.lastMoveY * spacing
+            const viewPoint =
+                root.boardToViewPoint(
+                    root.lastMoveX,
+                    root.lastMoveY)
+
+            const x = left + viewPoint.x * spacing
+            const y = top + viewPoint.y * spacing
             const digits = root.lastMoveNumber.toString().length
 
             let fontScale = 0.50
@@ -1267,25 +1374,27 @@ Item {
             if (!root.patternSelectionValid)
                 return
 
-            const firstX = Math.min(
-                root.patternStartX,
-                root.patternEndX
-            )
+            const firstPoint =
+                root.boardToViewPoint(
+                    root.patternStartX,
+                    root.patternStartY)
 
-            const firstY = Math.min(
-                root.patternStartY,
-                root.patternEndY
-            )
+            const lastPoint =
+                root.boardToViewPoint(
+                    root.patternEndX,
+                    root.patternEndY)
 
-            const lastX = Math.max(
-                root.patternStartX,
-                root.patternEndX
-            )
+            const firstX =
+                Math.min(firstPoint.x, lastPoint.x)
 
-            const lastY = Math.max(
-                root.patternStartY,
-                root.patternEndY
-            )
+            const firstY =
+                Math.min(firstPoint.y, lastPoint.y)
+
+            const lastX =
+                Math.max(firstPoint.x, lastPoint.x)
+
+            const lastY =
+                Math.max(firstPoint.y, lastPoint.y)
 
             const halfSpacing = spacing * 0.5
             const x = left + firstX * spacing - halfSpacing
@@ -1305,8 +1414,13 @@ Item {
             if (!root.hoverValid)
                 return
 
-            const x = left + root.hoverX * spacing
-            const y = top + root.hoverY * spacing
+            const viewPoint =
+                root.boardToViewPoint(
+                    root.hoverX,
+                    root.hoverY)
+
+            const x = left + viewPoint.x * spacing
+            const y = top + viewPoint.y * spacing
             const radius = spacing * 0.42
 
             ctx.fillStyle = "rgba(80, 140, 220, 0.35)"
@@ -1347,54 +1461,51 @@ Item {
         function nearestPointAt(mouseX, mouseY) {
             const geometry = boardGeometry()
 
-            const boardX = Math.round(
+            const viewX = Math.round(
                 (mouseX - geometry.left) / geometry.spacing
             )
 
-            const boardY = Math.round(
+            const viewY = Math.round(
                 (mouseY - geometry.top) / geometry.spacing
             )
 
             if (
-                boardX < 0 ||
-                boardY < 0 ||
-                boardX >= root.boardSize ||
-                boardY >= root.boardSize
+                viewX < 0 ||
+                viewY < 0 ||
+                viewX >= root.boardSize ||
+                viewY >= root.boardSize
             ) {
                 return null
             }
 
-            return {
-                "x": boardX,
-                "y": boardY
-            }
+            return root.viewToBoardPoint(viewX, viewY)
         }
 
         function pointAt(mouseX, mouseY) {
             const geometry = boardGeometry()
 
-            const boardX = Math.round(
+            const viewX = Math.round(
                 (mouseX - geometry.left) / geometry.spacing
             )
 
-            const boardY = Math.round(
+            const viewY = Math.round(
                 (mouseY - geometry.top) / geometry.spacing
             )
 
             if (
-                boardX < 0 ||
-                boardY < 0 ||
-                boardX >= root.boardSize ||
-                boardY >= root.boardSize
+                viewX < 0 ||
+                viewY < 0 ||
+                viewX >= root.boardSize ||
+                viewY >= root.boardSize
             ) {
                 return null
             }
 
             const pointX =
-                geometry.left + boardX * geometry.spacing
+                geometry.left + viewX * geometry.spacing
 
             const pointY =
-                geometry.top + boardY * geometry.spacing
+                geometry.top + viewY * geometry.spacing
 
             const distanceX = mouseX - pointX
             const distanceY = mouseY - pointY
@@ -1407,10 +1518,7 @@ Item {
             if (distance > geometry.spacing * 0.48)
                 return null
 
-            return {
-                "x": boardX,
-                "y": boardY
-            }
+            return root.viewToBoardPoint(viewX, viewY)
         }
 
         cursorShape: root.patternSelectionEnabled

@@ -194,6 +194,7 @@ fn game_scope_groups_occurrences_for_requested_game() {
     let pattern = test_pattern(&project);
 
     let query = PatternSearchQuery {
+        board_context: None,
         pattern,
         options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Game(1),
@@ -238,6 +239,7 @@ fn project_summary_search_keeps_counts_and_first_appearance_spans() {
     let pattern = test_pattern(&project);
 
     let query = PatternSearchQuery {
+        board_context: None,
         pattern,
         options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Project,
@@ -301,6 +303,7 @@ fn project_scope_returns_one_result_per_matching_game() {
     let pattern = test_pattern(&project);
 
     let query = PatternSearchQuery {
+        board_context: None,
         pattern,
         options: PatternSearchOptions::default(),
         scope: PatternSearchScope::Project,
