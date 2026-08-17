@@ -94,7 +94,9 @@ pub struct GameListRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameListQuery {
     pub player: Option<String>,
+    pub versus: Option<String>,
     pub colour: PlayerColour,
+    pub event: Option<String>,
     pub date_from: Option<String>,
     pub date_to: Option<String>,
     pub result: GameResultFilter,
@@ -107,7 +109,9 @@ impl Default for GameListQuery {
     fn default() -> Self {
         Self {
             player: None,
+            versus: None,
             colour: PlayerColour::Either,
+            event: None,
             date_from: None,
             date_to: None,
             result: GameResultFilter::Any,
@@ -137,6 +141,30 @@ fn player_condition(colour: PlayerColour, parameter: &str) -> String {
     }
 }
 
+fn matchup_condition(
+    colour: PlayerColour,
+    player_parameter: &str,
+    versus_parameter: &str,
+) -> String {
+    match colour {
+        PlayerColour::Black => format!(
+            "(selected_metadata.black_player = {player_parameter} \
+             AND selected_metadata.white_player = {versus_parameter})"
+        ),
+        PlayerColour::White => format!(
+            "(selected_metadata.white_player = {player_parameter} \
+             AND selected_metadata.black_player = {versus_parameter})"
+        ),
+        PlayerColour::Either => format!(
+            "((selected_metadata.black_player = {player_parameter} \
+              AND selected_metadata.white_player = {versus_parameter}) \
+             OR \
+             (selected_metadata.white_player = {player_parameter} \
+              AND selected_metadata.black_player = {versus_parameter}))"
+        ),
+    }
+}
+
 fn result_condition(result: GameResultFilter) -> &'static str {
     match result {
         GameResultFilter::Any => "1 = 1",
@@ -154,6 +182,7 @@ fn result_condition(result: GameResultFilter) -> &'static str {
 pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<GameListRow>> {
     let order_by = order_by_clause(query);
     let player_condition = player_condition(query.colour, "?3");
+    let matchup_condition = matchup_condition(query.colour, "?3", "?4");
     let result_condition = result_condition(query.result);
 
     let sql = format!(
@@ -221,18 +250,33 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
     ON selected_metadata.game_id = games.id
 
 WHERE (
-    ?3 IS NULL
-    OR {player_condition}
-)
-
-AND (
-    ?4 IS NULL
-    OR selected_metadata.played_date_sort >= ?4
+    (
+        ?4 IS NULL
+        AND (
+            ?3 IS NULL
+            OR {player_condition}
+        )
+    )
+    OR (
+        ?4 IS NOT NULL
+        AND ?3 IS NOT NULL
+        AND {matchup_condition}
+    )
 )
 
 AND (
     ?5 IS NULL
-    OR selected_metadata.played_date_sort <= ?5
+    OR selected_metadata.event LIKE '%' || ?5 || '%' COLLATE NOCASE
+)
+
+AND (
+    ?6 IS NULL
+    OR selected_metadata.played_date_sort >= ?6
+)
+
+AND (
+    ?7 IS NULL
+    OR selected_metadata.played_date_sort <= ?7
 )
 
 AND (
@@ -256,6 +300,8 @@ ORDER BY {order_by}
                 i64::from(query.limit),
                 i64::from(query.offset),
                 query.player.as_deref(),
+                query.versus.as_deref(),
+                query.event.as_deref(),
                 query.date_from.as_deref(),
                 query.date_to.as_deref(),
             ],
@@ -281,6 +327,7 @@ ORDER BY {order_by}
 
 pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64> {
     let player_condition = player_condition(query.colour, "?1");
+    let matchup_condition = matchup_condition(query.colour, "?1", "?2");
     let result_condition = result_condition(query.result);
 
     let sql = format!(
@@ -339,18 +386,33 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
             ON selected_metadata.game_id = games.id
 
         WHERE (
-            ?1 IS NULL
-            OR {player_condition}
-        )
-
-        AND (
-            ?2 IS NULL
-            OR selected_metadata.played_date_sort >= ?2
+            (
+                ?2 IS NULL
+                AND (
+                    ?1 IS NULL
+                    OR {player_condition}
+                )
+            )
+            OR (
+                ?2 IS NOT NULL
+                AND ?1 IS NOT NULL
+                AND {matchup_condition}
+            )
         )
 
         AND (
             ?3 IS NULL
-            OR selected_metadata.played_date_sort <= ?3
+            OR selected_metadata.event LIKE '%' || ?3 || '%' COLLATE NOCASE
+        )
+
+        AND (
+            ?4 IS NULL
+            OR selected_metadata.played_date_sort >= ?4
+        )
+
+        AND (
+            ?5 IS NULL
+            OR selected_metadata.played_date_sort <= ?5
         )
 
         AND (
@@ -364,6 +426,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
             &sql,
             params![
                 query.player.as_deref(),
+                query.versus.as_deref(),
+                query.event.as_deref(),
                 query.date_from.as_deref(),
                 query.date_to.as_deref(),
             ],
@@ -782,6 +846,132 @@ VALUES (
             games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
             vec![2]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_by_opponent_with_player_of_either_colour() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            versus: Some("Beta".to_owned()),
+            colour: PlayerColour::Either,
+            ..GameListQuery::default()
+        };
+
+        let games = list_games(&connection, &query)?;
+
+        assert_eq!(
+            games.iter().map(|game| game.game_id).collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        let reversed_query = GameListQuery {
+            player: Some("Beta".to_owned()),
+            versus: Some("Alpha".to_owned()),
+            colour: PlayerColour::Either,
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &reversed_query)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_by_opponent_with_specific_colour() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let black_query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            versus: Some("Beta".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &black_query)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        let wrong_colour_query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            versus: Some("Beta".to_owned()),
+            colour: PlayerColour::White,
+            ..GameListQuery::default()
+        };
+
+        assert!(list_games(&connection, &wrong_colour_query)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn versus_without_player_matches_nothing() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            versus: Some("Beta".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert!(list_games(&connection, &query)?.is_empty());
+        assert_eq!(count_games(&connection, &query)?, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_event_by_case_insensitive_substring() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            event: Some("SPRING".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &query)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        let partial_query = GameListQuery {
+            event: Some("tournament".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(list_games(&connection, &partial_query)?.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn counts_games_matching_versus_and_event_filters() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            versus: Some("Beta".to_owned()),
+            colour: PlayerColour::Either,
+            event: Some("spring".to_owned()),
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(count_games(&connection, &query)?, 1);
 
         Ok(())
     }
