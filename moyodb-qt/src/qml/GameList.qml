@@ -70,6 +70,7 @@ Kirigami.AbstractCard {
         searchModel.error_message
 
     property string sortColumn: "date"
+    property bool whiteColumnFirst: false
 
     property bool sortAscending: false
 
@@ -1377,10 +1378,12 @@ Kirigami.AbstractCard {
         id: blackHeader
 
         text: root.sortHeaderText(
-                  "black",
-                  qsTr("Black"))
+                  root.whiteColumnFirst ? "white" : "black",
+                  root.whiteColumnFirst
+                      ? qsTr("White")
+                      : qsTr("Black"))
 
-        Layout.preferredWidth: 150
+        Layout.preferredWidth: 134
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -1395,18 +1398,34 @@ Kirigami.AbstractCard {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
 
-            onClicked: root.sortBy("black", true)
+            onClicked: root.sortBy(
+                           root.whiteColumnFirst ? "white" : "black",
+                           true)
         }
+    }
+
+    ToolButton {
+        text: qsTr("⇄")
+        Layout.preferredWidth: 32
+        Layout.maximumWidth: 32
+
+        ToolTip.visible: hovered
+        ToolTip.text: qsTr("Swap Black and White columns")
+
+        onClicked:
+            root.whiteColumnFirst = !root.whiteColumnFirst
     }
 
     Label {
         id: whiteHeader
 
         text: root.sortHeaderText(
-                  "white",
-                  qsTr("White"))
+                  root.whiteColumnFirst ? "black" : "white",
+                  root.whiteColumnFirst
+                      ? qsTr("Black")
+                      : qsTr("White"))
 
-        Layout.preferredWidth: 150
+        Layout.preferredWidth: 134
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -1421,7 +1440,9 @@ Kirigami.AbstractCard {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
 
-            onClicked: root.sortBy("white", true)
+            onClicked: root.sortBy(
+                           root.whiteColumnFirst ? "black" : "white",
+                           true)
         }
     }
 
@@ -1535,15 +1556,31 @@ Kirigami.AbstractCard {
                 spacing: 0
 
                 Label {
-                    text: qsTr("Black")
-                    Layout.preferredWidth: 150
+                    text: root.whiteColumnFirst
+                          ? qsTr("White")
+                          : qsTr("Black")
+                    Layout.preferredWidth: 134
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
                 }
 
+                ToolButton {
+                    text: qsTr("⇄")
+                    Layout.preferredWidth: 32
+                    Layout.maximumWidth: 32
+
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Swap Black and White columns")
+
+                    onClicked:
+                        root.whiteColumnFirst = !root.whiteColumnFirst
+                }
+
                 Label {
-                    text: qsTr("White")
-                    Layout.preferredWidth: 150
+                    text: root.whiteColumnFirst
+                          ? qsTr("Black")
+                          : qsTr("White")
+                    Layout.preferredWidth: 134
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
                 }
@@ -1674,15 +1711,23 @@ Kirigami.AbstractCard {
                     spacing: 0
 
                     Label {
-                        text: searchRowDelegate.blackPlayer
-                        Layout.preferredWidth: 150
+                        text: root.whiteColumnFirst
+                              ? searchRowDelegate.whitePlayer
+                              : searchRowDelegate.blackPlayer
+                        Layout.preferredWidth: 134
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
 
+                    Item {
+                        Layout.preferredWidth: 32
+                    }
+
                     Label {
-                        text: searchRowDelegate.whitePlayer
-                        Layout.preferredWidth: 150
+                        text: root.whiteColumnFirst
+                              ? searchRowDelegate.blackPlayer
+                              : searchRowDelegate.whitePlayer
+                        Layout.preferredWidth: 134
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
@@ -1895,15 +1940,23 @@ Kirigami.AbstractCard {
                     spacing: 0
 
                     Label {
-                        text: rowDelegate.blackPlayer
-                        Layout.preferredWidth: 150
+                        text: root.whiteColumnFirst
+                              ? rowDelegate.whitePlayer
+                              : rowDelegate.blackPlayer
+                        Layout.preferredWidth: 134
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
 
+                    Item {
+                        Layout.preferredWidth: 32
+                    }
+
                     Label {
-                        text: rowDelegate.whitePlayer
-                        Layout.preferredWidth: 150
+                        text: root.whiteColumnFirst
+                              ? rowDelegate.blackPlayer
+                              : rowDelegate.whitePlayer
+                        Layout.preferredWidth: 134
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }

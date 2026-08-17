@@ -808,48 +808,6 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
-                          text: qsTr("Influence")
-                          checkable: true
-                          checked: goBoard.influenceVisible
-
-                          onToggled: goBoard.influenceVisible = checked
-                      }
-
-                      ToolButton {
-                          text: qsTr("↔")
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Flip board left to right")
-
-                          onClicked: goBoard.flipViewLeftRight()
-                      }
-
-                      ToolButton {
-                          text: qsTr("↕")
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Flip board top to bottom")
-
-                          onClicked: goBoard.flipViewTopBottom()
-                      }
-
-                      ToolButton {
-                          text: qsTr("↺")
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Rotate board 90° counter-clockwise")
-
-                          onClicked: goBoard.rotateViewCounterClockwise()
-                      }
-
-                      ToolButton {
-                          text: qsTr("B/W")
-                          checkable: true
-                          checked: goBoard.reverseColours
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Swap displayed Black and White")
-
-                          onToggled: goBoard.reverseColours = checked
-                      }
-
-                      ToolButton {
                           text: qsTr("Search Database")
 
                           enabled: goBoard.patternSelectionValid
@@ -882,8 +840,49 @@ menuBar: MenuBar {
                           }
                       }
 
+                      ToolButton {
+                          text: qsTr("Influence")
+                          checkable: true
+                          checked: goBoard.influenceVisible
+
+                          onToggled: goBoard.influenceVisible = checked
+                      }
+
                       Item {
                           Layout.fillWidth: true
+                      }
+
+                      ToolButton {
+                          text: qsTr("↔")
+                          Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                          font.pixelSize: Kirigami.Units.gridUnit * 1.15
+
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Flip board left to right")
+
+                          onClicked: goBoard.flipViewLeftRight()
+                      }
+
+                      ToolButton {
+                          text: qsTr("↕")
+                          Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                          font.pixelSize: Kirigami.Units.gridUnit * 1.15
+
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Flip board top to bottom")
+
+                          onClicked: goBoard.flipViewTopBottom()
+                      }
+
+                      ToolButton {
+                          text: qsTr("↺")
+                          Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                          font.pixelSize: Kirigami.Units.gridUnit * 1.15
+
+                          ToolTip.visible: hovered
+                          ToolTip.text: qsTr("Rotate board 90° counter-clockwise")
+
+                          onClicked: goBoard.rotateViewCounterClockwise()
                       }
 
                       Label {

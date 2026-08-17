@@ -18,8 +18,6 @@ Item {
     property int viewC: 0
     property int viewD: 1
 
-    property bool reverseColours: false
-
     function viewOffsetX() {
         const maximum = root.boardSize - 1
         return (root.viewA < 0 ? maximum : 0)
@@ -80,15 +78,6 @@ Item {
 
         boardCanvas.requestPaint()
     }
-
-    function displayedColour(colour) {
-        if (!root.reverseColours)
-            return colour
-
-        return colour === "black" ? "white" : "black"
-    }
-
-    onReverseColoursChanged: boardCanvas.requestPaint()
 
     /*
      * A lightweight strategic influence field derived from the current
@@ -864,21 +853,15 @@ Item {
             for (let y = 0; y < root.boardSize; ++y) {
                 for (let x = 0; x < root.boardSize; ++x) {
                     const index = y * root.boardSize + x
-                    const colourSign =
-                        root.reverseColours ? -1.0 : 1.0
-
                     const influence =
                         Number(root.influenceValues[index])
-                        * colourSign
 
                     const enclosure =
-                        (
-                            root.enclosureValues !== null
-                            && root.enclosureValues.length
-                               === root.boardSize * root.boardSize
-                            ? Number(root.enclosureValues[index])
-                            : 0.0
-                        ) * colourSign
+                        root.enclosureValues !== null
+                        && root.enclosureValues.length
+                           === root.boardSize * root.boardSize
+                        ? Number(root.enclosureValues[index])
+                        : 0.0
 
                     let score = influence
 
@@ -1017,10 +1000,7 @@ Item {
 
                 const x = left + viewPoint.x * spacing
                 const y = top + viewPoint.y * spacing
-                const stoneColour =
-                    root.displayedColour(stone.color)
-
-                if (stoneColour === "black") {
+                if (stone.color === "black") {
                     const gradient = ctx.createRadialGradient(
                         x - radius * 0.35,
                         y - radius * 0.35,
@@ -1328,8 +1308,7 @@ Item {
             for (const stone of root.stones) {
                 if (stone.x === root.lastMoveX
                         && stone.y === root.lastMoveY) {
-                    stoneColor =
-                        root.displayedColour(stone.color)
+                    stoneColor = stone.color
                     break
                 }
             }
