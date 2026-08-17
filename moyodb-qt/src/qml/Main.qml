@@ -715,21 +715,28 @@ menuBar: MenuBar {
                     id: boardFrame
 
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
 
                     /*
-                     * Keep the goban physically stable while search filters,
-                     * game metadata and other information below it change.
-                     * The board-pane width is the authority for board size.
+                     * Prefer a full-width square goban when vertical space
+                     * permits, but allow the board area to shrink so that the
+                     * controls and game information below it remain visible.
                      */
                     Layout.preferredHeight: width
-                    Layout.minimumHeight: width
+                    Layout.minimumHeight: Kirigami.Units.gridUnit * 8
                     Layout.maximumHeight: width
 
                     padding: 4
 
-                      GoBoard {
-                          id: goBoard
-                          anchors.fill: parent
+                    GoBoard {
+                        id: goBoard
+
+                        anchors.centerIn: parent
+
+                        width: Math.min(
+                            boardFrame.availableWidth,
+                            boardFrame.availableHeight)
+                        height: width
 
                           patternSelectionEnabled: boardPane.selectingPattern
 
