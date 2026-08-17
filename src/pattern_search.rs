@@ -328,9 +328,11 @@ impl PatternVariant {
         bits & row_mask
     }
 
-    fn matching_lefts_at_bottom(
+    fn matching_lefts_at_bottom_words(
         &self,
-        board: &crate::Board,
+        board_size: u8,
+        black_words: &[u64],
+        white_words: &[u64],
         bottom: u8,
         first_left: u8,
         last_left: u8,
@@ -351,17 +353,17 @@ impl PatternVariant {
 
         let mut candidates = legal_lefts;
 
-        let board_size = usize::from(board.size());
+        let board_size = usize::from(board_size);
         let board_row_mask = (1u64 << board_size) - 1;
 
         for y in 0..usize::from(self.pattern.height) {
             let start = (usize::from(bottom) + y) * board_size;
 
             let black =
-                Self::board_row_bits(board.black_words(), start, board_size, board_row_mask);
+                Self::board_row_bits(black_words, start, board_size, board_row_mask);
 
             let white =
-                Self::board_row_bits(board.white_words(), start, board_size, board_row_mask);
+                Self::board_row_bits(white_words, start, board_size, board_row_mask);
 
             /*
              * Test occupied pattern points first.  These usually reject
@@ -414,6 +416,42 @@ impl PatternVariant {
         }
 
         candidates & legal_lefts
+    }
+
+    fn matching_lefts_at_bottom(
+        &self,
+        board: &crate::Board,
+        bottom: u8,
+        first_left: u8,
+        last_left: u8,
+    ) -> u64 {
+        self.matching_lefts_at_bottom_words(
+            board.size(),
+            board.black_words(),
+            board.white_words(),
+            bottom,
+            first_left,
+            last_left,
+        )
+    }
+
+    #[cfg(test)]
+    fn matching_lefts_at_bottom_indexed(
+        &self,
+        board_size: u8,
+        position: &crate::pattern_index::PatternIndexedPosition,
+        bottom: u8,
+        first_left: u8,
+        last_left: u8,
+    ) -> u64 {
+        self.matching_lefts_at_bottom_words(
+            board_size,
+            &position.black,
+            &position.white,
+            bottom,
+            first_left,
+            last_left,
+        )
     }
 }
 
@@ -1430,6 +1468,64 @@ mod option_tests {
         let empty_matches = empty_variant.matching_lefts_at_bottom(&board, 5, 5, 7);
 
         assert_eq!(empty_matches, 1u64 << 5);
+    }
+
+    #[test]
+    fn packed_indexed_position_matches_like_replayed_board() {
+        use crate::pattern_index::pattern_positions_from_record;
+        use crate::replay_positions;
+
+        let collection = crate::parse_collection(
+            b"(;FF[4]GM[1]SZ[19]
+                ;B[pd]
+                ;W[dd]
+                ;B[qp]
+                ;W[dp])",
+        )
+        .unwrap();
+
+        let game = crate::extract_main_variation(&collection).unwrap();
+
+        let replayed = replay_positions(&game).unwrap();
+        let indexed = pattern_positions_from_record(42, &game).unwrap();
+
+        let variant = PatternVariant::new(
+            asymmetric_pattern(),
+            None,
+            PatternTransformation::Identity,
+            false,
+        );
+
+        assert_eq!(replayed.len(), indexed.len());
+
+        for (state, packed) in replayed.iter().zip(&indexed) {
+            for bottom in 0..=19 - variant.pattern.height {
+                let last_left = 19 - variant.pattern.width;
+
+                let board_matches = variant.matching_lefts_at_bottom(
+                    &state.board,
+                    bottom,
+                    0,
+                    last_left,
+                );
+
+                let packed_matches = variant.matching_lefts_at_bottom_indexed(
+                    19,
+                    packed,
+                    bottom,
+                    0,
+                    last_left,
+                );
+
+                assert_eq!(
+                    packed_matches,
+                    board_matches,
+                    "packed matcher differs at move {} bottom {}",
+                    state.occurrence.move_number,
+                    bottom
+                );
+            }
+        }
     }
 
     #[test]

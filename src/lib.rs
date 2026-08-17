@@ -13,6 +13,7 @@ pub mod indexer;
 pub mod move_file;
 pub mod occurrence_context;
 pub mod pattern;
+pub mod pattern_index;
 pub mod pattern_search;
 pub mod position;
 pub mod position_stream;
