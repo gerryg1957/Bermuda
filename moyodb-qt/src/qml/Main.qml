@@ -243,47 +243,18 @@ menuBar: MenuBar {
         title: qsTr("&Database")
 
         Action {
-            text: qsTr("&Open Database…")
-
-            enabled: !databaseOperation.in_progress
-
-            onTriggered: openDatabaseDialog.open()
-        }
-
-        Action {
-            text: qsTr("&Create Database…")
-
-            enabled: !databaseOperation.in_progress
-
-            onTriggered:
-                databaseImportDialog.openCreate()
-        }
-
-        Action {
             text: qsTr("&Add Games…")
 
             enabled: root.projectPath.length > 0
                      && !databaseOperation.in_progress
 
-            onTriggered:
-                databaseImportDialog.openAdd(
-                    root.projectPath)
-        }
-
-        Action {
-            text: qsTr("&Update Position Index")
-
-            enabled: root.projectPath.length > 0
-                     && !databaseOperation.in_progress
-
             onTriggered: {
-                databaseOperation.clearStatus()
-
-                if (databaseOperation.updatePositionIndex(
-                            root.projectPath)) {
-                    databaseProgressDialog.open()
+                if (root.projectPath === root.managedProjectPath) {
+                    databaseImportDialog.openManagedAdd(
+                        root.projectPath)
                 } else {
-                    databaseProgressDialog.open()
+                    databaseImportDialog.openAdd(
+                        root.projectPath)
                 }
             }
         }
@@ -309,6 +280,47 @@ menuBar: MenuBar {
             onTriggered: {
                 databaseProgressDialog.open()
                 databaseOperation.cancelOperation()
+            }
+        }
+
+        MenuSeparator {}
+
+        Menu {
+            title: qsTr("&Advanced")
+
+            Action {
+                text: qsTr("&Open Another Database…")
+
+                enabled: !databaseOperation.in_progress
+
+                onTriggered: openDatabaseDialog.open()
+            }
+
+            Action {
+                text: qsTr("&Create Another Database…")
+
+                enabled: !databaseOperation.in_progress
+
+                onTriggered:
+                    databaseImportDialog.openCreate()
+            }
+
+            Action {
+                text: qsTr("&Update Position Index")
+
+                enabled: root.projectPath.length > 0
+                         && !databaseOperation.in_progress
+
+                onTriggered: {
+                    databaseOperation.clearStatus()
+
+                    if (databaseOperation.updatePositionIndex(
+                                root.projectPath)) {
+                        databaseProgressDialog.open()
+                    } else {
+                        databaseProgressDialog.open()
+                    }
+                }
             }
         }
     }

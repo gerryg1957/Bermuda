@@ -78,6 +78,14 @@ Dialog {
         open()
     }
 
+    function openManagedAdd(projectPath) {
+        mode = "managed-add"
+        currentProjectPath = projectPath
+
+        resetCommonFields()
+        open()
+    }
+
     function openAdd(projectPath) {
         mode = "add"
         currentProjectPath = projectPath
@@ -169,7 +177,14 @@ Dialog {
                         sourceFolderField.text.trim(),
                         sourceNameField.text.trim(),
                         sourceVersionField.text.trim(),
-                        buildIndexCheckBox.checked)
+                        true)
+        } else if (mode === "managed-add") {
+            started = operationModel.addGames(
+                        currentProjectPath,
+                        sourceFolderField.text.trim(),
+                        sourceNameField.text.trim(),
+                        sourceVersionField.text.trim(),
+                        true)
         } else {
             started = operationModel.addGames(
                         currentProjectPath,
@@ -348,9 +363,10 @@ Dialog {
             id: buildIndexCheckBox
 
             Layout.fillWidth: true
+            visible: root.mode === "create"
+                     || root.mode === "add"
 
             text: root.mode === "create"
-                  || root.mode === "managed-create"
                 ? qsTr("Build the position index after importing")
                 : qsTr("Update the position index after importing")
         }
