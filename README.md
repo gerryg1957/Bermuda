@@ -1,75 +1,171 @@
-## License
+# MoyoDB
 
-MoyoDB is licensed under the GNU General Public License v3.0.
-See the LICENSE file for details.
+MoyoDB is an open-source desktop application for studying Go games.
 
-# MoyoDB core and command-line tool
+It combines an SGF game database with an interactive Go board and pattern
+search. Positions can be selected directly on the board and searched across
+the database, with results showing matching games and continuation
+statistics.
 
-This Rust project implements the first working MoyoDB pipeline:
+MoyoDB is intended for serious game study while keeping the normal workflow
+simple: import a collection of SGF games, browse the catalogue, open a game,
+select a pattern, and search.
 
-- SGF FF[4]-style collection and tree parsing
-- first-child main-variation extraction
-- setup stones (`AB`, `AW`, and `AE`)
-- captures, suicide checking, passes, and simple ko
-- compact, versioned `.moves` files
-- a `moyodb` command-line executable
+> MoyoDB is under active development. Linux is currently the tested and
+> supported platform.
 
-## Build and test
+## Features
+
+- Browse large collections of SGF games.
+- Replay games on an interactive 19×19 Go board.
+- Open individual SGF files independently of the database.
+- Select rectangular patterns directly on the board.
+- Search for matching positions across the game database.
+- Match patterns under board rotations and reflections.
+- Examine the moves played after matching positions.
+- View continuation statistics on the board.
+- Filter search results by game metadata.
+- Filter results by particular continuations.
+- Import additional SGF collections into an existing database.
+- Detect duplicate games when collections overlap.
+- Retain source information for imported game collections.
+
+## Using MoyoDB
+
+MoyoDB is intended to be installed and used as a normal desktop application,
+launched from an application menu or icon.
+
+Packaged releases are not available yet, so the current development version
+must still be built from source. The `cargo` commands later in this README
+are therefore development/build instructions, not the intended long-term
+way of launching MoyoDB.
+
+### First launch
+
+On its first normal launch, MoyoDB offers to create a managed
+**Games Database**.
+
+Choose a folder containing SGF files, enter a name and version for the source,
+and select **Create**. MoyoDB imports the games and prepares the database for
+searching.
+
+On subsequent launches, the Games Database is opened automatically.
+
+To add another collection or a later release of an existing collection, use:
+
+**Database → Add Games…**
+
+MoyoDB automatically updates the search data needed after the import.
+
+## Pattern search
+
+Open a game from the catalogue, or open an external SGF file with
+**File → Open SGF…**.
+
+Move to the position you want to investigate and choose **Select Pattern**.
+Drag on the board to select the rectangular area to search for, then start
+the search.
+
+MoyoDB searches for equivalent positions across the database, including
+rotations and reflections where appropriate.
+
+The results can then be explored in several ways:
+
+- open matching games at the matching position;
+- examine the most common continuation moves;
+- restrict the results by player, date and other game metadata;
+- restrict the results to games containing a selected continuation;
+- compare alternative continuations on the board.
+
+Starting a new search restores the original source game and board orientation.
+
+## Demonstration
+
+A demonstration of the graphical application is available here:
+
+[Watch the MoyoDB demonstration](docs/moyodb-demo.webm)
+
+## Building from source
+
+Until packaged releases are available, the development version of MoyoDB can
+be built and run from the source tree.
+
+MoyoDB is written in Rust. The graphical application uses Qt 6, QML, CXX-Qt
+and KDE Kirigami.
+
+### Requirements
+
+You will need:
+
+- a current Rust toolchain;
+- a working C/C++ development toolchain;
+- Qt 6 development files;
+- Qt Quick, Qt Quick Controls, Qt Quick Layouts and Qt Quick Dialogs;
+- the KDE Kirigami QML module.
+
+Package names vary between Linux distributions.
+
+### Build the graphical application
+
+From the repository root:
 
 ```bash
-cargo fmt
-cargo test
-cargo clippy --all-targets --all-features
-cargo build --release
+cargo build --release -p moyodb-qt
 ```
 
-The release executable is written to:
+For development, run it directly from the source tree with:
 
-```text
-target/release/moyodb
+```bash
+cargo run --release -p moyodb-qt
 ```
 
-## Commands
+or, for a non-release build:
 
-Show help:
+```bash
+cargo run -p moyodb-qt
+```
+
+These commands are for building and developing MoyoDB. Once packaged releases
+are available, ordinary users will install MoyoDB and launch it normally from
+their desktop environment.
+
+## Game collections
+
+MoyoDB works with SGF collections supplied by the user.
+
+Each import records a source name and source version. This makes it possible
+to combine collections and later releases while retaining their provenance.
+Games present in more than one imported source are detected as duplicates
+rather than being stored as independent copies.
+
+## Command-line and developer tools
+
+The repository also contains the `moyodb` command-line application used for
+database development, importing, inspection and search-engine work.
+
+Show the currently available commands with:
 
 ```bash
 cargo run -- --help
 ```
 
-Convert an SGF game to a compact move file:
+The command-line interface is primarily a development and advanced-user
+interface. Normal use of MoyoDB is through the graphical application.
 
-```bash
-cargo run -- import game.sgf game.moves
-```
+## Development status
 
-Inspect a compact move file:
+MoyoDB is under active development.
 
-```bash
-cargo run -- inspect game.moves
-```
+Linux is the currently tested and supported target. The Rust, Qt and CXX-Qt
+technology used by the project makes other desktop platforms possible, but
+Windows and macOS should not yet be considered supported MoyoDB platforms.
 
-Replay the entire game:
+The database and search implementation continue to evolve, and file formats
+and developer interfaces may change while the project is in development.
 
-```bash
-cargo run -- replay game.moves
-```
+## License
 
-Replay through move 100:
+MoyoDB is free software licensed under the GNU General Public License,
+version 3 or later.
 
-```bash
-cargo run -- replay game.moves --move-number 100
-```
-
-After a release build, replace `cargo run --` with `target/release/moyodb`.
-
-## Deliberate current limits
-
-- board sizes are limited to 19 or smaller;
-- the first game in an SGF collection is selected;
-- the first child at each branch is treated as the main variation;
-- simple ko is implemented, not positional or situational superko;
-- compressed SGF point ranges such as `AB[aa:cc]` are not yet expanded;
-- character-set conversion from legacy SGF encodings is not yet implemented.
-
-The next milestone is directory import with SQLite metadata and duplicate detection.
+See `LICENSE` for details.
