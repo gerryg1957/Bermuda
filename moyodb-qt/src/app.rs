@@ -33,6 +33,10 @@ mod ffi {
         type MoyoDbApp = super::MoyoDbAppRust;
 
         #[qinvokable]
+        #[cxx_name = "projectExists"]
+        fn project_exists(self: &MoyoDbApp, project_path: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "loadGame"]
         fn load_game(self: Pin<&mut MoyoDbApp>, project_path: &QString, game_id: i64) -> bool;
 
@@ -138,6 +142,15 @@ impl Default for MoyoDbAppRust {
 }
 
 impl ffi::MoyoDbApp {
+    fn project_exists(&self, project_path: &QString) -> bool {
+        let path = project_path.to_string();
+
+        !path.trim().is_empty()
+            && ProjectManager::new()
+                .open(Path::new(&path))
+                .is_ok()
+    }
+
     fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {
         let path = project_path.to_string();
 

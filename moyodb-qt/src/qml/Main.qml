@@ -17,7 +17,43 @@ ApplicationWindow {
 
     minimumWidth: 900
     minimumHeight: 600
-       property string projectPath: Qt.application.arguments.length > 1
+       function localPathFromUrl(url) {
+        const text = url.toString()
+
+        if (text.length === 0)
+            return ""
+
+        const parsed = new URL(text)
+        let path = decodeURIComponent(parsed.pathname)
+
+        /*
+         * URL paths for Windows drive letters conventionally begin
+         * with '/', for example /C:/Users/...
+         */
+        if (Qt.platform.os === "windows"
+                && path.length >= 3
+                && path.charAt(0) === "/"
+                && path.charAt(2) === ":") {
+            path = path.substring(1)
+        }
+
+        return path
+    }
+
+    readonly property string managedProjectPath: {
+        const location =
+            StandardPaths.writableLocation(
+                StandardPaths.GenericDataLocation)
+
+        const basePath = localPathFromUrl(location)
+
+        if (basePath.length === 0)
+            return ""
+
+        return basePath.replace(/\/+$/, "") + "/MoyoDB/games-database"
+    }
+
+    property string projectPath: Qt.application.arguments.length > 1
         ? Qt.application.arguments[1]
         : ""
 
@@ -89,9 +125,8 @@ ApplicationWindow {
       title: qsTr("Open Database")
 
       onAccepted: {
-          const folderUrl = new URL(selectedFolder)
           const folderPath =
-              decodeURIComponent(folderUrl.pathname)
+              root.localPathFromUrl(selectedFolder)
 
           root.clearProjectSelection()
           root.projectPath = folderPath
@@ -296,6 +331,13 @@ menuBar: MenuBar {
     Component.onCompleted: {
         if (uiSettings.splitViewState) {
             mainSplitView.restoreState(uiSettings.splitViewState)
+        }
+
+        if (root.projectPath.length === 0
+                && root.managedProjectPath.length > 0
+                && gameController.projectExists(
+                    root.managedProjectPath)) {
+            root.projectPath = root.managedProjectPath
         }
     }
 
