@@ -16,9 +16,11 @@ Dialog {
     modal: true
     width: Math.min(720, parent ? parent.width - 48 : 720)
 
-    title: mode === "create"
-        ? qsTr("Create Database")
-        : qsTr("Add Games")
+    title: mode === "managed-create"
+        ? qsTr("Create Games Database")
+        : mode === "create"
+          ? qsTr("Create Database")
+          : qsTr("Add Games")
 
     closePolicy: Popup.CloseOnEscape
 
@@ -56,6 +58,18 @@ Dialog {
 
     function openCreate() {
         mode = "create"
+        currentProjectPath = ""
+
+        databaseNameField.text = ""
+        parentFolderField.text = ""
+
+        resetCommonFields()
+        open()
+    }
+
+    function openManagedCreate(projectPath) {
+        mode = "managed-create"
+        currentProjectPath = projectPath
 
         databaseNameField.text = ""
         parentFolderField.text = ""
@@ -95,6 +109,12 @@ Dialog {
                     === 0) {
                 formError = qsTr(
                             "Choose a parent folder.")
+                return false
+            }
+        } else if (mode === "managed-create") {
+            if (currentProjectPath.length === 0) {
+                formError = qsTr(
+                            "The managed database location is unavailable.")
                 return false
             }
         } else if (currentProjectPath.length === 0) {
@@ -138,6 +158,14 @@ Dialog {
             started = operationModel.createDatabase(
                         databaseNameField.text.trim(),
                         destinationPath(),
+                        sourceFolderField.text.trim(),
+                        sourceNameField.text.trim(),
+                        sourceVersionField.text.trim(),
+                        buildIndexCheckBox.checked)
+        } else if (mode === "managed-create") {
+            started = operationModel.createDatabase(
+                        "Games Database",
+                        currentProjectPath,
                         sourceFolderField.text.trim(),
                         sourceNameField.text.trim(),
                         sourceVersionField.text.trim(),
@@ -322,6 +350,7 @@ Dialog {
             Layout.fillWidth: true
 
             text: root.mode === "create"
+                  || root.mode === "managed-create"
                 ? qsTr("Build the position index after importing")
                 : qsTr("Update the position index after importing")
         }
@@ -361,6 +390,7 @@ Dialog {
 
             Button {
                 text: root.mode === "create"
+                      || root.mode === "managed-create"
                     ? qsTr("Create")
                     : qsTr("Add Games")
 

@@ -334,10 +334,14 @@ menuBar: MenuBar {
         }
 
         if (root.projectPath.length === 0
-                && root.managedProjectPath.length > 0
-                && gameController.projectExists(
+                && root.managedProjectPath.length > 0) {
+            if (gameController.projectExists(
                     root.managedProjectPath)) {
-            root.projectPath = root.managedProjectPath
+                root.projectPath = root.managedProjectPath
+            } else {
+                databaseImportDialog.openManagedCreate(
+                    root.managedProjectPath)
+            }
         }
     }
 
