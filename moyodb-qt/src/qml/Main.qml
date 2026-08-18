@@ -332,6 +332,20 @@ menuBar: MenuBar {
                 goBoard.selectedContinuationY = -1
             }
 
+            onSourceContinuationMapReady: function(points) {
+                goBoard.selectedContinuationX = -1
+                goBoard.selectedContinuationY = -1
+
+                goBoard.continuationPoints =
+                    points.map(function(point) {
+                        return {
+                            "x": point.x,
+                            "y": goBoard.boardSize - 1 - point.coreY,
+                            "count": point.count
+                        }
+                    })
+            }
+
                        onGameSelected: function(game) {
                 if (!game.fromSearchResults)
                     gameList.clearSearchResults()
@@ -402,6 +416,103 @@ menuBar: MenuBar {
             property int matchHeight: 0
             property bool showingMatchPosition: false
 
+            property var searchSourceGame: null
+            property bool searchSourceEditingPosition: false
+
+            property bool comparingContinuations: false
+            property string comparisonStep: "A"
+
+            readonly property bool investigatingSearch:
+                gameList.searchHasRun && !gameList.searchInProgress
+
+            readonly property bool showingContinuationComparison:
+                gameList.comparisonCandidateA !== null
+                && gameList.comparisonCandidateB !== null
+
+            function beginSearchSession() {
+                if (!gameController.snapshotSearchSource()) {
+                    console.warn(gameController.error_message)
+                    return false
+                }
+
+                searchSourceGame = selectedGame
+                searchSourceEditingPosition = editingPosition
+                return true
+            }
+
+            function beginContinuationComparison() {
+                if (gameList.continuationCandidates.length < 2)
+                    return
+
+                if (gameList.continuationFilterActive)
+                    gameList.clearContinuationFilter()
+
+                gameList.comparisonCandidateA = null
+                gameList.comparisonCandidateB = null
+
+                comparingContinuations = true
+                comparisonStep = "A"
+            }
+
+            function cancelContinuationComparison() {
+                comparingContinuations = false
+                comparisonStep = "A"
+                gameList.comparisonCandidateA = null
+                gameList.comparisonCandidateB = null
+            }
+
+            function chooseComparisonContinuation(boardX, coreY) {
+                let candidate = null
+
+                for (const current of gameList.continuationCandidates) {
+                    if (current.x === boardX
+                            && current.coreY === coreY) {
+                        candidate = current
+                        break
+                    }
+                }
+
+                if (candidate === null)
+                    return false
+
+                if (comparisonStep === "A") {
+                    gameList.selectComparisonCandidate("A", candidate)
+                    comparisonStep = "B"
+                    return true
+                }
+
+                if (gameList.sameContinuationCandidate(
+                            gameList.comparisonCandidateA,
+                            candidate)) {
+                    return true
+                }
+
+                gameList.selectComparisonCandidate("B", candidate)
+
+                comparingContinuations = false
+                comparisonStep = "A"
+                return true
+            }
+
+            function beginNewSearch() {
+                comparingContinuations = false
+                comparisonStep = "A"
+
+                if (!gameController.restoreSearchSource()) {
+                    console.warn(gameController.error_message)
+                    return
+                }
+
+                selectedGame = searchSourceGame
+                editingPosition = searchSourceEditingPosition
+                searchSourceGame = null
+                searchSourceEditingPosition = false
+
+                applyLoadedPosition()
+                gameList.clearSearchResults()
+                resetPatternSelection()
+            }
+
             function clearPatternSelection() {
                 selectingPattern = false
                 clearMatchNavigation()
@@ -421,6 +532,8 @@ menuBar: MenuBar {
 
             function clearContinuationMap() {
                 showingMatchPosition = false
+                comparingContinuations = false
+                comparisonStep = "A"
                 goBoard.continuationPoints = []
                 goBoard.selectedContinuationX = -1
                 goBoard.selectedContinuationY = -1
@@ -464,8 +577,10 @@ menuBar: MenuBar {
             function filterContinuationPoint(boardX,
                                                  coreY,
                                                  count) {
-                if (matchIndex < 0
-                        || matchIndex >= matchOccurrences.length) {
+                if (comparingContinuations
+                        && chooseComparisonContinuation(
+                            boardX,
+                            coreY)) {
                     return
                 }
 
@@ -473,8 +588,7 @@ menuBar: MenuBar {
 
                 /*
                  * Selecting the active continuation again restores the
-                 * complete search result set. This makes board candidates
-                 * behave like natural toggle controls.
+                 * complete search result set.
                  */
                 if (gameList.continuationFilterActive
                         && goBoard.selectedContinuationX === boardX
@@ -483,14 +597,35 @@ menuBar: MenuBar {
                     return
                 }
 
-                const occurrence = matchOccurrences[matchIndex]
+                let left
+                let bottom
+                let transformation
+
+                if (matchIndex >= 0
+                        && matchIndex < matchOccurrences.length) {
+                    const occurrence = matchOccurrences[matchIndex]
+
+                    left = occurrence.left
+                    bottom = occurrence.bottom
+                    transformation = occurrence.transformation
+                } else if (gameList.searchHasRun) {
+                    /*
+                     * The source continuation map is displayed in the
+                     * original identity orientation.
+                     */
+                    left = gameList.searchPatternLeft
+                    bottom = gameList.searchPatternBottom
+                    transformation = "identity"
+                } else {
+                    return
+                }
 
                 if (!gameList.filterContinuationAtOccurrence(
                             boardX,
                             coreY,
-                            occurrence.left,
-                            occurrence.bottom,
-                            occurrence.transformation,
+                            left,
+                            bottom,
+                            transformation,
                             count)) {
                     console.warn(
                                 "Could not filter continuation results")
@@ -784,6 +919,7 @@ menuBar: MenuBar {
                       spacing: 4
 
                       ToolButton {
+                          visible: !gameList.searchHasRun
                           text: qsTr("Select Pattern")
                           checkable: true
 
@@ -801,6 +937,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: !gameList.searchHasRun
                           text: qsTr("Clear Selection")
                           enabled: goBoard.patternSelectionValid
 
@@ -808,6 +945,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: !gameList.searchHasRun
                           text: qsTr("Search Database")
 
                           enabled: goBoard.patternSelectionValid
@@ -816,6 +954,9 @@ menuBar: MenuBar {
                                    && !gameList.searchInProgress
 
                           onClicked: {
+                              if (!boardPane.beginSearchSession())
+                                  return
+
                               const width =
                                   boardPane.patternRight
                                   - boardPane.patternLeft + 1
@@ -838,6 +979,89 @@ menuBar: MenuBar {
                                   width,
                                   height)
                           }
+                      }
+
+                      Label {
+                          visible: boardPane.investigatingSearch
+                                   && goBoard.continuationPoints !== null
+                                   && goBoard.continuationPoints.length > 0
+                                   && (!boardPane.showingContinuationComparison
+                                       || gameList.continuationFilterActive)
+
+                          text: {
+                              if (boardPane.comparingContinuations) {
+                                  if (boardPane.comparisonStep === "A")
+                                      return qsTr("● Choose A")
+
+                                  if (gameList.comparisonCandidateA !== null) {
+                                      return qsTr("A %1 · ● Choose B")
+                                          .arg(
+                                              gameList
+                                                  .comparisonCandidateA
+                                                  .coordinate)
+                                  }
+
+                                  return qsTr("● Choose B")
+                              }
+
+                              if (gameList.continuationFilterActive) {
+                                  return qsTr("● %1 · %2 games")
+                                      .arg(
+                                          gameList.goCoordinate(
+                                              gameList.selectedContinuationX,
+                                              gameList.selectedContinuationCoreY))
+                                      .arg(gameList.searchResultCount)
+                              }
+
+                              return qsTr("● Choose continuation")
+                          }
+
+                          color: "#7d1e16"
+                          font.bold: true
+                      }
+
+                      ToolButton {
+                          visible: boardPane.investigatingSearch
+                                   && gameList.continuationFilterActive
+                                   && !boardPane.comparingContinuations
+                          text: qsTr("Clear filter")
+                          onClicked: gameList.clearContinuationFilter()
+                      }
+
+                      ToolButton {
+                          visible: boardPane.investigatingSearch
+                                   && gameList.continuationCandidates.length >= 2
+
+                          text: boardPane.comparingContinuations
+                                ? qsTr("Cancel compare")
+                                : boardPane.showingContinuationComparison
+                                  ? qsTr("Clear comparison")
+                                  : qsTr("Compare")
+
+                          ToolTip.visible: hovered
+                          ToolTip.text: boardPane.comparingContinuations
+                                        ? qsTr("Stop choosing continuations to compare")
+                                        : boardPane.showingContinuationComparison
+                                          ? qsTr("Clear the continuation comparison")
+                                          : qsTr("Compare two professional continuations")
+
+                          onClicked: {
+                              if (boardPane.comparingContinuations) {
+                                  boardPane.cancelContinuationComparison()
+                              } else if (boardPane.showingContinuationComparison) {
+                                  gameList.comparisonCandidateA = null
+                                  gameList.comparisonCandidateB = null
+                              } else {
+                                  boardPane.beginContinuationComparison()
+                              }
+                          }
+                      }
+
+                      ToolButton {
+                          visible: boardPane.investigatingSearch
+                          text: qsTr("New search")
+
+                          onClicked: boardPane.beginNewSearch()
                       }
 
                       ToolButton {
@@ -955,7 +1179,9 @@ menuBar: MenuBar {
                     Layout.fillWidth: true
 
                     Layout.minimumHeight:
-                        gameDetailsContent.implicitHeight
+                        Math.max(
+                            gameDetailsContent.implicitHeight,
+                            continuationComparisonContent.implicitHeight)
                         + gameDetailsFrame.topPadding
                         + gameDetailsFrame.bottomPadding
 
@@ -968,6 +1194,7 @@ menuBar: MenuBar {
                         id: gameDetailsContent
                         anchors.fill: parent
                         spacing: 4
+                        visible: !boardPane.showingContinuationComparison
 
                         Label {
                             Layout.fillWidth: true
@@ -1253,6 +1480,146 @@ menuBar: MenuBar {
                                 ToolTip.text: qsTr("Final position")
                             }
                         }
+                    }
+
+                    ColumnLayout {
+                        id: continuationComparisonContent
+                        anchors.fill: parent
+                        spacing: 4
+                        visible: boardPane.showingContinuationComparison
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                text: qsTr("A")
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 1.5
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateA === null
+                                      ? ""
+                                      : gameList.comparisonCandidateA.coordinate
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 3
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateA === null
+                                      ? ""
+                                      : qsTr("%1 · %2")
+                                            .arg(gameList.appearanceCountText(
+                                                gameList
+                                                    .comparisonCandidateA
+                                                    .count))
+                                            .arg(gameList.gameCountText(
+                                                gameList
+                                                    .comparisonCandidateA
+                                                    .gameCount))
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 12
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateA === null
+                                      ? ""
+                                      : qsTr(
+                                          "Black %1 · White %2 · Draw %3 · Unknown %4")
+                                            .arg(gameList
+                                                .comparisonCandidateA
+                                                .blackWins)
+                                            .arg(gameList
+                                                .comparisonCandidateA
+                                                .whiteWins)
+                                            .arg(gameList
+                                                .comparisonCandidateA
+                                                .draws)
+                                            .arg(gameList
+                                                .comparisonCandidateA
+                                                .unknown)
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                            }
+
+                            Button {
+                                text: qsTr("Show games")
+
+                                onClicked:
+                                    gameList.showComparisonCandidate(
+                                        gameList.comparisonCandidateA)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Label {
+                                text: qsTr("B")
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 1.5
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateB === null
+                                      ? ""
+                                      : gameList.comparisonCandidateB.coordinate
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 3
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateB === null
+                                      ? ""
+                                      : qsTr("%1 · %2")
+                                            .arg(gameList.appearanceCountText(
+                                                gameList
+                                                    .comparisonCandidateB
+                                                    .count))
+                                            .arg(gameList.gameCountText(
+                                                gameList
+                                                    .comparisonCandidateB
+                                                    .gameCount))
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 12
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateB === null
+                                      ? ""
+                                      : qsTr(
+                                          "Black %1 · White %2 · Draw %3 · Unknown %4")
+                                            .arg(gameList
+                                                .comparisonCandidateB
+                                                .blackWins)
+                                            .arg(gameList
+                                                .comparisonCandidateB
+                                                .whiteWins)
+                                            .arg(gameList
+                                                .comparisonCandidateB
+                                                .draws)
+                                            .arg(gameList
+                                                .comparisonCandidateB
+                                                .unknown)
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                            }
+
+                            Button {
+                                text: qsTr("Show games")
+
+                                onClicked:
+                                    gameList.showComparisonCandidate(
+                                        gameList.comparisonCandidateB)
+                            }
+                        }
+
                     }
                 } // closes the new gameDetailsFrame
 

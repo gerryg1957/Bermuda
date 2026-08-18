@@ -45,6 +45,14 @@ mod ffi {
         fn new_position(self: Pin<&mut MoyoDbApp>, board_size: i32) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "snapshotSearchSource"]
+        fn snapshot_search_source(self: Pin<&mut MoyoDbApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "restoreSearchSource"]
+        fn restore_search_source(self: Pin<&mut MoyoDbApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "editPositionPoint"]
         fn edit_position_point(self: Pin<&mut MoyoDbApp>, x: i32, y: i32, tool: &QString) -> bool;
 
@@ -77,6 +85,7 @@ mod ffi {
     }
 }
 
+#[derive(Debug, Clone)]
 struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
@@ -84,6 +93,12 @@ struct LoadedDocument {
     black_player: Option<String>,
     white_player: Option<String>,
     komi: Option<f32>,
+}
+
+#[derive(Debug)]
+struct SearchSourceSnapshot {
+    document: LoadedDocument,
+    move_number: i32,
 }
 
 pub struct MoyoDbAppRust {
@@ -99,6 +114,7 @@ pub struct MoyoDbAppRust {
     error_message: QString,
 
     loaded_document: Option<LoadedDocument>,
+    search_source_snapshot: Option<SearchSourceSnapshot>,
 }
 
 impl Default for MoyoDbAppRust {
@@ -116,6 +132,7 @@ impl Default for MoyoDbAppRust {
             error_message: QString::default(),
 
             loaded_document: None,
+            search_source_snapshot: None,
         }
     }
 }
@@ -216,6 +233,69 @@ impl ffi::MoyoDbApp {
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
+    }
+
+    fn snapshot_search_source(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let snapshot = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            rust.loaded_document
+                .as_ref()
+                .cloned()
+                .map(|document| SearchSourceSnapshot {
+                    document,
+                    move_number: rust.move_number,
+                })
+        };
+
+        match snapshot {
+            Some(snapshot) => {
+                self.as_mut().rust_mut().search_source_snapshot = Some(snapshot);
+                true
+            }
+            None => {
+                self.as_mut()
+                    .set_error_message(QString::from("no position is loaded"));
+                false
+            }
+        }
+    }
+
+    fn restore_search_source(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let snapshot = self.as_mut().rust_mut().search_source_snapshot.take();
+
+        let Some(snapshot) = snapshot else {
+            self.as_mut()
+                .set_error_message(QString::from("no search source is available"));
+            return false;
+        };
+
+        let SearchSourceSnapshot {
+            document,
+            move_number,
+        } = snapshot;
+
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
+
+        self.as_mut().rust_mut().loaded_document = Some(document);
+
+        self.as_mut().show_cached_position(move_number)
     }
 
     fn edit_position_point(mut self: Pin<&mut Self>, x: i32, y: i32, tool: &QString) -> bool {
