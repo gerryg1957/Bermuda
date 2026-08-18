@@ -113,6 +113,9 @@ Kirigami.AbstractCard {
     }
 
     onSearchInProgressChanged: {
+        if (searchInProgress)
+            resetSearchResultFilters()
+
         if (!searchInProgress && nextMoveDistribution !== null)
             Qt.callLater(showSourceContinuationMap)
     }
@@ -135,6 +138,14 @@ Kirigami.AbstractCard {
     property string catalogueDateFrom: ""
     property string catalogueDateTo: ""
     property string catalogueResult: "any"
+
+    property string searchFilterPlayer: ""
+    property string searchFilterVersus: ""
+    property string searchFilterColour: "either"
+    property string searchFilterEvent: ""
+    property string searchFilterDateFrom: ""
+    property string searchFilterDateTo: ""
+    property string searchFilterResult: "any"
 
     readonly property bool catalogueLoading: gameModel.loading
     property string loadingIndicatorStyle: "stones"
@@ -163,6 +174,43 @@ Kirigami.AbstractCard {
                     catalogueResult)) {
             projectLoaded = false
         }
+    }
+
+    function filterSearchResults() {
+        selectedSearchRow = -1
+
+        searchModel.filterResults(
+                    searchFilterPlayer,
+                    searchFilterVersus,
+                    searchFilterColour,
+                    searchFilterEvent,
+                    searchFilterDateFrom,
+                    searchFilterDateTo,
+                    searchFilterResult)
+    }
+
+    function resetSearchResultFilters() {
+        searchFilterPlayer = ""
+        searchFilterVersus = ""
+        searchFilterColour = "either"
+        searchFilterEvent = ""
+        searchFilterDateFrom = ""
+        searchFilterDateTo = ""
+        searchFilterResult = "any"
+
+        searchFilterPlayerField.text = ""
+        searchFilterVersusField.text = ""
+        searchFilterEventField.text = ""
+        searchFilterDateFromField.text = ""
+        searchFilterDateToField.text = ""
+
+        searchFilterColourBox.currentIndex = 0
+        searchFilterResultBox.currentIndex = 0
+    }
+
+    function clearSearchResultFilters() {
+        resetSearchResultFilters()
+        filterSearchResults()
     }
 
     function sortBy(column, firstAscending) {
@@ -700,6 +748,16 @@ Kirigami.AbstractCard {
                     candidate.count)
     }
 
+    function continuationAtOccurrenceIsSelected(
+            boardX, coreY, left, bottom, transformation) {
+        return searchModel.continuationAtOccurrenceIsSelected(
+                    boardX,
+                    coreY,
+                    left,
+                    bottom,
+                    transformation)
+    }
+
     function filterContinuationAtOccurrence(boardX, coreY, left, bottom, transformation, appearanceCount) {
         selectedSearchRow = -1
         pendingSearchGame = null
@@ -871,7 +929,7 @@ Kirigami.AbstractCard {
                     TextField {
                         id: catalogueVersusField
                         Layout.fillWidth: true
-                        placeholderText: qsTr("Exact opponent name")
+                        placeholderText: qsTr("Exact opponent name or blank")
                         text: root.catalogueVersus
                         onTextChanged: root.catalogueVersus = text
                         onAccepted: root.loadProject()
@@ -1004,6 +1062,185 @@ Kirigami.AbstractCard {
                     visible:
                         root.catalogueVersus.trim().length > 0
                         && root.cataloguePlayer.trim().length === 0
+
+                    text: qsTr(
+                        "Enter a Player as well as Versus to search a match-up.")
+                    color: Kirigami.Theme.neutralTextColor
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        Frame {
+            Layout.fillWidth: true
+            visible: catalogueTabs.currentIndex === 1
+            enabled: root.searchHasRun && !root.searchInProgress
+            padding: Kirigami.Units.smallSpacing
+
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Label {
+                        text: qsTr("Player")
+                    }
+
+                    TextField {
+                        id: searchFilterPlayerField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Exact player name")
+                        text: root.searchFilterPlayer
+                        onTextChanged: root.searchFilterPlayer = text
+                        onAccepted: root.filterSearchResults()
+                    }
+
+                    ComboBox {
+                        id: searchFilterColourBox
+
+                        model: [
+                            qsTr("Either colour"),
+                            qsTr("Black"),
+                            qsTr("White")
+                        ]
+
+                        currentIndex:
+                            root.searchFilterColour === "black"
+                            ? 1
+                            : root.searchFilterColour === "white"
+                              ? 2
+                              : 0
+
+                        onActivated: function(index) {
+                            root.searchFilterColour =
+                                index === 1
+                                ? "black"
+                                : index === 2
+                                  ? "white"
+                                  : "either"
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("Versus")
+                    }
+
+                    TextField {
+                        id: searchFilterVersusField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Exact opponent name or blank")
+                        text: root.searchFilterVersus
+                        onTextChanged: root.searchFilterVersus = text
+                        onAccepted: root.filterSearchResults()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Label {
+                        text: qsTr("Event")
+                    }
+
+                    TextField {
+                        id: searchFilterEventField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Tournament or event contains…")
+                        text: root.searchFilterEvent
+                        onTextChanged: root.searchFilterEvent = text
+                        onAccepted: root.filterSearchResults()
+                    }
+
+                    Label {
+                        text: qsTr("From")
+                    }
+
+                    TextField {
+                        id: searchFilterDateFromField
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        placeholderText: qsTr("YYYY-MM-DD")
+                        text: root.searchFilterDateFrom
+                        onTextChanged:
+                            root.searchFilterDateFrom = text
+                        onAccepted: root.filterSearchResults()
+                    }
+
+                    Label {
+                        text: qsTr("To")
+                    }
+
+                    TextField {
+                        id: searchFilterDateToField
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        placeholderText: qsTr("YYYY-MM-DD")
+                        text: root.searchFilterDateTo
+                        onTextChanged:
+                            root.searchFilterDateTo = text
+                        onAccepted: root.filterSearchResults()
+                    }
+
+                    Label {
+                        text: qsTr("Result")
+                    }
+
+                    ComboBox {
+                        id: searchFilterResultBox
+
+                        model: [
+                            qsTr("Any"),
+                            qsTr("Black win"),
+                            qsTr("White win"),
+                            qsTr("Jigo"),
+                            qsTr("Void")
+                        ]
+
+                        currentIndex:
+                            root.searchFilterResult === "black-win"
+                            ? 1
+                            : root.searchFilterResult === "white-win"
+                              ? 2
+                              : root.searchFilterResult === "jigo"
+                                ? 3
+                                : root.searchFilterResult === "void"
+                                  ? 4
+                                  : 0
+
+                        onActivated: function(index) {
+                            root.searchFilterResult =
+                                index === 1
+                                ? "black-win"
+                                : index === 2
+                                  ? "white-win"
+                                  : index === 3
+                                    ? "jigo"
+                                    : index === 4
+                                      ? "void"
+                                      : "any"
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Filter")
+                        onClicked: root.filterSearchResults()
+                    }
+
+                    Button {
+                        text: qsTr("Clear")
+                        onClicked: root.clearSearchResultFilters()
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+
+                    visible:
+                        root.searchFilterVersus.trim().length > 0
+                        && root.searchFilterPlayer.trim().length === 0
 
                     text: qsTr(
                         "Enter a Player as well as Versus to search a match-up.")

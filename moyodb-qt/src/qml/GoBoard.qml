@@ -53,6 +53,27 @@ Item {
         }
     }
 
+    function currentViewTransform() {
+        return {
+            "a": root.viewA,
+            "b": root.viewB,
+            "c": root.viewC,
+            "d": root.viewD
+        }
+    }
+
+    function setViewTransform(transform) {
+        if (transform === undefined || transform === null)
+            return
+
+        root.viewA = Number(transform.a)
+        root.viewB = Number(transform.b)
+        root.viewC = Number(transform.c)
+        root.viewD = Number(transform.d)
+
+        boardCanvas.requestPaint()
+    }
+
     function flipViewLeftRight() {
         root.viewA = -root.viewA
         root.viewB = -root.viewB

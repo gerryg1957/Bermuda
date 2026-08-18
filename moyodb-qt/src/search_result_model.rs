@@ -20,7 +20,9 @@ use moyodb::{
     NextMovePointCount, Pattern, PatternBoardContext, PatternMatch, PatternRect,
     PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
     PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
-    SearchSummaryReport, SearchSummaryResult, measure_local_activity,
+    SearchSummaryReport, SearchSummaryResult,
+    game_list::{GameListQuery, GameResultFilter, PlayerColour},
+    measure_local_activity,
     project_manager::ProjectManager,
 };
 
@@ -74,6 +76,7 @@ pub struct SearchResultModelRust {
     all_rows: Vec<SearchResultRow>,
     continuation_game_ids: HashMap<(i16, i16), Vec<i64>>,
     selected_continuation: Option<(i16, i16)>,
+    metadata_filter: GameListQuery,
 
     pub(crate) error_message: QString,
     pub(crate) next_move_distribution_json: QString,
@@ -291,19 +294,26 @@ impl crate::game_list_model::ffi::SearchResultModel {
             pattern_height,
         );
 
+        {
+            let rust = self.as_ref().get_ref().rust();
+
+            if !rust
+                .continuation_game_ids
+                .contains_key(&(normalised_x, normalised_y))
+            {
+                return false;
+            }
+        }
+
         let filtered_rows = {
             let rust = self.as_ref().get_ref().rust();
-            let Some(game_ids) = rust
-                .continuation_game_ids
-                .get(&(normalised_x, normalised_y))
-            else {
-                return false;
-            };
-            rust.all_rows
-                .iter()
-                .filter(|row| game_ids.binary_search(&row.game_id).is_ok())
-                .cloned()
-                .collect::<Vec<_>>()
+
+            filtered_search_rows(
+                &rust.all_rows,
+                &rust.metadata_filter,
+                Some((normalised_x, normalised_y)),
+                &rust.continuation_game_ids,
+            )
         };
 
         self.as_mut().begin_reset_model();
@@ -314,6 +324,62 @@ impl crate::game_list_model::ffi::SearchResultModel {
         }
         self.as_mut().end_reset_model();
         true
+    }
+
+    pub(crate) fn continuation_at_occurrence_is_selected(
+        self: Pin<&mut Self>,
+        board_x: i32,
+        core_y: i32,
+        left: i32,
+        bottom: i32,
+        transformation: &QString,
+    ) -> bool {
+        let rust = self.as_ref().get_ref().rust();
+
+        let Some(query) = rust.search_query.as_ref() else {
+            return false;
+        };
+
+        let Ok(pattern_width) = u8::try_from(query.width) else {
+            return false;
+        };
+
+        let Ok(pattern_height) = u8::try_from(query.height) else {
+            return false;
+        };
+
+        let transformation_name = transformation.to_string();
+
+        let Some(transformation) =
+            transformation_from_name(&transformation_name)
+        else {
+            return false;
+        };
+
+        let Ok(board_x) = i16::try_from(board_x) else {
+            return false;
+        };
+
+        let Ok(core_y) = i16::try_from(core_y) else {
+            return false;
+        };
+
+        let Ok(left) = i16::try_from(left) else {
+            return false;
+        };
+
+        let Ok(bottom) = i16::try_from(bottom) else {
+            return false;
+        };
+
+        let normalised = transformation.inverse_relative_point(
+            board_x - left,
+            core_y - bottom,
+            pattern_width,
+            pattern_height,
+        );
+
+        rust.selected_continuation == Some(normalised)
     }
 
     pub(crate) fn continuation_game_count_at_occurrence(
@@ -480,7 +546,17 @@ impl crate::game_list_model::ffi::SearchResultModel {
     }
 
     pub(crate) fn clear_continuation_filter(mut self: Pin<&mut Self>) {
-        let rows = self.as_ref().get_ref().rust().all_rows.clone();
+        let rows = {
+            let rust = self.as_ref().get_ref().rust();
+
+            filtered_search_rows(
+                &rust.all_rows,
+                &rust.metadata_filter,
+                None,
+                &rust.continuation_game_ids,
+            )
+        };
+
         self.as_mut().begin_reset_model();
         {
             let mut rust = self.as_mut().rust_mut();
@@ -488,6 +564,56 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.selected_continuation = None;
         }
         self.as_mut().end_reset_model();
+    }
+
+    pub(crate) fn filter_results(
+        mut self: Pin<&mut Self>,
+        player: &QString,
+        versus: &QString,
+        colour: &QString,
+        event: &QString,
+        date_from: &QString,
+        date_to: &QString,
+        result: &QString,
+    ) -> bool {
+        let filter = match metadata_filter_from_values(
+            player,
+            versus,
+            colour,
+            event,
+            date_from,
+            date_to,
+            result,
+        ) {
+            Ok(filter) => filter,
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                return false;
+            }
+        };
+
+        let rows = {
+            let rust = self.as_ref().get_ref().rust();
+
+            filtered_search_rows(
+                &rust.all_rows,
+                &filter,
+                rust.selected_continuation,
+                &rust.continuation_game_ids,
+            )
+        };
+
+        self.as_mut().begin_reset_model();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.metadata_filter = filter;
+            rust.rows = rows;
+        }
+        self.as_mut().end_reset_model();
+
+        self.as_mut().set_error_message(QString::default());
+        true
     }
 
     pub(crate) fn search_project(
@@ -536,6 +662,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.all_rows.clear();
             rust.continuation_game_ids.clear();
             rust.selected_continuation = None;
+            rust.metadata_filter = GameListQuery::default();
             rust.search_query = Some(stored_query);
             rust.next_move_distribution = None;
             rust.cancel_token = Some(Arc::clone(&cancel_token));
@@ -670,6 +797,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.rows.clear();
             rust.all_rows.clear();
             rust.continuation_game_ids.clear();
+            rust.selected_continuation = None;
+            rust.metadata_filter = GameListQuery::default();
             rust.search_query = None;
             rust.next_move_distribution = None;
         }
@@ -695,6 +824,104 @@ impl crate::game_list_model::ffi::SearchResultModel {
         self.as_mut().set_occurrence_load_in_progress(false);
         self.as_mut().set_search_in_progress(false);
     }
+}
+
+fn optional_filter_value(value: &QString) -> Option<String> {
+    let value = value.to_string();
+    let value = value.trim();
+
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+fn metadata_filter_from_values(
+    player: &QString,
+    versus: &QString,
+    colour: &QString,
+    event: &QString,
+    date_from: &QString,
+    date_to: &QString,
+    result: &QString,
+) -> Result<GameListQuery, String> {
+    let colour_name = colour.to_string();
+
+    let colour = match colour_name.as_str() {
+        "black" => PlayerColour::Black,
+        "white" => PlayerColour::White,
+        "either" => PlayerColour::Either,
+
+        _ => {
+            return Err(format!(
+                "unknown player colour filter: {colour_name}"
+            ));
+        }
+    };
+
+    let result_name = result.to_string();
+
+    let result = match result_name.as_str() {
+        "any" => GameResultFilter::Any,
+        "black-win" => GameResultFilter::BlackWin,
+        "white-win" => GameResultFilter::WhiteWin,
+        "jigo" => GameResultFilter::Jigo,
+        "void" => GameResultFilter::Void,
+
+        _ => {
+            return Err(format!(
+                "unknown game result filter: {result_name}"
+            ));
+        }
+    };
+
+    Ok(GameListQuery {
+        player: optional_filter_value(player),
+        versus: optional_filter_value(versus),
+        colour,
+        event: optional_filter_value(event),
+        date_from: optional_filter_value(date_from),
+        date_to: optional_filter_value(date_to),
+        result,
+        ..GameListQuery::default()
+    })
+}
+
+fn search_row_matches_metadata(row: &SearchResultRow, filter: &GameListQuery) -> bool {
+    let black_player = row.black_player.to_string();
+    let white_player = row.white_player.to_string();
+    let played_date = row.played_date.to_string();
+    let result = row.result.to_string();
+    let event = row.event.to_string();
+
+    filter.matches_metadata(
+        (!black_player.is_empty()).then_some(black_player.as_str()),
+        (!white_player.is_empty()).then_some(white_player.as_str()),
+        (!played_date.is_empty()).then_some(played_date.as_str()),
+        (!result.is_empty()).then_some(result.as_str()),
+        (!event.is_empty()).then_some(event.as_str()),
+    )
+}
+
+fn filtered_search_rows(
+    all_rows: &[SearchResultRow],
+    metadata_filter: &GameListQuery,
+    selected_continuation: Option<(i16, i16)>,
+    continuation_game_ids: &HashMap<(i16, i16), Vec<i64>>,
+) -> Vec<SearchResultRow> {
+    let continuation_ids =
+        selected_continuation.and_then(|point| continuation_game_ids.get(&point));
+
+    all_rows
+        .iter()
+        .filter(|row| {
+            if let Some(game_ids) = continuation_ids
+                && game_ids.binary_search(&row.game_id).is_err()
+            {
+                return false;
+            }
+
+            search_row_matches_metadata(row, metadata_filter)
+        })
+        .cloned()
+        .collect()
 }
 
 fn create_search_engine_and_query(

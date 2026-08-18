@@ -418,6 +418,7 @@ menuBar: MenuBar {
 
             property var searchSourceGame: null
             property bool searchSourceEditingPosition: false
+            property var searchSourceViewTransform: null
 
             property bool comparingContinuations: false
             property string comparisonStep: "A"
@@ -437,6 +438,8 @@ menuBar: MenuBar {
 
                 searchSourceGame = selectedGame
                 searchSourceEditingPosition = editingPosition
+                searchSourceViewTransform =
+                    goBoard.currentViewTransform()
                 return true
             }
 
@@ -509,6 +512,13 @@ menuBar: MenuBar {
                 searchSourceEditingPosition = false
 
                 applyLoadedPosition()
+
+                if (searchSourceViewTransform !== null)
+                    goBoard.setViewTransform(
+                                searchSourceViewTransform)
+
+                searchSourceViewTransform = null
+
                 gameList.clearSearchResults()
                 resetPatternSelection()
             }
@@ -586,17 +596,6 @@ menuBar: MenuBar {
 
                 const visualY = goBoard.boardSize - 1 - coreY
 
-                /*
-                 * Selecting the active continuation again restores the
-                 * complete search result set.
-                 */
-                if (gameList.continuationFilterActive
-                        && goBoard.selectedContinuationX === boardX
-                        && goBoard.selectedContinuationY === visualY) {
-                    gameList.clearContinuationFilter()
-                    return
-                }
-
                 let left
                 let bottom
                 let transformation
@@ -617,6 +616,22 @@ menuBar: MenuBar {
                     bottom = gameList.searchPatternBottom
                     transformation = "identity"
                 } else {
+                    return
+                }
+
+                /*
+                 * A continuation's identity is its normalised search
+                 * coordinate, not the physical intersection on this
+                 * particular transformed occurrence.
+                 */
+                if (gameList.continuationFilterActive
+                        && gameList.continuationAtOccurrenceIsSelected(
+                            boardX,
+                            coreY,
+                            left,
+                            bottom,
+                            transformation)) {
+                    gameList.clearContinuationFilter()
                     return
                 }
 

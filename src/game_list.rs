@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::game_date::played_date_sort_key;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameColumn {
     BlackPlayer,
@@ -123,6 +125,114 @@ impl Default for GameListQuery {
             offset: 0,
             limit: 200,
         }
+    }
+}
+
+impl GameListQuery {
+    pub fn matches_metadata(
+        &self,
+        black_player: Option<&str>,
+        white_player: Option<&str>,
+        game_date: Option<&str>,
+        result: Option<&str>,
+        event: Option<&str>,
+    ) -> bool {
+        let players_match = match (self.player.as_deref(), self.versus.as_deref()) {
+            (None, None) => true,
+
+            (None, Some(_)) => false,
+
+            (Some(player), None) => match self.colour {
+                PlayerColour::Black => black_player == Some(player),
+                PlayerColour::White => white_player == Some(player),
+                PlayerColour::Either => {
+                    black_player == Some(player) || white_player == Some(player)
+                }
+            },
+
+            (Some(player), Some(versus)) => match self.colour {
+                PlayerColour::Black => {
+                    black_player == Some(player) && white_player == Some(versus)
+                }
+
+                PlayerColour::White => {
+                    white_player == Some(player) && black_player == Some(versus)
+                }
+
+                PlayerColour::Either => {
+                    (black_player == Some(player) && white_player == Some(versus))
+                        || (white_player == Some(player) && black_player == Some(versus))
+                }
+            },
+        };
+
+        if !players_match {
+            return false;
+        }
+
+        if let Some(expected_event) = self.event.as_deref() {
+            let Some(stored_event) = event else {
+                return false;
+            };
+
+            if !stored_event
+                .to_ascii_lowercase()
+                .contains(&expected_event.to_ascii_lowercase())
+            {
+                return false;
+            }
+        }
+
+        let played_date_sort = game_date.and_then(played_date_sort_key);
+
+        if let Some(date_from) = normalise_date_from(self.date_from.as_deref()) {
+            let Some(stored_date) = played_date_sort.as_deref() else {
+                return false;
+            };
+
+            if stored_date < date_from.as_str() {
+                return false;
+            }
+        }
+
+        if let Some(date_to) = normalise_date_to(self.date_to.as_deref()) {
+            let Some(stored_date) = played_date_sort.as_deref() else {
+                return false;
+            };
+
+            if stored_date > date_to.as_str() {
+                return false;
+            }
+        }
+
+        result_matches(self.result, result)
+    }
+}
+
+fn starts_with_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
+    value
+        .get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+}
+
+fn result_matches(filter: GameResultFilter, result: Option<&str>) -> bool {
+    match filter {
+        GameResultFilter::Any => true,
+
+        GameResultFilter::BlackWin => result
+            .is_some_and(|value| starts_with_ascii_case_insensitive(value, "B+")),
+
+        GameResultFilter::WhiteWin => result
+            .is_some_and(|value| starts_with_ascii_case_insensitive(value, "W+")),
+
+        GameResultFilter::Jigo => result.is_some_and(|value| {
+            starts_with_ascii_case_insensitive(value, "Jigo")
+                || value == "Draw"
+                || value == "0"
+        }),
+
+        GameResultFilter::Void => result
+            .is_some_and(|value| starts_with_ascii_case_insensitive(value, "Void")),
     }
 }
 
@@ -798,6 +908,96 @@ VALUES (
 
         assert_eq!(second_game.black_player.as_deref(), Some("Gamma"));
         assert_eq!(second_game.white_player.as_deref(), Some("Delta"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn in_memory_filter_matches_database_filter_semantics() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let all_games = list_games(
+            &connection,
+            &GameListQuery {
+                limit: u32::MAX,
+                ..GameListQuery::default()
+            },
+        )?;
+
+        let queries = vec![
+            GameListQuery {
+                player: Some("Alpha".to_owned()),
+                colour: PlayerColour::Black,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                player: Some("Alpha".to_owned()),
+                versus: Some("Beta".to_owned()),
+                colour: PlayerColour::Either,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                versus: Some("Beta".to_owned()),
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                event: Some("SPRING".to_owned()),
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                date_from: Some("2026".to_owned()),
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                date_to: Some("2025".to_owned()),
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                result: GameResultFilter::BlackWin,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                result: GameResultFilter::WhiteWin,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                player: Some("Alpha".to_owned()),
+                colour: PlayerColour::Black,
+                event: Some("spring".to_owned()),
+                date_from: Some("2026".to_owned()),
+                date_to: Some("2026".to_owned()),
+                result: GameResultFilter::BlackWin,
+                ..GameListQuery::default()
+            },
+        ];
+
+        for mut query in queries {
+            query.limit = u32::MAX;
+
+            let mut database_ids = list_games(&connection, &query)?
+                .into_iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>();
+
+            let mut memory_ids = all_games
+                .iter()
+                .filter(|game| {
+                    query.matches_metadata(
+                        game.black_player.as_deref(),
+                        game.white_player.as_deref(),
+                        game.game_date.as_deref(),
+                        game.result.as_deref(),
+                        game.event.as_deref(),
+                    )
+                })
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>();
+
+            database_ids.sort_unstable();
+            memory_ids.sort_unstable();
+
+            assert_eq!(memory_ids, database_ids, "query was {query:?}");
+        }
 
         Ok(())
     }

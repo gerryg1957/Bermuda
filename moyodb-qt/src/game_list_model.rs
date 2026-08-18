@@ -166,8 +166,32 @@ pub mod ffi {
         fn clear_results(self: Pin<&mut SearchResultModel>);
 
         #[qinvokable]
+        #[cxx_name = "filterResults"]
+        fn filter_results(
+            self: Pin<&mut SearchResultModel>,
+            player: &QString,
+            versus: &QString,
+            colour: &QString,
+            event: &QString,
+            date_from: &QString,
+            date_to: &QString,
+            result: &QString,
+        ) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "filterContinuationAtOccurrence"]
         fn filter_continuation_at_occurrence(
+            self: Pin<&mut SearchResultModel>,
+            board_x: i32,
+            core_y: i32,
+            left: i32,
+            bottom: i32,
+            transformation: &QString,
+        ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "continuationAtOccurrenceIsSelected"]
+        fn continuation_at_occurrence_is_selected(
             self: Pin<&mut SearchResultModel>,
             board_x: i32,
             core_y: i32,
