@@ -159,6 +159,7 @@ pub mod ffi {
             bottom: i32,
             width: i32,
             height: i32,
+            keep_long_patterns_near_edge: bool,
         ) -> bool;
 
         #[qinvokable]

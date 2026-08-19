@@ -1144,6 +1144,7 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
             include_rotations: rotations,
             include_reflections: reflections,
             include_reversed_colours: reverse_colours,
+            long_axis_edge_band: None,
             max_match_move,
         },
 

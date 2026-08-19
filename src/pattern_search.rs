@@ -185,6 +185,7 @@ pub struct PatternSearchOptions {
     pub include_rotations: bool,
     pub include_reflections: bool,
     pub include_reversed_colours: bool,
+    pub long_axis_edge_band: Option<u8>,
     pub max_match_move: Option<usize>,
 }
 
@@ -268,6 +269,7 @@ struct PatternVariant {
     board_context: Option<PatternBoardContext>,
     transformation: PatternTransformation,
     colours_reversed: bool,
+    long_axis_edge_band: Option<u8>,
     black_rows: Vec<u64>,
     white_rows: Vec<u64>,
     any_rows: Vec<u64>,
@@ -308,6 +310,7 @@ impl PatternVariant {
             board_context,
             transformation,
             colours_reversed,
+            long_axis_edge_band: None,
             black_rows,
             white_rows,
             any_rows,
@@ -490,6 +493,54 @@ fn exact_origin_range(
     }
 }
 
+fn long_axis_near_edge(
+    board_size: u8,
+    pattern_width: u8,
+    pattern_height: u8,
+    left: u8,
+    bottom: u8,
+    edge_band: Option<u8>,
+) -> bool {
+    let Some(edge_band) = edge_band else {
+        return true;
+    };
+
+    let edge_band = edge_band.min(board_size);
+
+    let short_axis_centre_near_edge = |origin: u8, size: u8| {
+        if board_size == 0 || size == 0 || edge_band == 0 {
+            return false;
+        }
+
+        /*
+         * Work in doubled coordinates so even-width patterns have an
+         * exact half-intersection centre without arbitrary rounding.
+         *
+         * For a 19 x 19 board and a five-line edge band, the centre of
+         * the short axis must lie on or beyond line 5 or line 15.
+         */
+        let centre_twice =
+            2 * u16::from(origin) + u16::from(size) - 1;
+
+        let low_edge_limit =
+            2 * (u16::from(edge_band) - 1);
+
+        let high_edge_limit =
+            2 * u16::from(board_size - edge_band);
+
+        centre_twice <= low_edge_limit
+            || centre_twice >= high_edge_limit
+    };
+
+    if pattern_width > pattern_height {
+        short_axis_centre_near_edge(bottom, pattern_height)
+    } else if pattern_height > pattern_width {
+        short_axis_centre_near_edge(left, pattern_width)
+    } else {
+        true
+    }
+}
+
 impl PatternSearcher {
     #[must_use]
     pub fn new() -> Self {
@@ -502,6 +553,7 @@ impl PatternSearcher {
         board_context: Option<PatternBoardContext>,
         transformation: PatternTransformation,
         colours_reversed: bool,
+        long_axis_edge_band: Option<u8>,
     ) {
         if variants
             .iter()
@@ -510,12 +562,10 @@ impl PatternSearcher {
             return;
         }
 
-        variants.push(PatternVariant::new(
-            pattern,
-            board_context,
-            transformation,
-            colours_reversed,
-        ));
+        let mut variant =
+            PatternVariant::new(pattern, board_context, transformation, colours_reversed);
+        variant.long_axis_edge_band = long_axis_edge_band;
+        variants.push(variant);
     }
 
     fn search_variants(
@@ -565,6 +615,7 @@ impl PatternSearcher {
                 transformed_context,
                 transformation,
                 false,
+                options.long_axis_edge_band,
             );
 
             if options.include_reversed_colours {
@@ -574,6 +625,7 @@ impl PatternSearcher {
                     transformed_context,
                     transformation,
                     true,
+                    options.long_axis_edge_band,
                 );
             }
         }
@@ -653,17 +705,26 @@ impl PatternSearcher {
             while matching_lefts != 0 {
                 let left = matching_lefts.trailing_zeros() as u8;
 
-                matches.push(PatternMatch {
-                    game_id,
-                    move_number,
-                    last_move_number: move_number,
-                    side_to_move,
-                    ko_point,
+                if long_axis_near_edge(
+                    board.size(),
+                    variant.pattern.width,
+                    variant.pattern.height,
                     left,
                     bottom,
-                    transformation: variant.transformation,
-                    colours_reversed: variant.colours_reversed,
-                });
+                    variant.long_axis_edge_band,
+                ) {
+                    matches.push(PatternMatch {
+                        game_id,
+                        move_number,
+                        last_move_number: move_number,
+                        side_to_move,
+                        ko_point,
+                        left,
+                        bottom,
+                        transformation: variant.transformation,
+                        colours_reversed: variant.colours_reversed,
+                    });
+                }
 
                 matching_lefts &= matching_lefts - 1;
             }
@@ -1529,6 +1590,71 @@ mod option_tests {
     }
 
     #[test]
+    fn long_axis_edge_band_uses_horizontal_shape_centre() {
+        assert!(super::long_axis_near_edge(19, 16, 3, 1, 3, None));
+
+        // Rows 4-6 have centre line 5: accept.
+        assert!(super::long_axis_near_edge(19, 16, 3, 1, 3, Some(5)));
+
+        // Rows 5-7 have centre line 6: reject.
+        assert!(!super::long_axis_near_edge(19, 16, 3, 1, 4, Some(5)));
+
+        // Symmetric cases at the opposite edge.
+        assert!(!super::long_axis_near_edge(19, 16, 3, 1, 12, Some(5)));
+        assert!(super::long_axis_near_edge(19, 16, 3, 1, 13, Some(5)));
+    }
+
+    #[test]
+    fn long_axis_edge_band_uses_vertical_shape_centre() {
+        // Columns 4-6 have centre line 5: accept.
+        assert!(super::long_axis_near_edge(19, 3, 16, 3, 1, Some(5)));
+
+        // Columns 5-7 have centre line 6: reject.
+        assert!(!super::long_axis_near_edge(19, 3, 16, 4, 1, Some(5)));
+
+        // Symmetric cases at the opposite edge.
+        assert!(!super::long_axis_near_edge(19, 3, 16, 12, 1, Some(5)));
+        assert!(super::long_axis_near_edge(19, 3, 16, 13, 1, Some(5)));
+    }
+
+    #[test]
+    fn long_axis_edge_band_handles_even_short_dimension_symmetrically() {
+        // Columns 4-5 have centre 4.5: accept.
+        assert!(super::long_axis_near_edge(19, 2, 16, 3, 1, Some(5)));
+
+        // Columns 5-6 have centre 5.5: reject.
+        assert!(!super::long_axis_near_edge(19, 2, 16, 4, 1, Some(5)));
+
+        // And the same boundary from the opposite edge.
+        assert!(!super::long_axis_near_edge(19, 2, 16, 13, 1, Some(5)));
+        assert!(super::long_axis_near_edge(19, 2, 16, 14, 1, Some(5)));
+    }
+
+    #[test]
+    fn long_axis_edge_band_does_not_restrict_square_patterns() {
+        assert!(super::long_axis_near_edge(19, 5, 5, 7, 7, Some(5)));
+    }
+
+    #[test]
+    fn search_variants_keep_long_axis_edge_band() {
+        let variants = PatternSearcher::search_variants(
+            &asymmetric_pattern(),
+            None,
+            PatternSearchOptions {
+                long_axis_edge_band: Some(5),
+                ..PatternSearchOptions::default()
+            },
+        );
+
+        assert!(!variants.is_empty());
+        assert!(
+            variants
+                .iter()
+                .all(|variant| variant.long_axis_edge_band == Some(5))
+        );
+    }
+
+    #[test]
     fn default_options_generate_only_the_exact_pattern() {
         let variants = PatternSearcher::search_variants(
             &asymmetric_pattern(),
@@ -1550,6 +1676,7 @@ mod option_tests {
                 include_rotations: true,
                 include_reflections: true,
                 include_reversed_colours: true,
+                long_axis_edge_band: None,
                 max_match_move: None,
             },
         );
@@ -1590,6 +1717,7 @@ mod option_tests {
                 include_rotations: true,
                 include_reflections: true,
                 include_reversed_colours: true,
+                long_axis_edge_band: None,
                 max_match_move: None,
             },
         );

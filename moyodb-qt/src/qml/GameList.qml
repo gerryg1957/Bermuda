@@ -573,7 +573,8 @@ Kirigami.AbstractCard {
                            left,
                            bottom,
                            width,
-                           height) {
+                           height,
+                           keepLongPatternsNearEdge) {
         selectedSearchRow = -1
         pendingSearchGame = null
         searchHasRun = true
@@ -600,7 +601,8 @@ Kirigami.AbstractCard {
                             left,
                             bottom,
                             width,
-                            height)
+                            height,
+                            keepLongPatternsNearEdge)
 
         if (!started)
             console.warn(searchModel.error_message)
