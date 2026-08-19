@@ -382,6 +382,8 @@ Kirigami.AbstractCard {
                                 model: 7
 
                                 delegate: Rectangle {
+                                    id: loadingStone
+
                                     required property int index
 
                                     width: Kirigami.Units.gridUnit * 0.46
@@ -409,8 +411,8 @@ Kirigami.AbstractCard {
                                         PauseAnimation { duration: index * 135 }
 
                                         NumberAnimation {
-                                            from: parent.startX
-                                            to: parent.endX
+                                            from: loadingStone.startX
+                                            to: loadingStone.endX
                                             duration: 980
                                             easing.type: Easing.InOutQuad
                                         }
@@ -426,14 +428,14 @@ Kirigami.AbstractCard {
                                         PauseAnimation { duration: index * 135 }
 
                                         NumberAnimation {
-                                            from: parent.startY
+                                            from: loadingStone.startY
                                             to: boardSurface.y - Kirigami.Units.gridUnit * 0.18
                                             duration: 450
                                             easing.type: Easing.OutQuad
                                         }
 
                                         NumberAnimation {
-                                            to: parent.endY
+                                            to: loadingStone.endY
                                             duration: 530
                                             easing.type: Easing.InQuad
                                         }

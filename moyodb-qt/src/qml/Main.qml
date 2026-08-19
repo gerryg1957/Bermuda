@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import org.kde.kirigami as Kirigami
 import org.moyodb.app
 
 ApplicationWindow {
@@ -1366,7 +1367,9 @@ menuBar: MenuBar {
                                 Layout.fillWidth: true
 
                                 text: {
-                                    if (boardPane.matchIndex < 0)
+                                    if (boardPane.matchIndex < 0
+                                            || boardPane.matchIndex
+                                               >= boardPane.matchOccurrences.length)
                                         return ""
 
                                     const occurrence =
