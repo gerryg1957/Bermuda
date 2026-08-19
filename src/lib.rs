@@ -40,6 +40,7 @@ pub use pattern_search::{
     PatternGameSummary, PatternMatch, PatternSearchOptions, PatternSearchOutcome,
     PatternSearchProgress, PatternSearchQuery, PatternSearchScope, PatternSearchSummaryOutcome,
     PatternSearchSummaryReport, PatternSearchSummaryReportOutcome, PatternSearcher,
+    source_long_axis_edge_band,
 };
 pub use position::{
     position_fingerprint, position_fingerprint_hex, transformed_position_fingerprint,

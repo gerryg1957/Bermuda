@@ -541,6 +541,32 @@ fn long_axis_near_edge(
     }
 }
 
+#[must_use]
+pub fn source_long_axis_edge_band(
+    board_size: u8,
+    pattern_width: u8,
+    pattern_height: u8,
+    left: u8,
+    bottom: u8,
+    edge_band: u8,
+) -> Option<u8> {
+    if pattern_width == pattern_height {
+        return None;
+    }
+
+    let edge_band = edge_band.min(board_size);
+
+    long_axis_near_edge(
+        board_size,
+        pattern_width,
+        pattern_height,
+        left,
+        bottom,
+        Some(edge_band),
+    )
+    .then_some(edge_band)
+}
+
 impl PatternSearcher {
     #[must_use]
     pub fn new() -> Self {
@@ -1587,6 +1613,40 @@ mod option_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn source_long_axis_edge_band_ignores_square_patterns() {
+        assert_eq!(
+            super::source_long_axis_edge_band(19, 4, 4, 0, 0, 5),
+            None
+        );
+    }
+
+    #[test]
+    fn source_long_axis_edge_band_detects_horizontal_edge_pattern() {
+        assert_eq!(
+            super::source_long_axis_edge_band(19, 10, 3, 3, 0, 5),
+            Some(5)
+        );
+
+        assert_eq!(
+            super::source_long_axis_edge_band(19, 10, 3, 3, 8, 5),
+            None
+        );
+    }
+
+    #[test]
+    fn source_long_axis_edge_band_detects_vertical_edge_pattern() {
+        assert_eq!(
+            super::source_long_axis_edge_band(19, 3, 10, 0, 3, 5),
+            Some(5)
+        );
+
+        assert_eq!(
+            super::source_long_axis_edge_band(19, 3, 10, 8, 3, 5),
+            None
+        );
     }
 
     #[test]

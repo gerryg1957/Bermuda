@@ -1018,17 +1018,6 @@ menuBar: MenuBar {
                           onClicked: boardPane.clearPatternSelection()
                       }
 
-                      CheckBox {
-                          id: nearEdgeSearchCheckBox
-                          visible: !gameList.searchHasRun
-                          text: qsTr("Near edge")
-                          checked: false
-
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr(
-                              "Keep elongated pattern matches within five lines of a board edge")
-                      }
-
                       ToolButton {
                           visible: !gameList.searchHasRun
                           text: qsTr("Search Database")
@@ -1062,8 +1051,7 @@ menuBar: MenuBar {
                                   boardPane.patternLeft,
                                   bottom,
                                   width,
-                                  height,
-                                  nearEdgeSearchCheckBox.checked)
+                                  height)
                           }
                       }
 
@@ -1219,7 +1207,9 @@ menuBar: MenuBar {
                       Layout.rightMargin: 8
                       spacing: 4
 
-                      visible: boardPane.editingPosition && !boardPane.selectingPattern
+                      visible: boardPane.editingPosition
+                      enabled: !boardPane.selectingPattern
+                      opacity: boardPane.selectingPattern ? 0 : 1
 
                       Label {
                           text: qsTr("Place:")

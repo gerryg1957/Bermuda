@@ -20,7 +20,7 @@ use moyodb::{
     NextMovePointCount, Pattern, PatternBoardContext, PatternMatch, PatternRect,
     PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
     PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
-    SearchSummaryReport, SearchSummaryResult,
+    SearchSummaryReport, SearchSummaryResult, source_long_axis_edge_band,
     game_list::{GameListQuery, GameResultFilter, PlayerColour},
     measure_local_activity,
     project_manager::ProjectManager,
@@ -68,7 +68,6 @@ struct StoredSearchQuery {
     include_rotations: bool,
     include_reflections: bool,
     include_reversed_colours: bool,
-    keep_long_patterns_near_edge: bool,
 }
 
 #[derive(Default)]
@@ -626,7 +625,6 @@ impl crate::game_list_model::ffi::SearchResultModel {
         bottom: i32,
         width: i32,
         height: i32,
-        keep_long_patterns_near_edge: bool,
     ) -> bool {
         if self.as_ref().get_ref().rust().search_in_progress {
             self.as_mut()
@@ -649,7 +647,6 @@ impl crate::game_list_model::ffi::SearchResultModel {
             include_rotations: true,
             include_reflections: true,
             include_reversed_colours: true,
-            keep_long_patterns_near_edge,
         };
 
         let cancel_token = Arc::new(AtomicBool::new(false));
@@ -710,7 +707,6 @@ impl crate::game_list_model::ffi::SearchResultModel {
                 true,
                 true,
                 true,
-                keep_long_patterns_near_edge,
                 || cancel_token.load(Ordering::Relaxed),
                 |progress| {
                     let now = Instant::now();
@@ -928,6 +924,8 @@ fn filtered_search_rows(
         .collect()
 }
 
+const AUTOMATIC_LONG_AXIS_EDGE_BAND: u8 = 5;
+
 fn create_search_engine_and_query(
     project_path: &str,
     board_size: i32,
@@ -939,7 +937,6 @@ fn create_search_engine_and_query(
     include_rotations: bool,
     include_reflections: bool,
     include_reversed_colours: bool,
-    keep_long_patterns_near_edge: bool,
     scope: PatternSearchScope,
 ) -> Result<(SearchEngine, PatternSearchQuery), String> {
     if project_path.trim().is_empty() {
@@ -986,7 +983,14 @@ fn create_search_engine_and_query(
             include_rotations,
             include_reflections,
             include_reversed_colours,
-            long_axis_edge_band: keep_long_patterns_near_edge.then_some(5),
+            long_axis_edge_band: source_long_axis_edge_band(
+                board.size(),
+                rect.width,
+                rect.height,
+                rect.left,
+                rect.bottom,
+                AUTOMATIC_LONG_AXIS_EDGE_BAND,
+            ),
             max_match_move: None,
         },
     };
@@ -1007,7 +1011,6 @@ fn create_search_outcome<C, P>(
     include_rotations: bool,
     include_reflections: bool,
     include_reversed_colours: bool,
-    keep_long_patterns_near_edge: bool,
     is_cancelled: C,
     on_progress: P,
 ) -> Result<SearchPatternSummaryReportOutcome, String>
@@ -1026,7 +1029,6 @@ where
         include_rotations,
         include_reflections,
         include_reversed_colours,
-        keep_long_patterns_near_edge,
         PatternSearchScope::Project,
     )?;
 
@@ -1176,7 +1178,6 @@ fn create_game_occurrences(
         query.include_rotations,
         query.include_reflections,
         query.include_reversed_colours,
-        query.keep_long_patterns_near_edge,
         PatternSearchScope::Game(game_id),
     )?;
 
@@ -2067,7 +2068,6 @@ mod occurrence_continuation_tests {
             include_rotations: true,
             include_reflections: true,
             include_reversed_colours: true,
-            keep_long_patterns_near_edge: false,
         };
 
         let distribution = NextMoveDistribution {
@@ -2118,7 +2118,6 @@ mod occurrence_continuation_tests {
             include_rotations: true,
             include_reflections: true,
             include_reversed_colours: true,
-            keep_long_patterns_near_edge: false,
         };
 
         let distribution = NextMoveDistribution {
