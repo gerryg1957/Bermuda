@@ -98,10 +98,9 @@ where
     let games = indexer.games()?;
 
     let index_path = project.indexes_path().join(PATTERN_INDEX_FILENAME);
-    let temp_path = project.indexes_path().join(format!(
-        "{PATTERN_INDEX_FILENAME}.tmp-{}",
-        process::id()
-    ));
+    let temp_path = project
+        .indexes_path()
+        .join(format!("{PATTERN_INDEX_FILENAME}.tmp-{}", process::id()));
 
     let mut summary = PatternIndexBuildSummary {
         format_version: PATTERN_INDEX_FORMAT_VERSION,
@@ -111,8 +110,8 @@ where
 
     let mut error_messages = Vec::new();
 
-    let file = File::create(&temp_path)
-        .with_context(|| format!("creating {}", temp_path.display()))?;
+    let file =
+        File::create(&temp_path).with_context(|| format!("creating {}", temp_path.display()))?;
 
     let mut writer = BufWriter::with_capacity(WRITE_BUFFER_SIZE, file);
 
@@ -123,8 +122,7 @@ where
             drop(writer);
             remove_if_exists(&temp_path)?;
 
-            let summary =
-                finish_summary(project, summary, started, &error_messages)?;
+            let summary = finish_summary(project, summary, started, &error_messages)?;
 
             return Ok(PatternIndexBuildOutcome::Cancelled(summary));
         }
@@ -137,20 +135,18 @@ where
         let encoded = chunk
             .par_iter()
             .map(|game| {
-                let record = read_move_file(&game.move_file).with_context(|| {
-                    format!("reading {}", game.move_file.display())
-                })?;
+                let record = read_move_file(&game.move_file)
+                    .with_context(|| format!("reading {}", game.move_file.display()))?;
 
                 let position_count = record.moves.len().saturating_add(1);
 
-                let bytes =
-                    encode_game_block(game.game_id, &record).with_context(|| {
-                        format!(
-                            "encoding game {} from {}",
-                            game.game_id,
-                            game.move_file.display()
-                        )
-                    })?;
+                let bytes = encode_game_block(game.game_id, &record).with_context(|| {
+                    format!(
+                        "encoding game {} from {}",
+                        game.game_id,
+                        game.move_file.display()
+                    )
+                })?;
 
                 Ok::<_, anyhow::Error>((position_count, bytes))
             })
@@ -161,25 +157,22 @@ where
                 drop(writer);
                 remove_if_exists(&temp_path)?;
 
-                let summary =
-                    finish_summary(project, summary, started, &error_messages)?;
+                let summary = finish_summary(project, summary, started, &error_messages)?;
 
                 return Ok(PatternIndexBuildOutcome::Cancelled(summary));
             }
 
             match result {
                 Ok((position_count, bytes)) => {
-                    writer.write_all(&bytes).with_context(|| {
-                        format!("writing {}", temp_path.display())
-                    })?;
+                    writer
+                        .write_all(&bytes)
+                        .with_context(|| format!("writing {}", temp_path.display()))?;
 
-                    summary.indexed_games =
-                        summary.indexed_games.saturating_add(1);
+                    summary.indexed_games = summary.indexed_games.saturating_add(1);
 
-                    summary.indexed_positions =
-                        summary.indexed_positions.saturating_add(
-                            u64::try_from(position_count).unwrap_or(u64::MAX),
-                        );
+                    summary.indexed_positions = summary
+                        .indexed_positions
+                        .saturating_add(u64::try_from(position_count).unwrap_or(u64::MAX));
                 }
 
                 Err(error) => {
@@ -193,8 +186,7 @@ where
                 }
             }
 
-            summary.processed_games =
-                summary.processed_games.saturating_add(1);
+            summary.processed_games = summary.processed_games.saturating_add(1);
 
             on_progress(progress_snapshot(
                 &summary,
@@ -223,8 +215,7 @@ where
     if summary.errors != 0 {
         remove_if_exists(&temp_path)?;
 
-        let summary =
-            finish_summary(project, summary, started, &error_messages)?;
+        let summary = finish_summary(project, summary, started, &error_messages)?;
 
         on_progress(progress_snapshot(&summary, started, None, None));
 
@@ -245,8 +236,7 @@ where
 
     summary.index_path = Some(index_path);
 
-    let summary =
-        finish_summary(project, summary, started, &error_messages)?;
+    let summary = finish_summary(project, summary, started, &error_messages)?;
 
     on_progress(progress_snapshot(&summary, started, None, None));
 
@@ -279,23 +269,18 @@ fn finish_summary(
     error_messages: &[String],
 ) -> Result<PatternIndexBuildSummary> {
     summary.elapsed_seconds = started.elapsed().as_secs_f64();
-    summary.error_log =
-        write_error_log(&project.database_root(), error_messages)?;
+    summary.error_log = write_error_log(&project.database_root(), error_messages)?;
 
     Ok(summary)
 }
 
-fn write_error_log(
-    database_root: &Path,
-    errors: &[String],
-) -> Result<Option<PathBuf>> {
+fn write_error_log(database_root: &Path, errors: &[String]) -> Result<Option<PathBuf>> {
     let log_path = database_root.join(ERROR_LOG_FILENAME);
 
     if errors.is_empty() {
         if log_path.exists() {
-            fs::remove_file(&log_path).with_context(|| {
-                format!("removing old {}", log_path.display())
-            })?;
+            fs::remove_file(&log_path)
+                .with_context(|| format!("removing old {}", log_path.display()))?;
         }
 
         return Ok(None);
@@ -304,8 +289,7 @@ fn write_error_log(
     let mut contents = errors.join("\n\n");
     contents.push('\n');
 
-    fs::write(&log_path, contents)
-        .with_context(|| format!("writing {}", log_path.display()))?;
+    fs::write(&log_path, contents).with_context(|| format!("writing {}", log_path.display()))?;
 
     Ok(Some(log_path))
 }
@@ -316,7 +300,6 @@ fn remove_if_exists(path: &Path) -> Result<()> {
 
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 
-        Err(error) => Err(error)
-            .with_context(|| format!("removing {}", path.display())),
+        Err(error) => Err(error).with_context(|| format!("removing {}", path.display())),
     }
 }

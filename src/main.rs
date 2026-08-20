@@ -10,8 +10,7 @@ use moyodb::{
     },
     import_directory,
     importer::ImportOutcome,
-    index_build,
-    pattern_index_build,
+    index_build, pattern_index_build,
     project_manager::ProjectManager,
 };
 use std::path::PathBuf;
@@ -795,9 +794,7 @@ fn build_pattern_index(project_path: PathBuf) -> Result<()> {
         &project,
         || false,
         |progress| {
-            if progress.processed_games == 0
-                || progress.processed_games == last_reported
-            {
+            if progress.processed_games == 0 || progress.processed_games == last_reported {
                 return;
             }
 
@@ -817,19 +814,14 @@ fn build_pattern_index(project_path: PathBuf) -> Result<()> {
     )?;
 
     let summary = match outcome {
-        pattern_index_build::PatternIndexBuildOutcome::Completed(summary) => {
-            summary
-        }
+        pattern_index_build::PatternIndexBuildOutcome::Completed(summary) => summary,
 
         pattern_index_build::PatternIndexBuildOutcome::Cancelled(_) => {
             unreachable!("the command-line pattern-index build cannot cancel")
         }
     };
 
-    println!(
-        "Pattern index format version: {}",
-        summary.format_version
-    );
+    println!("Pattern index format version: {}", summary.format_version);
     println!("Games in project           : {}", summary.total_games);
     println!();
     println!("Pattern indexing finished");
@@ -1144,6 +1136,7 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
             include_rotations: rotations,
             include_reflections: reflections,
             include_reversed_colours: reverse_colours,
+            include_handicap_games: false,
             long_axis_edge_band: None,
             max_match_move,
         },

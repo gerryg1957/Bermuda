@@ -20,10 +20,11 @@ use moyodb::{
     NextMovePointCount, Pattern, PatternBoardContext, PatternMatch, PatternRect,
     PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
     PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
-    SearchSummaryReport, SearchSummaryResult, source_long_axis_edge_band,
+    SearchSummaryReport, SearchSummaryResult,
     game_list::{GameListQuery, GameResultFilter, PlayerColour},
     measure_local_activity,
     project_manager::ProjectManager,
+    source_long_axis_edge_band,
 };
 
 #[allow(non_camel_case_types)]
@@ -350,9 +351,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         let transformation_name = transformation.to_string();
 
-        let Some(transformation) =
-            transformation_from_name(&transformation_name)
-        else {
+        let Some(transformation) = transformation_from_name(&transformation_name) else {
             return false;
         };
 
@@ -577,13 +576,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
         result: &QString,
     ) -> bool {
         let filter = match metadata_filter_from_values(
-            player,
-            versus,
-            colour,
-            event,
-            date_from,
-            date_to,
-            result,
+            player, versus, colour, event, date_from, date_to, result,
         ) {
             Ok(filter) => filter,
 
@@ -850,9 +843,7 @@ fn metadata_filter_from_values(
         "either" => PlayerColour::Either,
 
         _ => {
-            return Err(format!(
-                "unknown player colour filter: {colour_name}"
-            ));
+            return Err(format!("unknown player colour filter: {colour_name}"));
         }
     };
 
@@ -866,9 +857,7 @@ fn metadata_filter_from_values(
         "void" => GameResultFilter::Void,
 
         _ => {
-            return Err(format!(
-                "unknown game result filter: {result_name}"
-            ));
+            return Err(format!("unknown game result filter: {result_name}"));
         }
     };
 
@@ -983,6 +972,7 @@ fn create_search_engine_and_query(
             include_rotations,
             include_reflections,
             include_reversed_colours,
+            include_handicap_games: false,
             long_axis_edge_band: source_long_axis_edge_band(
                 board.size(),
                 rect.width,
@@ -1018,7 +1008,7 @@ where
     C: FnMut() -> bool,
     P: FnMut(PatternSearchProgress),
 {
-    let (search_engine, query) = create_search_engine_and_query(
+    let (search_engine, mut query) = create_search_engine_and_query(
         project_path,
         board_size,
         stones_json,
@@ -1031,6 +1021,13 @@ where
         include_reversed_colours,
         PatternSearchScope::Project,
     )?;
+
+    /*
+     * Project-wide pattern search is not tied to the source rectangle's
+     * exact board coordinates. Edge-oriented elongated patterns remain
+     * constrained by long_axis_edge_band.
+     */
+    query.board_context = None;
 
     search_engine
         .search_pattern_summary_report_with_progress(&query, is_cancelled, on_progress)

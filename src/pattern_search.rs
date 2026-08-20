@@ -185,6 +185,7 @@ pub struct PatternSearchOptions {
     pub include_rotations: bool,
     pub include_reflections: bool,
     pub include_reversed_colours: bool,
+    pub include_handicap_games: bool,
     pub long_axis_edge_band: Option<u8>,
     pub max_match_move: Option<usize>,
 }
@@ -362,11 +363,9 @@ impl PatternVariant {
         for y in 0..usize::from(self.pattern.height) {
             let start = (usize::from(bottom) + y) * board_size;
 
-            let black =
-                Self::board_row_bits(black_words, start, board_size, board_row_mask);
+            let black = Self::board_row_bits(black_words, start, board_size, board_row_mask);
 
-            let white =
-                Self::board_row_bits(white_words, start, board_size, board_row_mask);
+            let white = Self::board_row_bits(white_words, start, board_size, board_row_mask);
 
             /*
              * Test occupied pattern points first.  These usually reject
@@ -519,17 +518,11 @@ fn long_axis_near_edge(
          * For a 19 x 19 board and a five-line edge band, the centre of
          * the short axis must lie on or beyond line 5 or line 15.
          */
-        let centre_twice =
-            2 * u16::from(origin) + u16::from(size) - 1;
+        let centre_twice = 2 * u16::from(origin) + u16::from(size) - 1;
+        let low_edge_limit = 2 * (u16::from(edge_band) - 1);
+        let high_edge_limit = 2 * u16::from(board_size - edge_band);
 
-        let low_edge_limit =
-            2 * (u16::from(edge_band) - 1);
-
-        let high_edge_limit =
-            2 * u16::from(board_size - edge_band);
-
-        centre_twice <= low_edge_limit
-            || centre_twice >= high_edge_limit
+        centre_twice <= low_edge_limit || centre_twice >= high_edge_limit
     };
 
     if pattern_width > pattern_height {
@@ -541,6 +534,28 @@ fn long_axis_near_edge(
     }
 }
 
+fn is_bermuda_shape(pattern_width: u8, pattern_height: u8) -> bool {
+    let long_side = u16::from(pattern_width.max(pattern_height));
+    let short_side = u16::from(pattern_width.min(pattern_height));
+
+    /*
+     * Bermuda is deliberately a conservative geometric heuristic.
+     *
+     * Its purpose is to suppress obviously displaced matches when a long,
+     * shallow selection beside a board edge would otherwise be translated
+     * into a substantially different geometrical situation elsewhere on the
+     * board. It is not a model of Go strategy, fuseki, move quality, or the
+     * historical purpose of the stones in the selected position.
+     *
+     * These thresholds are pragmatic rather than theoretically exact. Compact
+     * and borderline rectangles remain unrestricted: Bermuda is a precedent
+     * finder, not a strategic evaluator. If practical use reveals a useful
+     * class of precedents that this heuristic hides, the boundary should be
+     * reconsidered from that evidence.
+     */
+    short_side > 0 && long_side >= 10 && long_side >= 2 * short_side + 2
+}
+
 #[must_use]
 pub fn source_long_axis_edge_band(
     board_size: u8,
@@ -550,7 +565,7 @@ pub fn source_long_axis_edge_band(
     bottom: u8,
     edge_band: u8,
 ) -> Option<u8> {
-    if pattern_width == pattern_height {
+    if !is_bermuda_shape(pattern_width, pattern_height) {
         return None;
     }
 
@@ -1243,7 +1258,7 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        let games = indexer.games()?;
+        let games = indexer.games_for_pattern_search(options.include_handicap_games)?;
         let total_games = games.len();
 
         let mut summaries = Vec::new();
@@ -1413,7 +1428,7 @@ impl PatternSearcher {
         C: FnMut() -> bool,
         P: FnMut(PatternSearchProgress),
     {
-        let games = indexer.games()?;
+        let games = indexer.games_for_pattern_search(options.include_handicap_games)?;
         let total_games = games.len();
 
         let mut matches = Vec::new();
@@ -1589,38 +1604,44 @@ mod option_tests {
             for bottom in 0..=19 - variant.pattern.height {
                 let last_left = 19 - variant.pattern.width;
 
-                let board_matches = variant.matching_lefts_at_bottom(
-                    &state.board,
-                    bottom,
-                    0,
-                    last_left,
-                );
+                let board_matches =
+                    variant.matching_lefts_at_bottom(&state.board, bottom, 0, last_left);
 
-                let packed_matches = variant.matching_lefts_at_bottom_indexed(
-                    19,
-                    packed,
-                    bottom,
-                    0,
-                    last_left,
-                );
+                let packed_matches =
+                    variant.matching_lefts_at_bottom_indexed(19, packed, bottom, 0, last_left);
 
                 assert_eq!(
-                    packed_matches,
-                    board_matches,
+                    packed_matches, board_matches,
                     "packed matcher differs at move {} bottom {}",
-                    state.occurrence.move_number,
-                    bottom
+                    state.occurrence.move_number, bottom
                 );
             }
         }
     }
 
     #[test]
+    fn bermuda_shape_only_accepts_clearly_elongated_patterns() {
+        assert!(!super::is_bermuda_shape(4, 4));
+        assert!(!super::is_bermuda_shape(5, 6));
+        assert!(!super::is_bermuda_shape(6, 5));
+        assert!(!super::is_bermuda_shape(8, 4));
+        assert!(!super::is_bermuda_shape(4, 8));
+        assert!(!super::is_bermuda_shape(8, 3));
+        assert!(!super::is_bermuda_shape(3, 8));
+        assert!(!super::is_bermuda_shape(9, 4));
+        assert!(!super::is_bermuda_shape(4, 9));
+
+        assert!(super::is_bermuda_shape(10, 4));
+        assert!(super::is_bermuda_shape(4, 10));
+        assert!(super::is_bermuda_shape(10, 3));
+        assert!(super::is_bermuda_shape(3, 10));
+        assert!(super::is_bermuda_shape(16, 3));
+        assert!(super::is_bermuda_shape(3, 16));
+    }
+
+    #[test]
     fn source_long_axis_edge_band_ignores_square_patterns() {
-        assert_eq!(
-            super::source_long_axis_edge_band(19, 4, 4, 0, 0, 5),
-            None
-        );
+        assert_eq!(super::source_long_axis_edge_band(19, 4, 4, 0, 0, 5), None);
     }
 
     #[test]
@@ -1630,10 +1651,7 @@ mod option_tests {
             Some(5)
         );
 
-        assert_eq!(
-            super::source_long_axis_edge_band(19, 10, 3, 3, 8, 5),
-            None
-        );
+        assert_eq!(super::source_long_axis_edge_band(19, 10, 3, 3, 8, 5), None);
     }
 
     #[test]
@@ -1643,49 +1661,30 @@ mod option_tests {
             Some(5)
         );
 
-        assert_eq!(
-            super::source_long_axis_edge_band(19, 3, 10, 8, 3, 5),
-            None
-        );
+        assert_eq!(super::source_long_axis_edge_band(19, 3, 10, 8, 3, 5), None);
     }
 
     #[test]
     fn long_axis_edge_band_uses_horizontal_shape_centre() {
         assert!(super::long_axis_near_edge(19, 16, 3, 1, 3, None));
-
-        // Rows 4-6 have centre line 5: accept.
         assert!(super::long_axis_near_edge(19, 16, 3, 1, 3, Some(5)));
-
-        // Rows 5-7 have centre line 6: reject.
         assert!(!super::long_axis_near_edge(19, 16, 3, 1, 4, Some(5)));
-
-        // Symmetric cases at the opposite edge.
         assert!(!super::long_axis_near_edge(19, 16, 3, 1, 12, Some(5)));
         assert!(super::long_axis_near_edge(19, 16, 3, 1, 13, Some(5)));
     }
 
     #[test]
     fn long_axis_edge_band_uses_vertical_shape_centre() {
-        // Columns 4-6 have centre line 5: accept.
         assert!(super::long_axis_near_edge(19, 3, 16, 3, 1, Some(5)));
-
-        // Columns 5-7 have centre line 6: reject.
         assert!(!super::long_axis_near_edge(19, 3, 16, 4, 1, Some(5)));
-
-        // Symmetric cases at the opposite edge.
         assert!(!super::long_axis_near_edge(19, 3, 16, 12, 1, Some(5)));
         assert!(super::long_axis_near_edge(19, 3, 16, 13, 1, Some(5)));
     }
 
     #[test]
     fn long_axis_edge_band_handles_even_short_dimension_symmetrically() {
-        // Columns 4-5 have centre 4.5: accept.
         assert!(super::long_axis_near_edge(19, 2, 16, 3, 1, Some(5)));
-
-        // Columns 5-6 have centre 5.5: reject.
         assert!(!super::long_axis_near_edge(19, 2, 16, 4, 1, Some(5)));
-
-        // And the same boundary from the opposite edge.
         assert!(!super::long_axis_near_edge(19, 2, 16, 13, 1, Some(5)));
         assert!(super::long_axis_near_edge(19, 2, 16, 14, 1, Some(5)));
     }
@@ -1736,6 +1735,7 @@ mod option_tests {
                 include_rotations: true,
                 include_reflections: true,
                 include_reversed_colours: true,
+                include_handicap_games: false,
                 long_axis_edge_band: None,
                 max_match_move: None,
             },
@@ -1777,6 +1777,7 @@ mod option_tests {
                 include_rotations: true,
                 include_reflections: true,
                 include_reversed_colours: true,
+                include_handicap_games: false,
                 long_axis_edge_band: None,
                 max_match_move: None,
             },

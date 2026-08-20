@@ -462,6 +462,65 @@ impl PositionIndexer {
         Ok(games)
     }
 
+    /// Returns the games eligible for a project-wide pattern search.
+    ///
+    /// By default handicap games are excluded because ordinary professional
+    /// pattern research is intended to compare even games.  The games remain
+    /// stored and indexed, and callers may explicitly include them.
+    ///
+    /// A canonical game is considered a handicap game if any of its source
+    /// metadata records reports a positive handicap.
+    pub fn games_for_pattern_search(
+        &self,
+        include_handicap_games: bool,
+    ) -> Result<Vec<GameToIndex>> {
+        if include_handicap_games {
+            return self.games();
+        }
+
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+                SELECT
+                    g.id,
+                    g.move_file
+                FROM games AS g
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM game_sources AS gs
+                    JOIN game_metadata AS gm
+                        ON gm.game_source_id = gs.id
+                    WHERE gs.game_id = g.id
+                      AND COALESCE(gm.handicap, 0) > 0
+                )
+                ORDER BY g.id
+                "#,
+            )
+            .context("preparing pattern-search game query")?;
+
+        let rows = statement
+            .query_map([], |row| {
+                let game_id: i64 = row.get(0)?;
+                let relative_move_file: String = row.get(1)?;
+                Ok((game_id, relative_move_file))
+            })
+            .context("querying pattern-search games")?;
+
+        let mut games = Vec::new();
+
+        for row in rows {
+            let (game_id, relative_move_file) = row.context("reading pattern-search game")?;
+
+            games.push(GameToIndex {
+                game_id,
+                move_file: self.database_root.join(relative_move_file),
+            });
+        }
+
+        Ok(games)
+    }
+
     /// Returns the games that require indexing for the specified index version.
     ///
     /// Games already indexed at the requested version are excluded from the
@@ -857,6 +916,77 @@ mod tests {
         assert_eq!(games[1].game_id, 2);
 
         assert_eq!(games[0].move_file, root.join("games/aa/test-one.moves"));
+    }
+
+    #[test]
+    fn pattern_search_games_exclude_handicap_unless_requested() {
+        let (_temporary, root) = create_test_database();
+        let connection = database::open(&root).expect("open test database");
+
+        insert_game(&connection, 1, "games/aa/even.moves");
+        insert_game(&connection, 2, "games/bb/handicap.moves");
+
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = OFF;
+
+                INSERT INTO game_sources(
+                    id,
+                    game_id,
+                    source_id,
+                    original_path,
+                    imported_at
+                )
+                VALUES (
+                    100,
+                    2,
+                    0,
+                    'handicap-test.sgf',
+                    'test'
+                );
+
+                INSERT INTO game_metadata(
+                    game_source_id,
+                    handicap
+                )
+                VALUES (
+                    100,
+                    2
+                );
+
+                PRAGMA foreign_keys = ON;
+                "#,
+            )
+            .expect("add handicap metadata");
+
+        drop(connection);
+
+        let indexer = PositionIndexer::open(&root).expect("open indexer");
+
+        let even_games = indexer
+            .games_for_pattern_search(false)
+            .expect("list even pattern-search games");
+
+        assert_eq!(
+            even_games
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+
+        let all_games = indexer
+            .games_for_pattern_search(true)
+            .expect("list all pattern-search games");
+
+        assert_eq!(
+            all_games
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
     }
 
     #[test]

@@ -55,10 +55,7 @@ pub struct PatternIndexGameBlockView<'a> {
 impl PatternIndexGameBlockView<'_> {
     /// Read the twelve packed board words for one position without
     /// allocating or decoding the complete game block.
-    pub fn board_words(
-        &self,
-        position: usize,
-    ) -> Result<([u64; BOARD_WORDS], [u64; BOARD_WORDS])> {
+    pub fn board_words(&self, position: usize) -> Result<([u64; BOARD_WORDS], [u64; BOARD_WORDS])> {
         if position >= self.position_count {
             bail!(
                 "pattern-index position {position} out of range for {} positions",
@@ -115,11 +112,9 @@ impl PatternIndexGameBlockView<'_> {
             .get(start..end)
             .ok_or_else(|| anyhow!("truncated pattern-index metadata"))?;
 
-        Ok(u32::from_le_bytes(
-            bytes
-                .try_into()
-                .map_err(|_| anyhow!("invalid pattern-index metadata width"))?,
-        ))
+        Ok(u32::from_le_bytes(bytes.try_into().map_err(|_| {
+            anyhow!("invalid pattern-index metadata width")
+        })?))
     }
 }
 
@@ -199,8 +194,7 @@ pub fn view_game_block(bytes: &[u8]) -> Result<(PatternIndexGameBlockView<'_>, u
         bail!("invalid board size {board_size} in pattern-index block");
     }
 
-    let position_count =
-        u32::from_le_bytes(take::<4>(bytes, &mut offset)?) as usize;
+    let position_count = u32::from_le_bytes(take::<4>(bytes, &mut offset)?) as usize;
 
     let board_bytes_len = position_count
         .checked_mul(BOARD_BYTES_PER_POSITION)

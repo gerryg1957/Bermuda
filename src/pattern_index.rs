@@ -69,26 +69,11 @@ mod tests {
 
         for (indexed_position, state) in indexed.iter().zip(&replayed) {
             assert_eq!(indexed_position.game_id, 42);
-            assert_eq!(
-                indexed_position.move_number,
-                state.occurrence.move_number
-            );
-            assert_eq!(
-                indexed_position.side_to_move,
-                state.occurrence.side_to_move
-            );
-            assert_eq!(
-                indexed_position.ko_point,
-                state.occurrence.ko_point
-            );
-            assert_eq!(
-                indexed_position.black,
-                *state.board.black_words()
-            );
-            assert_eq!(
-                indexed_position.white,
-                *state.board.white_words()
-            );
+            assert_eq!(indexed_position.move_number, state.occurrence.move_number);
+            assert_eq!(indexed_position.side_to_move, state.occurrence.side_to_move);
+            assert_eq!(indexed_position.ko_point, state.occurrence.ko_point);
+            assert_eq!(indexed_position.black, *state.board.black_words());
+            assert_eq!(indexed_position.white, *state.board.white_words());
         }
     }
 
@@ -114,13 +99,7 @@ mod tests {
         let final_state = replayed.last().unwrap();
         let final_indexed = indexed.last().unwrap();
 
-        assert_eq!(
-            final_indexed.black,
-            *final_state.board.black_words()
-        );
-        assert_eq!(
-            final_indexed.white,
-            *final_state.board.white_words()
-        );
+        assert_eq!(final_indexed.black, *final_state.board.black_words());
+        assert_eq!(final_indexed.white, *final_state.board.white_words());
     }
 }

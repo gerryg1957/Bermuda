@@ -145,10 +145,7 @@ impl ffi::MoyoDbApp {
     fn project_exists(&self, project_path: &QString) -> bool {
         let path = project_path.to_string();
 
-        !path.trim().is_empty()
-            && ProjectManager::new()
-                .open(Path::new(&path))
-                .is_ok()
+        !path.trim().is_empty() && ProjectManager::new().open(Path::new(&path)).is_ok()
     }
 
     fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {

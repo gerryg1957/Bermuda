@@ -151,13 +151,9 @@ impl GameListQuery {
             },
 
             (Some(player), Some(versus)) => match self.colour {
-                PlayerColour::Black => {
-                    black_player == Some(player) && white_player == Some(versus)
-                }
+                PlayerColour::Black => black_player == Some(player) && white_player == Some(versus),
 
-                PlayerColour::White => {
-                    white_player == Some(player) && black_player == Some(versus)
-                }
+                PlayerColour::White => white_player == Some(player) && black_player == Some(versus),
 
                 PlayerColour::Either => {
                     (black_player == Some(player) && white_player == Some(versus))
@@ -219,20 +215,21 @@ fn result_matches(filter: GameResultFilter, result: Option<&str>) -> bool {
     match filter {
         GameResultFilter::Any => true,
 
-        GameResultFilter::BlackWin => result
-            .is_some_and(|value| starts_with_ascii_case_insensitive(value, "B+")),
+        GameResultFilter::BlackWin => {
+            result.is_some_and(|value| starts_with_ascii_case_insensitive(value, "B+"))
+        }
 
-        GameResultFilter::WhiteWin => result
-            .is_some_and(|value| starts_with_ascii_case_insensitive(value, "W+")),
+        GameResultFilter::WhiteWin => {
+            result.is_some_and(|value| starts_with_ascii_case_insensitive(value, "W+"))
+        }
 
         GameResultFilter::Jigo => result.is_some_and(|value| {
-            starts_with_ascii_case_insensitive(value, "Jigo")
-                || value == "Draw"
-                || value == "0"
+            starts_with_ascii_case_insensitive(value, "Jigo") || value == "Draw" || value == "0"
         }),
 
-        GameResultFilter::Void => result
-            .is_some_and(|value| starts_with_ascii_case_insensitive(value, "Void")),
+        GameResultFilter::Void => {
+            result.is_some_and(|value| starts_with_ascii_case_insensitive(value, "Void"))
+        }
     }
 }
 
