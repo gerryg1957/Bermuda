@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the core domain model of MoyoDB.
+This document defines the core domain model of Bermuda.
 
 The domain model describes the concepts represented by the system. It is independent of storage, indexing, user interfaces and implementation details.
 
@@ -10,7 +10,7 @@ The domain model describes the concepts represented by the system. It is indepen
 
 # Purpose
 
-MoyoDB is a database for professional Go games.
+Bermuda is a database for professional Go games.
 
 Its responsibilities are to:
 
@@ -78,7 +78,7 @@ Entities have a persistent identity.
 
 ## Project
 
-Represents one MoyoDB database.
+Represents one Bermuda database.
 
 Owns:
 

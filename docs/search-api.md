@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the intended architecture of the MoyoDB search system.
+This document describes the intended architecture of the Bermuda search system.
 
 It is a design document and does not necessarily reflect the exact implementation at the current stage of development.
 
@@ -10,11 +10,11 @@ It is a design document and does not necessarily reflect the exact implementatio
 
 # Purpose
 
-Searching is the primary purpose of MoyoDB.
+Searching is the primary purpose of Bermuda.
 
 Every feature of the library ultimately exists to make searching professional Go games easier, faster and more flexible.
 
-The search API should provide a single, consistent interface for every search supported by MoyoDB.
+The search API should provide a single, consistent interface for every search supported by Bermuda.
 
 Applications should not need to know how a search is implemented internally.
 
@@ -295,7 +295,7 @@ The application should not know whether the search used replay, indexing or anot
 
 # Long-Term Goal
 
-The search API should become the defining feature of MoyoDB.
+The search API should become the defining feature of Bermuda.
 
 Every search—current and future—should feel like a natural extension of the same interface.
 

@@ -1,4 +1,4 @@
-//! Common search result types used throughout MoyoDB.
+//! Common search result types used throughout Bermuda.
 //!
 //! All search operations should return these types so that
 //! command-line tools, graphical interfaces, and other clients
@@ -64,7 +64,7 @@ pub struct PositionSearchResult {
     pub result: Option<String>,
 }
 
-/// Provides access to a MoyoDB project's position index.
+/// Provides access to a Bermuda project's position index.
 ///
 /// `PositionIndexer` is responsible for:
 ///
@@ -73,7 +73,7 @@ pub struct PositionSearchResult {
 /// - searching indexed positions.
 ///
 /// It forms the primary access point for position-based operations
-/// within the MoyoDB library.
+/// within the Bermuda library.
 pub struct PositionIndexer {
     database_root: PathBuf,
     connection: Connection,
@@ -106,9 +106,9 @@ pub(crate) fn replay_game_for_index(game: &GameToIndex) -> Result<IndexedPositio
 }
 
 impl PositionIndexer {
-    /// Opens the MoyoDB database stored at `database_root`.
+    /// Opens the Bermuda database stored at `database_root`.
     ///
-    /// The directory must contain an existing MoyoDB database and its
+    /// The directory must contain an existing Bermuda database and its
     /// SQLite metadata file.
     pub fn open(database_root: &Path) -> Result<Self> {
         let connection = database::open(database_root)?;
@@ -119,7 +119,7 @@ impl PositionIndexer {
         })
     }
 
-    /// Opens the position index for an existing MoyoDB project.
+    /// Opens the position index for an existing Bermuda project.
     ///
     /// This is the preferred constructor when the caller already has a
     /// [`Project`] value.

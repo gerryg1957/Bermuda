@@ -1,8 +1,7 @@
 mod commands;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
-use moyodb::{
+use bermuda::{
     Pattern, PatternRect, PatternSearchOptions, PatternSearchQuery, PatternSearchScope,
     SearchEngine, board_display,
     game_list::{
@@ -13,11 +12,12 @@ use moyodb::{
     index_build, pattern_index_build,
     project_manager::ProjectManager,
 };
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "moyodb",
+    name = "bermuda",
     version,
     about = "Professional Go game database tools"
 )]
@@ -102,7 +102,7 @@ impl From<CliSortDirection> for SortDirection {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Create a new MoyoDB project.
+    /// Create a new Bermuda project.
     Init {
         /// Name of the project.
         name: String,
@@ -111,9 +111,9 @@ enum Command {
         project: PathBuf,
     },
 
-    /// Import one SGF into an existing MoyoDB project.
+    /// Import one SGF into an existing Bermuda project.
     ImportOne {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Source collection name, for example GoGoD or go4go.
@@ -125,9 +125,9 @@ enum Command {
         /// SGF file to import.
         sgf: PathBuf,
     },
-    /// Import every SGF below a directory into a MoyoDB project.
+    /// Import every SGF below a directory into a Bermuda project.
     ImportDir {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Source collection name, for example GoGoD or go4go.
@@ -139,9 +139,9 @@ enum Command {
         /// Directory containing SGF files.
         directory: PathBuf,
     },
-    /// List games in a MoyoDB project.
+    /// List games in a Bermuda project.
     ListGames {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Show only games involving this player.
@@ -183,7 +183,7 @@ enum Command {
 
     /// Display details of one stored game.
     ShowGame {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Database game ID.
@@ -192,7 +192,7 @@ enum Command {
 
     /// Find an indexed position from a game and move number.
     FindPosition {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Database game ID.
@@ -208,7 +208,7 @@ enum Command {
 
     /// Display a position from a game and move number.
     ShowPosition {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Database game ID.
@@ -220,18 +220,18 @@ enum Command {
 
     /// Build or resume the exact-position index.
     BuildPositionIndex {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
     },
 
     /// Build the persistent packed pattern-position index.
     BuildPatternIndex {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
     },
     /// Find occurrences of an exact position fingerprint.
     FindFingerprint {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// SHA-256 exact-position fingerprint in hexadecimal.
@@ -240,7 +240,7 @@ enum Command {
 
     /// Replay a stored game from the database.
     ReplayGame {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Database game ID.
@@ -284,7 +284,7 @@ enum Command {
 
     /// Search a game for a pattern extracted from another position.
     SearchPattern {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Game containing the pattern.
@@ -311,7 +311,7 @@ enum Command {
 
     /// Search the complete database for a pattern extracted from a position.
     SearchPatternDatabase {
-        /// MoyoDB project directory.
+        /// Bermuda project directory.
         project: PathBuf,
 
         /// Game containing the pattern.
@@ -726,16 +726,16 @@ fn replay_game(
         println!("Move {}", current);
 
         let side = match state.occurrence.side_to_move {
-            moyodb::Colour::Black => "Black",
-            moyodb::Colour::White => "White",
+            bermuda::Colour::Black => "Black",
+            bermuda::Colour::White => "White",
         };
 
         println!("{side} to move");
 
         if let Some(last_move) = state.last_move {
             let colour = match last_move.colour {
-                moyodb::Colour::Black => "Black",
-                moyodb::Colour::White => "White",
+                bermuda::Colour::Black => "Black",
+                bermuda::Colour::White => "White",
             };
 
             match last_move.point {
@@ -935,8 +935,8 @@ fn find_position_by_fingerprint(project_path: PathBuf, fingerprint: String) -> R
 
     for position_match in matches {
         let side = match position_match.side_to_move {
-            moyodb::Colour::Black => "Black",
-            moyodb::Colour::White => "White",
+            bermuda::Colour::Black => "Black",
+            bermuda::Colour::White => "White",
         };
 
         println!(
@@ -973,8 +973,8 @@ fn find_position(
 
         for m in matches {
             let side = match m.side_to_move {
-                moyodb::Colour::Black => "Black",
-                moyodb::Colour::White => "White",
+                bermuda::Colour::Black => "Black",
+                bermuda::Colour::White => "White",
             };
 
             println!(
@@ -1002,8 +1002,8 @@ fn find_position(
 
         for m in matches {
             let side = match m.side_to_move {
-                moyodb::Colour::Black => "Black",
-                moyodb::Colour::White => "White",
+                bermuda::Colour::Black => "Black",
+                bermuda::Colour::White => "White",
             };
 
             println!("Game {}", m.game_id);
@@ -1044,8 +1044,8 @@ fn find_position(
     println!("{}", board_display::render(&state.board));
 
     let side = match state.occurrence.side_to_move {
-        moyodb::Colour::Black => "Black",
-        moyodb::Colour::White => "White",
+        bermuda::Colour::Black => "Black",
+        bermuda::Colour::White => "White",
     };
 
     println!("{side} to move");
@@ -1123,8 +1123,8 @@ fn search_pattern_database(request: PatternSearchRequest) -> Result<()> {
 
     if wildcard_empty {
         for cell in &mut pattern.cells {
-            if *cell == moyodb::PatternCell::Empty {
-                *cell = moyodb::PatternCell::Any;
+            if *cell == bermuda::PatternCell::Empty {
+                *cell = bermuda::PatternCell::Any;
             }
         }
     }
@@ -1199,8 +1199,8 @@ fn show_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
     println!();
 
     let side = match state.occurrence.side_to_move {
-        moyodb::Colour::Black => "Black",
-        moyodb::Colour::White => "White",
+        bermuda::Colour::Black => "Black",
+        bermuda::Colour::White => "White",
     };
 
     println!("{side} to move");
@@ -1208,8 +1208,8 @@ fn show_position(project_path: PathBuf, game_id: i64, move_number: usize) -> Res
 
     if let Some(last_move) = state.last_move {
         let colour = match last_move.colour {
-            moyodb::Colour::Black => "Black",
-            moyodb::Colour::White => "White",
+            bermuda::Colour::Black => "Black",
+            bermuda::Colour::White => "White",
         };
 
         match last_move.point {

@@ -4,13 +4,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
-import org.moyodb.app
+import org.bermuda.app
 
 ApplicationWindow {
     id: root
 
     visible: true
-    title: qsTr("MoyoDB")
+    title: qsTr("Bermuda")
 
     // Initial size only. The user can resize or maximize normally.
        width: 1500
@@ -58,7 +58,7 @@ ApplicationWindow {
         ? Qt.application.arguments[1]
         : ""
 
-    MoyoDbApp {
+    BermudaApp {
         id: gameController
     }
 

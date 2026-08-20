@@ -1,8 +1,8 @@
-# MoyoDB Algorithms
+# Bermuda Algorithms
 
 ## Purpose
 
-This document describes the algorithms used throughout MoyoDB.
+This document describes the algorithms used throughout Bermuda.
 It complements `architecture.md`, which explains how the software is
 organised. This document explains *how the individual algorithms work*.
 

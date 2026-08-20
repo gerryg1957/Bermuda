@@ -1,4 +1,4 @@
-# MoyoDB Position and Pattern Index Design
+# Bermuda Position and Pattern Index Design
 
 **Status:** Draft 1
 **Target milestone:** Version 0.4
@@ -35,7 +35,7 @@ A pattern search asks:
 
 An exact whole-board hash cannot directly answer arbitrary pattern searches.
 
-MoyoDB will therefore separate:
+Bermuda will therefore separate:
 
 1. **position reconstruction**, which recreates every board state;
 2. **candidate indexing**, which rapidly identifies possible pattern matches;
@@ -137,7 +137,7 @@ Search results record which transformation matched the query.
 
 ## 8. Indexing Strategy
 
-MoyoDB will use a two-stage pattern search.
+Bermuda will use a two-stage pattern search.
 
 ### Stage 1: candidate selection
 
@@ -282,14 +282,14 @@ Changing the index format increments `index_version`.
 The initial commands should be:
 
 ```text
-moyodb build-position-index <DATABASE>
-moyodb position-index-status <DATABASE>
+bermuda build-position-index <DATABASE>
+bermuda position-index-status <DATABASE>
 ```
 
 A later exact-position query command may be:
 
 ```text
-moyodb find-position <DATABASE> <POSITION-DESCRIPTION>
+bermuda find-position <DATABASE> <POSITION-DESCRIPTION>
 ```
 
 Pattern-search commands will be designed after the first position-index measurements.

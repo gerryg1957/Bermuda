@@ -4,7 +4,7 @@ use std::{fmt::Display, path::Path, pin::Pin};
 
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
-use moyodb::{
+use bermuda::{
     game_list::{GameColumn, GameListQuery, GameResultFilter, PlayerColour, SortField},
     project_manager::ProjectManager,
 };

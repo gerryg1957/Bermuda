@@ -1,8 +1,8 @@
-# MoyoDB Roadmap
+# Bermuda Roadmap
 
 ## Project Goal
 
-MoyoDB is a professional Go game database designed as a modern native replacement for Moyo Go Studio.
+Bermuda is a professional Go game database designed as a modern native replacement for Moyo Go Studio.
 
 The goals are:
 
@@ -59,7 +59,7 @@ Metadata is excluded from the canonical identity.
 
 Completed:
 
-- MoyoDB project structure
+- Bermuda project structure
 - SQLite metadata database
 - Game file storage
 - Source collection tracking
@@ -68,7 +68,7 @@ Completed:
 
 Database layout:
 
-MoyoDB project
+Bermuda project
 
 metadata.sqlite3
 
@@ -244,8 +244,8 @@ Features:
 
 Possible commands:
 
-moyodb list-games
-moyodb show-game <id>
+bermuda list-games
+bermuda show-game <id>
 
 
 ---
@@ -262,7 +262,7 @@ Possible implementations:
 
 Principle:
 
-The GUI should use the existing MoyoDB engine rather than duplicate database logic.
+The GUI should use the existing Bermuda engine rather than duplicate database logic.
 
 ---
 

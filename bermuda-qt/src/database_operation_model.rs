@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use moyodb::{
+use bermuda::{
     import_directory::{self, ImportDirectoryOutcome, ImportProgress, ImportStage, ImportSummary},
     index_build::{self, IndexBuildOutcome, IndexBuildProgress, IndexBuildSummary},
     project::Project,

@@ -15,7 +15,7 @@ use std::{
 
 use cxx_qt_lib::{QByteArray, QHash, QHashPair_i32_QByteArray, QModelIndex, QString, QVariant};
 
-use moyodb::{
+use bermuda::{
     Board, Colour, GameRecord, LocalActivity, Move, NearbyMove, NextMoveDistribution,
     NextMovePointCount, Pattern, PatternBoardContext, PatternMatch, PatternRect,
     PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,

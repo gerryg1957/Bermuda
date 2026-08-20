@@ -1,11 +1,11 @@
-# MoyoDB GUI Design Review
+# Bermuda GUI Design Review
 ## Lessons from the MoyoGo Studio starting display
 
 **Date:** 31 July 2026
 
 ## Purpose
 
-This document records the discussion about which parts of the original MoyoGo Studio (MGS) interface were useful in practice, which were unnecessary, and which ideas should influence the MoyoDB Qt interface.
+This document records the discussion about which parts of the original MoyoGo Studio (MGS) interface were useful in practice, which were unnecessary, and which ideas should influence the Bermuda Qt interface.
 
 The aim is not to reproduce MGS screen-for-screen. The aim is to preserve the genuinely useful study and database functions while producing a simpler, clearer interface.
 
@@ -13,7 +13,7 @@ The aim is not to reproduce MGS screen-for-screen. The aim is to preserve the ge
 
 ## 1. Overall direction
 
-MoyoDB should concentrate on three persistent areas:
+Bermuda should concentrate on three persistent areas:
 
 1. **The game catalogue**
 2. **The main Go board**
@@ -48,7 +48,7 @@ MGS included a slider for stepping through a game.
 
 **Decision:** Add, provided it remains straightforward.
 
-MoyoDB already has:
+Bermuda already has:
 
 - first position;
 - previous move;
@@ -90,11 +90,11 @@ Board rotation might eventually be available as a secondary command, but it shou
 
 ### Player names
 
-MGS showed the player names around the board. MoyoDB currently displays them below the board, which is visually preferable.
+MGS showed the player names around the board. Bermuda currently displays them below the board, which is visually preferable.
 
 The names may come from:
 
-- a game selected from the MoyoDB catalogue;
+- a game selected from the Bermuda catalogue;
 - an SGF file opened directly for analysis;
 - a pattern-search result;
 - a future edited or newly created game.
@@ -188,7 +188,7 @@ MGS envisaged separate databases such as:
 
 In practice, the only rich and important source category is professional 19×19 games. AI engines now serve many of the purposes once imagined for separate specialist collections.
 
-**Decision:** Use one MoyoDB project catalogue rather than multiple conceptual databases.
+**Decision:** Use one Bermuda project catalogue rather than multiple conceptual databases.
 
 ### Required tabs
 
@@ -208,7 +208,7 @@ Shows games identified by the current pattern search.
 
 ### Catalogue columns
 
-The current MoyoDB columns are sufficient:
+The current Bermuda columns are sufficient:
 
 - Black;
 - White;
@@ -359,7 +359,7 @@ The ownership display should probably be called an **ownership map** rather than
 
 The permanently visible game tree in MGS was mainly useful for its bundled joseki dictionary, where one position could lead to several alternative continuations.
 
-For the professional game records that MoyoDB is intended to study, the game tree would normally contain only the main line. It would therefore consume valuable screen space without adding useful information.
+For the professional game records that Bermuda is intended to study, the game tree would normally contain only the main line. It would therefore consume valuable screen space without adding useful information.
 
 A modern joseki dictionary could be valuable, but there is no known current, maintainable source available for inclusion. An old pre-AI joseki dictionary would be of little use and could be actively misleading.
 
@@ -399,7 +399,7 @@ The following MGS features should not be reproduced by default:
 
 ---
 
-## 11. Emerging MoyoDB pattern-search workflow
+## 11. Emerging Bermuda pattern-search workflow
 
 ```text
 Select a pattern on the main board

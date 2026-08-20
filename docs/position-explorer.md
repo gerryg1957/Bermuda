@@ -1,4 +1,4 @@
-# MoyoDB Position Explorer Design
+# Bermuda Position Explorer Design
 
 **Status:** Draft 1
 **Target milestone:** Version 0.5
@@ -30,13 +30,13 @@ Display matching games and move numbers
 The first implementation will provide:
 
 ```text
-moyodb explore-position <DATABASE> <GAME_ID> <MOVE_NUMBER>
+bermuda explore-position <DATABASE> <GAME_ID> <MOVE_NUMBER>
 ```
 
 Example:
 
 ```text
-moyodb explore-position ~/go-database-index-test 30 174
+bermuda explore-position ~/go-database-index-test 30 174
 ```
 
 The command will:

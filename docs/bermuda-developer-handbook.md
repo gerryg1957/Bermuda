@@ -1,9 +1,9 @@
-# MoyoDB Developer Handbook (Working Draft)
+# Bermuda Developer Handbook (Working Draft)
 
 ## Purpose
 
 This document records the design decisions, architecture, milestones,
-and roadmap for the MoyoDB project as developed during our ChatGPT
+and roadmap for the Bermuda project as developed during our ChatGPT
 sessions. It is intended to live alongside the source code (for example
 in `docs/developer-handbook.md`) and evolve as the project grows.
 
@@ -11,7 +11,7 @@ in `docs/developer-handbook.md`) and evolve as the project grows.
 
 # Project Vision
 
-MoyoDB is a native Rust Go (Baduk/Weiqi) database aimed at
+Bermuda is a native Rust Go (Baduk/Weiqi) database aimed at
 professional-scale collections such as GoGoD and go4go.
 
 Primary goals:

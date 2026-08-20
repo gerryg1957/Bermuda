@@ -1,4 +1,4 @@
-# MoyoDB Milestone 1
+# Bermuda Milestone 1
 ## Core Architecture Established
 
 **Date:** July 2026
@@ -7,7 +7,7 @@
 
 # Overview
 
-MoyoDB has reached its first major architectural milestone.
+Bermuda has reached its first major architectural milestone.
 
 The project has evolved from an experimental SGF parser into a native Rust library capable of importing, indexing and searching large collections of professional Go games.
 
@@ -201,7 +201,7 @@ Planned future work includes:
 ---
 # Conclusion
 
-MoyoDB has evolved from an experimental SGF parser into a functioning Go database engine.
+Bermuda has evolved from an experimental SGF parser into a functioning Go database engine.
 
 The core architecture has now been established and the principal components—import, storage, replay, indexing and search—are all operational.
 
@@ -211,4 +211,4 @@ Future development will build on this foundation in three parallel areas:
 - refining and documenting the public library API;
 - developing a modern native Qt graphical user interface.
 
-This milestone marks the completion of the foundation on which the remainder of MoyoDB will be built.
+This milestone marks the completion of the foundation on which the remainder of Bermuda will be built.

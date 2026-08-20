@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQml
 import org.kde.kirigami as Kirigami
-import org.moyodb.app
+import org.bermuda.app
 
 Kirigami.AbstractCard {
     id: root

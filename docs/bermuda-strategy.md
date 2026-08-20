@@ -1,8 +1,8 @@
-# MoyoDB Strategy
+# Bermuda Strategy
 
 ## 1. Purpose
 
-MoyoDB is a database for studying professional Go games through position,
+Bermuda is a database for studying professional Go games through position,
 pattern and sequence search.
 
 Its purpose is not merely to locate geometrically similar arrangements of
@@ -16,12 +16,12 @@ stones. It should help a player investigate questions such as:
 - Which examples are genuinely useful for understanding the shape?
 - How does professional practice compare with modern engine analysis?
 
-MoyoDB should preserve the strengths of professional-game databases while
+Bermuda should preserve the strengths of professional-game databases while
 being explicit about their limitations.
 
 It is neither a replacement for KataGo nor simply a graphical front end for
 an engine. Human-game evidence and engine analysis answer different
-questions. The value of MoyoDB lies partly in bringing those forms of
+questions. The value of Bermuda lies partly in bringing those forms of
 evidence together without confusing them.
 
 ## 2. Human precedent, not proof
@@ -32,7 +32,7 @@ real games.
 That evidence is valuable, but it does not prove that a move was best.
 
 If five professionals chose one continuation and eight chose alternatives,
-MoyoDB may report those choices and their frequency. It should not say that
+Bermuda may report those choices and their frequency. It should not say that
 the five players knew their continuation was optimal, nor that the eight
 alternatives were inferior.
 
@@ -50,7 +50,7 @@ A professional may choose a move because:
 
 The database normally cannot recover the player's actual reasoning.
 
-MoyoDB should therefore distinguish carefully between:
+Bermuda should therefore distinguish carefully between:
 
 - **observed fact** — what was played;
 - **statistical association** — what tended to occur with it;
@@ -74,7 +74,7 @@ A continuation may appear frequently in won games because:
 Likewise, a sound continuation may be associated with losses because it was
 played mainly from already difficult positions.
 
-MoyoDB should present results descriptively:
+Bermuda should present results descriptively:
 
 > This continuation occurred in 13 games: 5 wins and 8 losses.
 
@@ -96,7 +96,7 @@ Even with those additions, the statistics remain evidence rather than proof.
 
 An uneven result distribution is nevertheless worth investigating. If one
 continuation appears mainly in won games and another mainly in lost games,
-MoyoDB should help the user ask why. The difference may reflect move quality,
+Bermuda should help the user ask why. The difference may reflect move quality,
 prior board state, player strength, strategic choice or later play. It is a
 lead for investigation, not a verdict.
 
@@ -115,12 +115,12 @@ may leave the student with no candidate at all. When a professional move is
 then shown, the response is often “oh yes” even though the move was not
 previously within the student's field of vision.
 
-MoyoDB should support a non-linear expansion of that field of vision. If eight
+Bermuda should support a non-linear expansion of that field of vision. If eight
 professionals played at one point, five at another and three elsewhere, those
 figures identify recurring professional candidates. They do not establish an
 absolute ranking, but they show which moves deserve investigation.
 
-> MoyoDB does not tell the user what must be played. It shows what the user
+> Bermuda does not tell the user what must be played. It shows what the user
 > should be thinking about.
 
 The intended investigation workflow is:
@@ -194,7 +194,7 @@ Persistence study considers how long the pattern remained, whether the
 surrounding area stayed active and whether the match occurred only as an
 accidental configuration on a crowded board.
 
-MoyoDB should not treat these as the same question.
+Bermuda should not treat these as the same question.
 
 ## 6. Correct matches are not always useful matches
 
@@ -213,7 +213,7 @@ Such results should normally remain available. Their lack of further local
 play can itself be informative. However, they should not necessarily rank
 alongside examples containing an active and instructive continuation.
 
-MoyoDB should distinguish:
+Bermuda should distinguish:
 
 - search correctness;
 - contextual similarity;
@@ -221,7 +221,7 @@ MoyoDB should distinguish:
 
 ## 7. Continuation, activity, influence and ownership maps
 
-Several visually similar board overlays answer different questions. MoyoDB
+Several visually similar board overlays answer different questions. Bermuda
 should name and present them separately.
 
 ### Continuation map
@@ -333,7 +333,7 @@ or:
 
 ## 9. Raw matches, appearances and local episodes
 
-MoyoDB should preserve several levels of grouping.
+Bermuda should preserve several levels of grouping.
 
 ### Raw match
 
@@ -360,7 +360,7 @@ of independent professional evidence.
 Opening positions may benefit from specialised treatment because their
 meaning often depends on large areas or the whole board.
 
-MoyoDB should not reproduce an opaque “fuseki harvest” process merely
+Bermuda should not reproduce an opaque “fuseki harvest” process merely
 because an earlier program used one. Nor should it assume that one fixed
 move number cleanly separates useful pattern search from positions better
 suited to engine analysis.
@@ -411,7 +411,7 @@ For players below professional strength, a clear and robust human sequence
 may sometimes be more educational than an unexplained engine tenuki, even
 when the engine move is objectively superior.
 
-Future MoyoDB analysis may compare:
+Future Bermuda analysis may compare:
 
 - frequency in professional games;
 - professional alternatives;
@@ -444,7 +444,7 @@ interpretations emerge:
 - Do professionals with different tendencies choose different continuations?
 - Is a slightly inferior engine move much easier to play?
 
-MoyoDB should support explanations grounded in visible evidence while
+Bermuda should support explanations grounded in visible evidence while
 labelling inference honestly.
 
 When contemporary commentary, annotations or player statements are
@@ -456,7 +456,7 @@ frequency or engine output.
 Player style may help interpret variation in professional choices, but it
 must be handled cautiously.
 
-MoyoDB may eventually identify corpus-level tendencies such as:
+Bermuda may eventually identify corpus-level tendencies such as:
 
 - frequency of tenuki;
 - preference for influence or territory;
@@ -477,7 +477,7 @@ method.
 
 ## 14. Strategic division of labour
 
-MoyoDB should develop three connected layers.
+Bermuda should develop three connected layers.
 
 ### Human evidence
 
@@ -584,7 +584,7 @@ example for study.
 
 ## 16. Long-term direction
 
-MoyoDB should become a tool for exploring the relationship between:
+Bermuda should become a tool for exploring the relationship between:
 
 - local shape;
 - whole-board context;

@@ -1,10 +1,10 @@
-# MoyoDB Project Status
+# Bermuda Project Status
 
 **Date:** 24 July 2026
 
 ## Vision
 
-MoyoDB is a modern native Go database intended to replace MoyoGo Studio.
+Bermuda is a modern native Go database intended to replace MoyoGo Studio.
 
 The project is being developed as a reusable Rust library with a command-line interface for development and testing, and a future Qt desktop application as the primary user interface.
 
@@ -202,7 +202,7 @@ Every significant feature is validated by automated tests before new functionali
 
 # Summary
 
-MoyoDB has progressed from an experimental SGF parser into a functioning Go database engine.
+Bermuda has progressed from an experimental SGF parser into a functioning Go database engine.
 
 The core technologies required for a professional Go database have now been demonstrated.
 

@@ -1,17 +1,17 @@
-# MoyoDB
+# Bermuda
 
-MoyoDB is an open-source desktop application for studying Go games.
+Bermuda is an open-source desktop application for studying Go games.
 
 It combines an SGF game database with an interactive Go board and pattern
 search. Positions can be selected directly on the board and searched across
 the database, with results showing matching games and continuation
 statistics.
 
-MoyoDB is intended for serious game study while keeping the normal workflow
+Bermuda is intended for serious game study while keeping the normal workflow
 simple: import a collection of SGF games, browse the catalogue, open a game,
 select a pattern, and search.
 
-> MoyoDB is under active development. Linux is currently the tested and
+> Bermuda is under active development. Linux is currently the tested and
 > supported platform.
 
 ## Features
@@ -30,23 +30,23 @@ select a pattern, and search.
 - Detect duplicate games when collections overlap.
 - Retain source information for imported game collections.
 
-## Using MoyoDB
+## Using Bermuda
 
-MoyoDB is intended to be installed and used as a normal desktop application,
+Bermuda is intended to be installed and used as a normal desktop application,
 launched from an application menu or icon.
 
 Packaged releases are not available yet, so the current development version
 must still be built from source. The `cargo` commands later in this README
 are therefore development/build instructions, not the intended long-term
-way of launching MoyoDB.
+way of launching Bermuda.
 
 ### First launch
 
-On its first normal launch, MoyoDB offers to create a managed
+On its first normal launch, Bermuda offers to create a managed
 **Games Database**.
 
 Choose a folder containing SGF files, enter a name and version for the source,
-and select **Create**. MoyoDB imports the games and prepares the database for
+and select **Create**. Bermuda imports the games and prepares the database for
 searching.
 
 On subsequent launches, the Games Database is opened automatically.
@@ -55,7 +55,7 @@ To add another collection or a later release of an existing collection, use:
 
 **Database → Add Games…**
 
-MoyoDB automatically updates the search data needed after the import.
+Bermuda automatically updates the search data needed after the import.
 
 ## Pattern search
 
@@ -66,7 +66,7 @@ Move to the position you want to investigate and choose **Select Pattern**.
 Drag on the board to select the rectangular area to search for, then start
 the search.
 
-MoyoDB searches for equivalent positions across the database, including
+Bermuda searches for equivalent positions across the database, including
 rotations and reflections where appropriate.
 
 The results can then be explored in several ways:
@@ -83,14 +83,14 @@ Starting a new search restores the original source game and board orientation.
 
 A demonstration of the graphical application is available here:
 
-[Watch the MoyoDB demonstration](docs/moyodb-demo.webm)
+[Watch the Bermuda demonstration](docs/bermuda-demo.webm)
 
 ## Building from source
 
-Until packaged releases are available, the development version of MoyoDB can
+Until packaged releases are available, the development version of Bermuda can
 be built and run from the source tree.
 
-MoyoDB is written in Rust. The graphical application uses Qt 6, QML, CXX-Qt
+Bermuda is written in Rust. The graphical application uses Qt 6, QML, CXX-Qt
 and KDE Kirigami.
 
 ### Requirements
@@ -110,28 +110,28 @@ Package names vary between Linux distributions.
 From the repository root:
 
 ```bash
-cargo build --release -p moyodb-qt
+cargo build --release -p bermuda-qt
 ```
 
 For development, run it directly from the source tree with:
 
 ```bash
-cargo run --release -p moyodb-qt
+cargo run --release -p bermuda-qt
 ```
 
 or, for a non-release build:
 
 ```bash
-cargo run -p moyodb-qt
+cargo run -p bermuda-qt
 ```
 
-These commands are for building and developing MoyoDB. Once packaged releases
-are available, ordinary users will install MoyoDB and launch it normally from
+These commands are for building and developing Bermuda. Once packaged releases
+are available, ordinary users will install Bermuda and launch it normally from
 their desktop environment.
 
 ## Game collections
 
-MoyoDB works with SGF collections supplied by the user.
+Bermuda works with SGF collections supplied by the user.
 
 Each import records a source name and source version. This makes it possible
 to combine collections and later releases while retaining their provenance.
@@ -140,7 +140,7 @@ rather than being stored as independent copies.
 
 ## Command-line and developer tools
 
-The repository also contains the `moyodb` command-line application used for
+The repository also contains the `bermuda` command-line application used for
 database development, importing, inspection and search-engine work.
 
 Show the currently available commands with:
@@ -150,22 +150,22 @@ cargo run -- --help
 ```
 
 The command-line interface is primarily a development and advanced-user
-interface. Normal use of MoyoDB is through the graphical application.
+interface. Normal use of Bermuda is through the graphical application.
 
 ## Development status
 
-MoyoDB is under active development.
+Bermuda is under active development.
 
 Linux is the currently tested and supported target. The Rust, Qt and CXX-Qt
 technology used by the project makes other desktop platforms possible, but
-Windows and macOS should not yet be considered supported MoyoDB platforms.
+Windows and macOS should not yet be considered supported Bermuda platforms.
 
 The database and search implementation continue to evolve, and file formats
 and developer interfaces may change while the project is in development.
 
 ## License
 
-MoyoDB is free software licensed under the GNU General Public License,
+Bermuda is free software licensed under the GNU General Public License,
 version 3 or later.
 
 See `LICENSE` for details.

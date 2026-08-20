@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the fundamental concepts used throughout MoyoDB.
+This document defines the fundamental concepts used throughout Bermuda.
 
 Unlike implementation documents, the domain model describes *what the system represents* rather than *how it is implemented*.
 
@@ -12,7 +12,7 @@ Every public API, database schema and user interface should be understandable in
 
 # Purpose
 
-MoyoDB manages collections of professional Go games.
+Bermuda manages collections of professional Go games.
 
 Its primary purpose is to import, organise, replay and search those games.
 
@@ -48,7 +48,7 @@ Project
 
 # Project
 
-A `Project` represents one MoyoDB database.
+A `Project` represents one Bermuda database.
 
 It owns:
 

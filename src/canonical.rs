@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 const CANONICAL_FORMAT_VERSION: u8 = 1;
 
 /// Domain separator to ensure these hashes cannot be confused with hashes
-/// calculated for some other MoyoDB data format.
+/// calculated for some other Bermuda data format.
 const CANONICAL_MAGIC: &[u8] = b"MOYODB-CANONICAL-GAME";
 
 /// Computes the canonical SHA-256 identity of a game.

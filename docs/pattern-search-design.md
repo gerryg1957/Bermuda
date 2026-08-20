@@ -1,8 +1,8 @@
-# MoyoDB Pattern Search Design
+# Bermuda Pattern Search Design
 
 ## Purpose
 
-MoyoDB pattern search should help a Go player find positions that are equivalent
+Bermuda pattern search should help a Go player find positions that are equivalent
 for a stated purpose without losing the ability to perform exact technical
 searches. It should also help a player who does not know what to consider next
 discover candidate moves repeatedly chosen by strong players and investigate
@@ -19,7 +19,7 @@ The phrase **same pattern** can mean several different things:
 - the same formation appearing during a particular stage of the game;
 - one continuous appearance rather than every move for which it persists.
 
-These meanings must not be hidden inside one ambiguous operation. MoyoDB should
+These meanings must not be hidden inside one ambiguous operation. Bermuda should
 represent them as independent, visible search choices.
 
 This document defines the intended concepts and direction of travel. It does
@@ -37,7 +37,7 @@ transpositions, known positions and diagnostic work.
 
 ### Similarity should be explicit
 
-MoyoDB should not silently guess what the user means by *similar*. The user
+Bermuda should not silently guess what the user means by *similar*. The user
 should be able to specify:
 
 - which stones matter;
@@ -92,7 +92,7 @@ same search model.
 
 ## Current foundation
 
-MoyoDB now has an exact rectangular position-search foundation together with
+Bermuda now has an exact rectangular position-search foundation together with
 the first complete candidate-investigation workflow.
 
 The current search:
@@ -375,7 +375,7 @@ A geometrically identical arrangement in another region may therefore be:
 - an accidental geometric match;
 - a false positive for the user's research question.
 
-MoyoDB should make spatial context explicit.
+Bermuda should make spatial context explicit.
 
 ### Anywhere
 
@@ -462,7 +462,7 @@ An opening formation normally has its intended meaning during the fuseki. A
 similar arrangement appearing very late after captures may be a valid
 geometric match but not a useful opening example.
 
-MoyoDB should therefore record the move at which each distinct appearance
+Bermuda should therefore record the move at which each distinct appearance
 begins.
 
 ### Move-number filters
@@ -519,7 +519,7 @@ fixed properties of a geometric pattern.
 Spatial anchoring describes where a pattern belongs. It does not determine
 what the pattern means strategically.
 
-MoyoDB should initially report observable information:
+Bermuda should initially report observable information:
 
 - where the pattern occurs;
 - when it first appears;
@@ -635,7 +635,7 @@ implemented for immediate continuations.
 
 ### Immediate continuation distribution
 
-For each distinct appearance, MoyoDB records at most one immediate next move:
+For each distinct appearance, Bermuda records at most one immediate next move:
 the recorded move after the displayed position. Points are normalised into the
 query's orientation and colour frame before aggregation.
 
@@ -672,7 +672,7 @@ also be useful later.
 A continuation point can be selected either on the board or from the
 frequency-ordered **Professional continuations** list.
 
-Selection is a result refinement, not a new pattern search. MoyoDB keeps the
+Selection is a result refinement, not a new pattern search. Bermuda keeps the
 complete search result in memory and filters it to the games supporting the
 selected normalised continuation. Clearing the filter restores the complete
 result set immediately.
@@ -721,7 +721,7 @@ colour reversal, so the current Black/White totals are **not** a
 candidate-player win/loss rate. They describe the supporting games and invite
 inspection of those games.
 
-A future chooser-relative result view would require MoyoDB to preserve and
+A future chooser-relative result view would require Bermuda to preserve and
 label which recorded player made the normalised candidate after colour
 reversal. Such a view must still remain descriptive. Even then, a result
 distribution could reflect prior whole-board advantage, player strength,
@@ -733,7 +733,7 @@ different evidence layers explicit.
 
 ### Map terminology
 
-MoyoDB keeps several board overlays distinct:
+Bermuda keeps several board overlays distinct:
 
 - **continuation map** — corpus-derived immediate-next-move frequencies;
 - **appearance-location map** — where matching appearances occurred;
@@ -753,7 +753,7 @@ A result set should also support aggregate analysis.
 
 ### Appearance-location map
 
-MoyoDB should be able to summarise result locations as an appearance-location
+Bermuda should be able to summarise result locations as an appearance-location
 map.
 
 The map may show:
@@ -1004,7 +1004,7 @@ Its function may depend on:
 - whole-board priorities;
 - subsequent fighting.
 
-MoyoDB should show the position and continuation rather than asserting a
+Bermuda should show the position and continuation rather than asserting a
 fixed strategic meaning.
 
 ### Example 7: location-independent local shape
@@ -1293,7 +1293,7 @@ than assumption:
 
 ## Direction of travel
 
-MoyoDB should not attempt to guess what the user means by *similar*.
+Bermuda should not attempt to guess what the user means by *similar*.
 
 It should let the user define similarity through independent, visible
 choices:

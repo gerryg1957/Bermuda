@@ -17,7 +17,7 @@ const PASS: u16 = u16::MAX;
 pub enum MoveFileError {
     #[error(transparent)]
     Io(#[from] io::Error),
-    #[error("not a MoyoDB move file")]
+    #[error("not a Bermuda move file")]
     BadMagic,
     #[error("unsupported move-file version {0}")]
     UnsupportedVersion(u16),

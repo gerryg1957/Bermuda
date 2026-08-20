@@ -1,6 +1,6 @@
-Testing MoyoDB on GNOME
+Testing Bermuda on GNOME
 There is no need to install the KDE Plasma desktop.
-Kirigami is a library of Qt Quick components, not a requirement to run the Plasma desktop. MoyoDB needs the Qt 6 and Kirigami development/runtime libraries; installing those may bring in several KDE Framework libraries, but not the complete KDE desktop session. Kirigami is built on QML, Qt Quick and Qt Quick Controls and is intended to run on desktop Linux generally.
+Kirigami is a library of Qt Quick components, not a requirement to run the Plasma desktop. Bermuda needs the Qt 6 and Kirigami development/runtime libraries; installing those may bring in several KDE Framework libraries, but not the complete KDE desktop session. Kirigami is built on QML, Qt Quick and Qt Quick Controls and is intended to run on desktop Linux generally.
 CXX-Qt requires a C/C++ compiler, Rust, CMake 3.24 or newer, Qt and a discoverable Qt qmake executable.
 Fedora GNOME
 sudo dnf install \
@@ -68,9 +68,9 @@ Build and test the source
 From the repository root:
 cargo fmt --all --check
 cargo test
-cargo check -p moyodb-qt
-If those pass, run the GUI with an existing MoyoDB project:
-cargo run -p moyodb-qt -- ~/pattern-test
+cargo check -p bermuda-qt
+If those pass, run the GUI with an existing Bermuda project:
+cargo run -p bermuda-qt -- ~/pattern-test
 Create a small test project
 Your friend does not need GoGoD or the full go4go collection. A directory containing perhaps 10–100 ordinary 19×19 SGF files is sufficient.
 cargo run -- init ~/pattern-test
@@ -83,15 +83,15 @@ cargo run -- import-dir \
 
 cargo run -- build-position-index ~/pattern-test
 Then:
-cargo run -p moyodb-qt -- ~/pattern-test
+cargo run -p bermuda-qt -- ~/pattern-test
 GNOME-specific troubleshooting
 When the program reports that org.kde.kirigami is not installed, the Kirigami runtime/QML package is missing. Install the distribution’s Kirigami package rather than the complete KDE desktop.
 When controls have a styling problem, test with Qt’s built-in Fusion style:
 QT_QUICK_CONTROLS_STYLE=Fusion \
-cargo run -p moyodb-qt -- ~/pattern-test
+cargo run -p bermuda-qt -- ~/pattern-test
 When CXX-Qt cannot find Qt:
 QMAKE="$(command -v qmake6)" \
-cargo check -p moyodb-qt
+cargo check -p bermuda-qt
 When native Wayland causes a graphics problem, compare it with XWayland:
 QT_QPA_PLATFORM=xcb \
-cargo run -p moyodb-qt -- ~/pattern-test
+cargo run -p bermuda-qt -- ~/pattern-test

@@ -1,4 +1,4 @@
-use moyodb::{
+use bermuda::{
     BoardEdges, Colour, GameRecord, LocalActivity, Metadata, Move, Pattern, PatternCell,
     PatternMatch, PatternTransformation, measure_local_activity,
 };
@@ -99,7 +99,7 @@ fn records_first_move_at_each_distance_threshold_from_appearance_start() {
 
     assert_eq!(
         activity.first_within_three,
-        Some(moyodb::NearbyMove {
+        Some(bermuda::NearbyMove {
             move_number: 4,
             x: 10,
             y: 7,
@@ -109,7 +109,7 @@ fn records_first_move_at_each_distance_threshold_from_appearance_start() {
 
     assert_eq!(
         activity.first_within_two,
-        Some(moyodb::NearbyMove {
+        Some(bermuda::NearbyMove {
             move_number: 5,
             x: 9,
             y: 7,
@@ -119,7 +119,7 @@ fn records_first_move_at_each_distance_threshold_from_appearance_start() {
 
     assert_eq!(
         activity.first_within_one,
-        Some(moyodb::NearbyMove {
+        Some(bermuda::NearbyMove {
             move_number: 6,
             x: 8,
             y: 7,
@@ -129,7 +129,7 @@ fn records_first_move_at_each_distance_threshold_from_appearance_start() {
 
     assert_eq!(
         activity.first_inside,
-        Some(moyodb::NearbyMove {
+        Some(bermuda::NearbyMove {
             move_number: 7,
             x: 7,
             y: 7,
@@ -163,7 +163,7 @@ fn uses_the_transformed_match_rectangle_dimensions() {
 
     let activity = measure_local_activity(&game, &pattern(2, 4), &found);
 
-    let expected = moyodb::NearbyMove {
+    let expected = bermuda::NearbyMove {
         move_number: 2,
         x: 8,
         y: 6,

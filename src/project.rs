@@ -73,29 +73,29 @@ mod tests {
     fn creates_paths_relative_to_project_root() {
         let project = Project::new(
             "Professional Games",
-            "/home/gerry/MoyoDB/Professional Games",
+            "/home/gerry/Bermuda/Professional Games",
         );
 
         assert_eq!(project.name(), "Professional Games");
         assert_eq!(
             project.root(),
-            Path::new("/home/gerry/MoyoDB/Professional Games")
+            Path::new("/home/gerry/Bermuda/Professional Games")
         );
         assert_eq!(
             project.config_path(),
-            PathBuf::from("/home/gerry/MoyoDB/Professional Games/moyodb-project.toml")
+            PathBuf::from("/home/gerry/Bermuda/Professional Games/moyodb-project.toml")
         );
         assert_eq!(
             project.database_root(),
-            PathBuf::from("/home/gerry/MoyoDB/Professional Games/database")
+            PathBuf::from("/home/gerry/Bermuda/Professional Games/database")
         );
         assert_eq!(
             project.indexes_path(),
-            PathBuf::from("/home/gerry/MoyoDB/Professional Games/indexes")
+            PathBuf::from("/home/gerry/Bermuda/Professional Games/indexes")
         );
         assert_eq!(
             project.cache_path(),
-            PathBuf::from("/home/gerry/MoyoDB/Professional Games/cache")
+            PathBuf::from("/home/gerry/Bermuda/Professional Games/cache")
         );
     }
 }

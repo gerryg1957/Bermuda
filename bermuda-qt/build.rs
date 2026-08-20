@@ -2,7 +2,7 @@ use cxx_qt_build::{CxxQtBuilder, QmlModule};
 
 fn main() {
     CxxQtBuilder::new_qml_module(
-        QmlModule::new("org.moyodb.app")
+        QmlModule::new("org.bermuda.app")
             .qml_file("src/qml/Main.qml")
             .qml_file("src/qml/DatabaseImportDialog.qml")
             .qml_file("src/qml/DatabaseProgressDialog.qml")

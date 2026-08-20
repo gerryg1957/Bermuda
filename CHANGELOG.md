@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MoyoDB will be documented in this file.
+All notable changes to Bermuda will be documented in this file.
 
 The project follows Semantic Versioning (MAJOR.MINOR.PATCH).
 

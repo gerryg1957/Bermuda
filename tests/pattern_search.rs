@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use moyodb::{
+use bermuda::{
     Colour, GameRecord, Metadata, Move, Pattern, PatternMatch, PatternRect, PatternSearchOptions,
     PatternSearchQuery, PatternSearchScope, PatternSearcher, PatternTransformation, SearchEngine,
     SearchOccurrence, SearchPatternSummaryOutcome, SearchResult, SearchSummaryResult, database,

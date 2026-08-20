@@ -1,4 +1,4 @@
 target/
 *.moves
 
-moyodb-qt/.qmlls.ini
+bermuda-qt/.qmlls.ini

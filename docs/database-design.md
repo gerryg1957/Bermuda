@@ -2,7 +2,7 @@
 
 ## Status
 
-This document describes the logical and physical design of the MoyoDB database.
+This document describes the logical and physical design of the Bermuda database.
 
 It explains how canonical games, metadata, sources and indexes are stored and why the database has been structured in this way.
 
@@ -24,7 +24,7 @@ The database has five primary goals.
 
 # Architectural Overview
 
-MoyoDB separates storage into two parts.
+Bermuda separates storage into two parts.
 
 ```
 Project

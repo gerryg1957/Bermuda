@@ -1,9 +1,9 @@
 [package]
-name = "moyodb"
+name = "bermuda"
 version = "0.2.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "SGF parser, Go board replay engine, compact move-file format, and moyodb CLI"
+description = "SGF parser, Go board replay engine, compact move-file format, and bermuda CLI"
 
 
 [dependencies]
@@ -20,9 +20,9 @@ walkdir = "2.5.0"
 tempfile = "3"
 
 [[bin]]
-name = "moyodb"
+name = "bermuda"
 path = "src/main.rs"
 
 [workspace]
-members = [".", "moyodb-qt"]
+members = [".", "bermuda-qt"]
 resolver = "2"

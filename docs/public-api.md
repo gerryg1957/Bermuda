@@ -1,8 +1,8 @@
-# MoyoDB Public API Design
+# Bermuda Public API Design
 
 ## Status
 
-This document describes the intended public Rust API for MoyoDB.
+This document describes the intended public Rust API for Bermuda.
 
 It is a design document rather than a complete reference. The generated Rust documentation remains the authoritative source for the exact signatures currently implemented.
 
@@ -12,11 +12,11 @@ The API is still evolving. In particular, the search result model and some index
 
 # Purpose
 
-MoyoDB is designed as a reusable Rust library for professional Go game databases.
+Bermuda is designed as a reusable Rust library for professional Go game databases.
 
 The library should allow applications to:
 
-- create and open MoyoDB projects;
+- create and open Bermuda projects;
 - import SGF collections;
 - inspect and list games;
 - replay complete games or individual positions;
@@ -40,7 +40,7 @@ The CLI and Qt application should contain presentation and interaction logic, bu
 
 ## Stable Domain Types
 
-Applications should work with clearly defined MoyoDB types rather than SQLite rows, filesystem paths or internal binary formats.
+Applications should work with clearly defined Bermuda types rather than SQLite rows, filesystem paths or internal binary formats.
 
 ## Explicit Operations
 
@@ -60,7 +60,7 @@ Importing and indexing should support large databases without requiring all game
 
 ## Backwards Compatibility
 
-Once MoyoDB reaches a stable public release, public types and methods should not be changed without a clear migration path.
+Once Bermuda reaches a stable public release, public types and methods should not be changed without a clear migration path.
 
 ---
 
@@ -89,7 +89,7 @@ Project Management
     
     ProjectManager
 
-ProjectManager is responsible for creating and opening MoyoDB projects.
+ProjectManager is responsible for creating and opening Bermuda projects.
 
 Typical responsibilities include:
 
@@ -101,7 +101,7 @@ checking project compatibility.
 
 Illustrative usage:
 
-use moyodb::ProjectManager;
+use bermuda::ProjectManager;
 
 let project = ProjectManager::open("/path/to/project")?;
 
@@ -109,7 +109,7 @@ The exact constructor names may differ while the API is being refined.
 
 Project
 
-Project represents an opened MoyoDB project.
+Project represents an opened Bermuda project.
 
 It should provide access to project-level resources without requiring clients to reconstruct internal paths.
 
@@ -126,7 +126,7 @@ Clients should prefer passing a Project value to library services rather than pa
 
 Import API
 
-The import API is responsible for converting SGF files into MoyoDB records.
+The import API is responsible for converting SGF files into Bermuda records.
 
 It should support:
 
@@ -274,7 +274,7 @@ A higher-level method may eventually be introduced:
 let summary = indexer.build_pending_index()?;
 Search API
 
-Search is one of the central responsibilities of MoyoDB.
+Search is one of the central responsibilities of Bermuda.
 
 The public API should distinguish between:
 
@@ -479,9 +479,9 @@ anyhow::Result<T>
 
 during early development.
 
-Before a stable library release, MoyoDB should consider introducing a public error type:
+Before a stable library release, Bermuda should consider introducing a public error type:
 
-pub enum MoyoDbError {
+pub enum BermudaError {
     InvalidProject,
     UnsupportedVersion,
     Database,
@@ -568,9 +568,9 @@ Until then, public APIs may change between 0.x releases.
 
 Example Application Flow
 
-A typical application should eventually be able to use MoyoDB approximately as follows:
+A typical application should eventually be able to use Bermuda approximately as follows:
 
-use moyodb::{
+use bermuda::{
     PatternSearchQuery,
     PositionIndexer,
     ProjectManager,
@@ -619,7 +619,7 @@ The following decisions remain unresolved.
 
 Central Service or Separate Services
 
-Should PositionIndexer remain the primary entry point for replay, indexing and search, or should MoyoDB expose separate types such as:
+Should PositionIndexer remain the primary entry point for replay, indexing and search, or should Bermuda expose separate types such as:
 
 GameRepository
 PositionIndexer
@@ -650,7 +650,7 @@ These questions should be resolved before the Qt application becomes dependent o
 
 Conclusion
 
-The purpose of the MoyoDB public API is to provide a stable boundary between the database engine and its user interfaces.
+The purpose of the Bermuda public API is to provide a stable boundary between the database engine and its user interfaces.
 
 The CLI, Qt application and any future external tools should depend on this public API rather than on internal storage details.
 

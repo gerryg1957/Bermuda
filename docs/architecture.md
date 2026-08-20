@@ -1,4 +1,4 @@
-# MoyoDB Architecture
+# Bermuda Architecture
 
 **Version:** Draft 2  
 **Status:** Current architecture and agreed development direction  
@@ -8,7 +8,7 @@
 
 ## 1. Purpose
 
-MoyoDB is a native, library-first Go research system for professional game collections.
+Bermuda is a native, library-first Go research system for professional game collections.
 
 Its purpose is not merely to store SGF files. It is intended to let a user:
 
@@ -21,7 +21,7 @@ Its purpose is not merely to store SGF files. It is intended to let a user:
 - analyse the continuations and historical outcomes associated with a pattern;
 - use the same core library from a command-line interface and a future Qt application.
 
-MoyoDB is therefore both a database engine and the foundation of an interactive Go research environment.
+Bermuda is therefore both a database engine and the foundation of an interactive Go research environment.
 
 Detailed rules for canonical games, source metadata, compact move files and the SQLite schema belong in `database-design.md`. This document describes how the parts of the whole system fit together.
 
@@ -29,7 +29,7 @@ Detailed rules for canonical games, source metadata, compact move files and the 
 
 ## 2. Architectural Principles
 
-MoyoDB follows these principles:
+Bermuda follows these principles:
 
 1. **Library first.**  
    Core behaviour belongs in the Rust library. The command-line interface and future graphical interface are clients of that library.
@@ -44,7 +44,7 @@ MoyoDB follows these principles:
    Search services return occurrences and associated facts. Grouping, sorting, labels, charts and other presentation choices belong in higher layers.
 
 5. **Source preservation.**  
-   Imported metadata remains associated with the source that supplied it. MoyoDB does not silently merge conflicting source records.
+   Imported metadata remains associated with the source that supplied it. Bermuda does not silently merge conflicting source records.
 
 6. **Rebuildable derived data.**  
    Position indexes, future pattern indexes and statistics are derived from canonical games and may be rebuilt.
@@ -108,7 +108,7 @@ Some of these components already exist under different names or with broader res
 
 ## 4. Library-First Boundary
 
-The `moyodb` crate is the authoritative implementation of:
+The `bermuda` crate is the authoritative implementation of:
 
 - project management;
 - SGF parsing and import;
@@ -138,7 +138,7 @@ The future Qt application should follow the same rule. It will translate user ac
 
 ### 5.1 Project
 
-A `Project` represents one MoyoDB collection and owns the paths to its database, move files and temporary storage.
+A `Project` represents one Bermuda collection and owns the paths to its database, move files and temporary storage.
 
 A project does not perform every operation itself. It provides access to the services that operate on its data.
 
@@ -383,7 +383,7 @@ No external engine is part of the current core architecture.
 
 ## 7. Storage Architecture
 
-MoyoDB uses two complementary forms of storage.
+Bermuda uses two complementary forms of storage.
 
 ### 7.1 SQLite metadata database
 
@@ -844,7 +844,7 @@ The agreed sequence is:
 
 ## 18. Non-Goals
 
-MoyoDB is not intended to:
+Bermuda is not intended to:
 
 - preserve SGF formatting as part of game identity;
 - distinguish identical games by filename;
@@ -859,7 +859,7 @@ MoyoDB is not intended to:
 
 ## 19. Guiding Principle
 
-MoyoDB should support the way a Go player studies:
+Bermuda should support the way a Go player studies:
 
 > Start with an interesting position, find where it occurred, inspect the games, and understand what happened next.
 

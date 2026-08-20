@@ -111,7 +111,7 @@ mod tests {
             .unwrap()
             .as_nanos();
 
-        env::temp_dir().join(format!("moyodb-test-{test_name}-{unique}"))
+        env::temp_dir().join(format!("bermuda-test-{test_name}-{unique}"))
     }
 
     #[test]

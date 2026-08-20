@@ -2,12 +2,12 @@
 
 use std::{fmt::Write as _, fs, path::Path, pin::Pin};
 
-use cxx_qt::CxxQtType;
-use cxx_qt_lib::QString;
-use moyodb::{
+use bermuda::{
     Board, Colour, Move, PositionOccurrence, PositionState, extract_main_variation,
     parse_collection, position_fingerprint, project_manager::ProjectManager, replay_positions,
 };
+use cxx_qt::CxxQtType;
+use cxx_qt_lib::QString;
 
 #[cxx_qt::bridge]
 mod ffi {
@@ -30,44 +30,44 @@ mod ffi {
         #[qproperty(QString, white_player)]
         #[qproperty(QString, komi)]
         #[qproperty(QString, error_message)]
-        type MoyoDbApp = super::MoyoDbAppRust;
+        type BermudaApp = super::BermudaAppRust;
 
         #[qinvokable]
         #[cxx_name = "projectExists"]
-        fn project_exists(self: &MoyoDbApp, project_path: &QString) -> bool;
+        fn project_exists(self: &BermudaApp, project_path: &QString) -> bool;
 
         #[qinvokable]
         #[cxx_name = "loadGame"]
-        fn load_game(self: Pin<&mut MoyoDbApp>, project_path: &QString, game_id: i64) -> bool;
+        fn load_game(self: Pin<&mut BermudaApp>, project_path: &QString, game_id: i64) -> bool;
 
         #[qinvokable]
         #[cxx_name = "loadSgf"]
-        fn load_sgf(self: Pin<&mut MoyoDbApp>, sgf_path: &QString) -> bool;
+        fn load_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
 
         #[qinvokable]
         #[cxx_name = "newPosition"]
-        fn new_position(self: Pin<&mut MoyoDbApp>, board_size: i32) -> bool;
+        fn new_position(self: Pin<&mut BermudaApp>, board_size: i32) -> bool;
 
         #[qinvokable]
         #[cxx_name = "snapshotSearchSource"]
-        fn snapshot_search_source(self: Pin<&mut MoyoDbApp>) -> bool;
+        fn snapshot_search_source(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "restoreSearchSource"]
-        fn restore_search_source(self: Pin<&mut MoyoDbApp>) -> bool;
+        fn restore_search_source(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "editPositionPoint"]
-        fn edit_position_point(self: Pin<&mut MoyoDbApp>, x: i32, y: i32, tool: &QString) -> bool;
+        fn edit_position_point(self: Pin<&mut BermudaApp>, x: i32, y: i32, tool: &QString) -> bool;
 
         #[qinvokable]
         #[cxx_name = "showPosition"]
-        fn show_position(self: Pin<&mut MoyoDbApp>, move_number: i32) -> bool;
+        fn show_position(self: Pin<&mut BermudaApp>, move_number: i32) -> bool;
 
         #[qinvokable]
         #[cxx_name = "hypotheticalMoveStones"]
         fn hypothetical_move_stones(
-            self: Pin<&mut MoyoDbApp>,
+            self: Pin<&mut BermudaApp>,
             move_number: i32,
             x: i32,
             y: i32,
@@ -77,7 +77,7 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "hypotheticalSequenceStones"]
         fn hypothetical_sequence_stones(
-            self: Pin<&mut MoyoDbApp>,
+            self: Pin<&mut BermudaApp>,
             move_number: i32,
             first_x: i32,
             first_y: i32,
@@ -105,7 +105,7 @@ struct SearchSourceSnapshot {
     move_number: i32,
 }
 
-pub struct MoyoDbAppRust {
+pub struct BermudaAppRust {
     board_size: i32,
     stones_json: QString,
     move_number: i32,
@@ -121,7 +121,7 @@ pub struct MoyoDbAppRust {
     search_source_snapshot: Option<SearchSourceSnapshot>,
 }
 
-impl Default for MoyoDbAppRust {
+impl Default for BermudaAppRust {
     fn default() -> Self {
         Self {
             board_size: 19,
@@ -141,7 +141,7 @@ impl Default for MoyoDbAppRust {
     }
 }
 
-impl ffi::MoyoDbApp {
+impl ffi::BermudaApp {
     fn project_exists(&self, project_path: &QString) -> bool {
         let path = project_path.to_string();
 

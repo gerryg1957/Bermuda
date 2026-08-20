@@ -386,7 +386,7 @@ Dialog {
 
             text: qsTr(
                       "The destination path must not already exist. "
-                      + "MoyoDB will not overwrite an existing folder.")
+                      + "Bermuda will not overwrite an existing folder.")
 
             wrapMode: Text.Wrap
             opacity: 0.75

@@ -5,9 +5,9 @@
 
 **Purpose of sharing:** this document is intended to invite criticism, elaboration and pruning. It records current questions and distinctions, not conclusions that collaborators are expected to accept.
 
-This note collects questions that have emerged during the development of MoyoDB. They are deliberately left partly unresolved. The purpose is to preserve the reasoning behind the project while the implementation makes the underlying ideas more precise.
+This note collects questions that have emerged during the development of Bermuda. They are deliberately left partly unresolved. The purpose is to preserve the reasoning behind the project while the implementation makes the underlying ideas more precise.
 
-A recurring danger is to let a convenient technical definition become the meaning of the Go concept it is intended to approximate. Exact pattern matching, occurrence duration, next-move statistics and other mechanisms are useful because they give us evidence. They are not, by themselves, the thing MoyoDB is ultimately trying to understand.
+A recurring danger is to let a convenient technical definition become the meaning of the Go concept it is intended to approximate. Exact pattern matching, occurrence duration, next-move statistics and other mechanisms are useful because they give us evidence. They are not, by themselves, the thing Bermuda is ultimately trying to understand.
 
 The fundamental intention remains broader: to help a player enlarge the set of things they know to consider — not simply to say which move is “right”, but to reveal what strong players thought worth considering and to make the ideas behind those possibilities available for investigation.
 
@@ -63,13 +63,13 @@ The same visible selection can therefore support two different and equally legit
 1. **Exact sparse-position search** — what did professionals play next from this precise early-board position?
 2. **Structural-framework search** — when these defining stones were present, what ideas developed around the framework even if other points differed?
 
-Pattern density cannot tell MoyoDB which question the user intends. The distinction belongs in the search semantics, not in an automatic assumption that sparse areas are “don't care”.
+Pattern density cannot tell Bermuda which question the user intends. The distinction belongs in the search semantics, not in an automatic assumption that sparse areas are “don't care”.
 
 ## 2. What counts as “the same” pattern?
 
 For ordinary study, orientation and colour usually should not make strategically equivalent positions separate cases.
 
-MoyoDB therefore treats rotations, reflections and colour reversal as ordinary equivalences for pattern search. This reflects the purpose of the search: to investigate ideas and continuations, not to distinguish positions merely because they occurred in another corner or with the colours exchanged.
+Bermuda therefore treats rotations, reflections and colour reversal as ordinary equivalences for pattern search. This reflects the purpose of the search: to investigate ideas and continuations, not to distinguish positions merely because they occurred in another corner or with the colours exchanged.
 
 But geometric equivalence is only the simplest kind of equivalence.
 
@@ -88,7 +88,7 @@ Raw exact matching can produce the same match at many consecutive board position
 
 Treating each snapshot as a new occurrence would exaggerate the evidence.
 
-MoyoDB therefore currently treats consecutive matching positions with the same location and equivalence transformation as one **appearance**.
+Bermuda therefore currently treats consecutive matching positions with the same location and equivalence transformation as one **appearance**.
 
 For an appearance we can measure:
 
@@ -159,7 +159,7 @@ Chronologically, move 31 is the next move.
 
 Strategically, move 35 may be the continuation the student is trying to discover.
 
-This suggests that MoyoDB may need to distinguish:
+This suggests that Bermuda may need to distinguish:
 
 - immediate next move;
 - next move inside the selected region;
@@ -171,7 +171,7 @@ The important point is not to redefine the immediate continuation away. Both fac
 
 There is also a whole-board opening use of “continuation” that is neither a defect nor merely a local-sequence problem. In a sparse opening position, the immediate next move may expose a strategic choice before the student has learned the conventional vocabulary for it. For example, understanding why White chooses one sixth move may require considering whether White cares about allowing Black to establish a Kobayashi-style continuation, or whether White could instead occupy the point Black would otherwise take next. Two such moves may have comparable strategic value while leading to very different games.
 
-This is close to MoyoDB's central educational purpose: the user can reach the question “where should I be thinking about playing?” before they have read the books, watched the videos, or learned the names by which stronger players discuss the position.
+This is close to Bermuda's central educational purpose: the user can reach the question “where should I be thinking about playing?” before they have read the books, watched the videos, or learned the names by which stronger players discuss the position.
 
 ## 6. Asking moves, tenuki and interrupted sequences
 
@@ -198,7 +198,7 @@ An episode might include:
 - a local continuation sequence;
 - eventual abandonment or settlement.
 
-The boundaries of such an episode should be measured from explicit spatial and temporal evidence before MoyoDB tries to classify it.
+The boundaries of such an episode should be measured from explicit spatial and temporal evidence before Bermuda tries to classify it.
 
 ## 7. Exact persistence versus structural persistence
 
@@ -291,7 +291,7 @@ rather than:
 
 > “Which move wins the frequency count?”
 
-This is central to the purpose of MoyoDB. Professional practice can expand the player's candidate set non-linearly: sometimes seeing one move produces the reaction “of course — now that I see it”, even though the move was outside the player's previous set of possibilities.
+This is central to the purpose of Bermuda. Professional practice can expand the player's candidate set non-linearly: sometimes seeing one move produces the reaction “of course — now that I see it”, even though the move was outside the player's previous set of possibilities.
 
 This can be especially valuable for less experienced players. Pattern search can expose candidate moves before the user possesses the established opening or joseki terminology. The database can therefore be a route *into* understanding, rather than merely a reference tool used after the theory has already been learned.
 
@@ -311,7 +311,7 @@ The first statement turns frequency too quickly into judgement. The second can b
 
 The denominator matters. Zero examples out of four comparable games says little. Zero examples out of hundreds is much more informative. Comparability matters too: an early sparse whole-board position may provide unusually clean evidence because relatively little hidden local context differs between occurrences.
 
-This still does not make absence a mathematical proof that a move is bad. But MoyoDB should not become so cautious that it refuses to support ordinary practical judgement when the corpus evidence is strong. A useful conclusion may be:
+This still does not make absence a mathematical proof that a move is bad. But Bermuda should not become so cautious that it refuses to support ordinary practical judgement when the corpus evidence is strong. A useful conclusion may be:
 
 > “There is probably something strategically wrong with treating this move as equivalent to the professional candidates.”
 
@@ -319,7 +319,7 @@ That conclusion leads naturally to the more valuable question: **why?**
 
 In the Chinese-opening discussion, an apparently similar White move in the other corner produced no professional continuation in the searched corpus. That absence challenges the initial intuition that the two moves have equal strategic meaning. Direction of play, prospective frameworks, balance between corners, sente, or another whole-board consideration may explain the difference; the corpus tells us that there is a difference worth investigating before it tells us what the explanation is.
 
-This gives MoyoDB two complementary educational mechanisms:
+This gives Bermuda two complementary educational mechanisms:
 
 - **candidate discovery** — “I had not thought of that move”;
 - **candidate rejection or refinement** — “I thought these moves were equivalent, but professional practice suggests that they are not.”
@@ -376,11 +376,11 @@ A move or opening may become less common without becoming “wrong”. Changes i
 
 The Chinese opening is a useful example. Searches of older professional material show substantial use of large frameworks, while such openings appear less frequently in contemporary elite practice. There would be nothing inherently anomalous about a professional choosing the Chinese opening today; reduced frequency does not by itself amount to a refutation of the opening.
 
-A working observation from our discussions is that post-AI professional play can *appear* more territory-oriented and less willing to build very large frameworks. That should remain a hypothesis to investigate rather than a premise built into MoyoDB. Corpus counts alone cannot distinguish engine-driven strategic reassessment from fashion, preparation, or the current focus of professional study.
+A working observation from our discussions is that post-AI professional play can *appear* more territory-oriented and less willing to build very large frameworks. That should remain a hypothesis to investigate rather than a premise built into Bermuda. Corpus counts alone cannot distinguish engine-driven strategic reassessment from fashion, preparation, or the current focus of professional study.
 
 This matters educationally because historical professional games may remain highly relevant to positions that still occur frequently in amateur play. A strategic family can become unfashionable at the top level while continuing to be something an ordinary player needs to understand.
 
-MoyoDB should therefore avoid silently treating “recent” as synonymous with “relevant” or “better”. A useful future view might show how professional treatment of a pattern changes over time, for example:
+Bermuda should therefore avoid silently treating “recent” as synonymous with “relevant” or “better”. A useful future view might show how professional treatment of a pattern changes over time, for example:
 
 - continuation frequency by period;
 - when a candidate becomes more or less common;
@@ -389,7 +389,7 @@ MoyoDB should therefore avoid silently treating “recent” as synonymous with 
 
 Such a view would still report evidence rather than explain its cause. The explanation may involve strategic evolution, fashion, current study, or several factors together.
 
-Absence should also be interpreted historically. A move absent from recent professional games may simply have gone out of fashion or arise from an opening professionals now avoid. A move absent across a large body of comparable games spanning different periods is a different and potentially stronger observation. MoyoDB should make the relevant denominator and time range visible rather than treating every zero as equivalent.
+Absence should also be interpreted historically. A move absent from recent professional games may simply have gone out of fashion or arise from an opening professionals now avoid. A move absent across a large body of comparable games spanning different periods is a different and potentially stronger observation. Bermuda should make the relevant denominator and time range visible rather than treating every zero as equivalent.
 
 ## 13. The selected rectangle is an analytical choice
 
@@ -405,7 +405,7 @@ This leads to another important question:
 
 > Does selection mean “everything in this rectangle matters”, or “these are the features I am pointing at”?
 
-At present MoyoDB implements the former. That is a legitimate and useful search semantics, including for sparse openings. A future structural search could implement the latter as an explicit alternative. MoyoDB should not infer one from the visual density of the selection.
+At present Bermuda implements the former. That is a legitimate and useful search semantics, including for sparse openings. A future structural search could implement the latter as an explicit alternative. Bermuda should not infer one from the visual density of the selection.
 
 ## 14. Position identity and strategic identity are not the same
 
@@ -428,7 +428,7 @@ These distinctions are likely to remain important even if the implementation cha
 
 They suggest a general principle:
 
-> MoyoDB should preserve the difference between what it can observe exactly and what a Go player may infer from those observations.
+> Bermuda should preserve the difference between what it can observe exactly and what a Go player may infer from those observations.
 
 ## 15. A possible hierarchy of evidence
 
@@ -448,20 +448,20 @@ Without treating this as a fixed architecture, the discussions so far suggest a 
 
 The earlier levels are easier to define objectively. The later levels require progressively more interpretation.
 
-That argues for the design principle already emerging in MoyoDB:
+That argues for the design principle already emerging in Bermuda:
 
 > **Measure first, interpret second.**
 
 ## 16. Questions to preserve
 
-These questions should remain open while MoyoDB develops.
+These questions should remain open while Bermuda develops.
 
 - What features make two positions meaningfully “the same pattern” to a Go player?
 - Which empty intersections are part of a pattern's identity?
 - Should the user be able to mark intersections as unconstrained?
 - Can structural patterns be defined without making search vague or unpredictable?
 - When does a local sequence end?
-- How should MoyoDB recognise a return after tenuki or asking moves?
+- How should Bermuda recognise a return after tenuki or asking moves?
 - What spatial margin best represents “local” activity?
 - Should that margin depend on the size or density of the selected pattern?
 - Can local episodes be detected from measurements rather than hand-written Go categories?
@@ -470,16 +470,16 @@ These questions should remain open while MoyoDB develops.
 - How much whole-board context should be presented alongside a local match?
 - When is a sparse opening selection an exact whole-board question, and when is it intended as a structural framework search?
 - How should sparse opening frameworks differ from dense joseki patterns?
-- How should MoyoDB show changes in professional practice over time?
+- How should Bermuda show changes in professional practice over time?
 - Can frequency changes be presented without pretending to distinguish strategic reassessment from fashion, preparation, or current study when the corpus cannot establish the cause?
 - How can historical games remain visible when they are educationally relevant to positions still common in amateur play but less common in current professional play?
 - Can professional continuation frequencies be presented prominently without inviting the interpretation “most frequent = best”?
 - When is a zero-frequency candidate strong negative evidence rather than merely a small-sample accident?
-- How should MoyoDB display the denominator and degree of positional comparability behind an apparent absence?
+- How should Bermuda display the denominator and degree of positional comparability behind an apparent absence?
 - How should absence be separated by historical period so that “not played recently” is not confused with “never considered in comparable professional play”?
 - How should corpus evidence and KataGo analysis be compared without collapsing them into one judgement?
 - What information helps a player discover a candidate move that was outside their previous knowledge?
-- Can MoyoDB help reconstruct not merely the order of moves, but the strategic thread the players were pursuing?
+- Can Bermuda help reconstruct not merely the order of moves, but the strategic thread the players were pursuing?
 - Which of these questions matter in practice, and which only appear important because of the current implementation?
 
 ## 17. Why keep these questions separate from the specification?
@@ -494,7 +494,7 @@ This document asks a different question:
 
 > Does that measurement correspond to the kind of persistence a Go player cares about in this situation?
 
-Keeping the two kinds of document separate allows MoyoDB to be rigorous without prematurely freezing its conceptual model.
+Keeping the two kinds of document separate allows Bermuda to be rigorous without prematurely freezing its conceptual model.
 
 Some questions here may eventually become features. Some may turn out not to matter. Some may be replaced by better questions.
 

@@ -364,7 +364,7 @@ pub fn open(root: &Path) -> Result<Connection> {
     let sqlite_path = metadata_path(root);
 
     if !sqlite_path.is_file() {
-        bail!("{} is not an initialised MoyoDB database", root.display());
+        bail!("{} is not an initialised Bermuda database", root.display());
     }
 
     let connection = Connection::open(&sqlite_path)
