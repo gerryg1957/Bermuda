@@ -120,6 +120,20 @@ ApplicationWindow {
         operationModel: databaseOperation
     }
 
+    PlayerIdentityDialog {
+        id: playerIdentityDialog
+
+        onIdentitiesChanged: {
+            /*
+             * Existing catalogue/search rows contain presentation metadata
+             * captured before the identity edit. Refresh the catalogue and
+             * discard stale pattern-result presentation rows.
+             */
+            gameList.clearSearchResults()
+            gameList.loadProject()
+        }
+    }
+
   FolderDialog {
       id: openDatabaseDialog
 
@@ -258,6 +272,16 @@ menuBar: MenuBar {
                         root.projectPath)
                 }
             }
+        }
+
+        Action {
+            text: qsTr("Player &Identities…")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
+
+            onTriggered:
+                playerIdentityDialog.openForProject(root.projectPath)
         }
 
         MenuSeparator {}

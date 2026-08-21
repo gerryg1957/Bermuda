@@ -271,98 +271,120 @@ impl PlayerDirectory {
             .unchecked_transaction()
             .context("starting source-alias resolution transaction")?;
 
-        let preview = preview_source_alias_resolution_on(&transaction, alias_id)?;
-
-        if preview.competing_alias_count != 0 {
-            bail!(
-                "source alias {alias_id} has {} competing alias assignment(s)",
-                preview.competing_alias_count
-            );
-        }
-
-        if preview.conflicting_link_count != 0 {
-            bail!(
-                "source alias {alias_id} has {} occurrence(s) already linked \
-                 to another player",
-                preview.conflicting_link_count
-            );
-        }
-
-        let linked_black = transaction
-            .execute(
-                r#"
-                UPDATE game_metadata
-                SET black_player_id = ?1
-                WHERE black_player_id IS NULL
-                  AND black_player = ?2
-                  AND EXISTS (
-                      SELECT 1
-                      FROM game_sources AS gs
-                      WHERE gs.id = game_metadata.game_source_id
-                        AND gs.source_id = ?3
-                  )
-                "#,
-                params![preview.player_id, &preview.name, preview.source_id],
-            )
-            .context("linking unresolved Black-player source aliases")?;
-
-        let linked_white = transaction
-            .execute(
-                r#"
-                UPDATE game_metadata
-                SET white_player_id = ?1
-                WHERE white_player_id IS NULL
-                  AND white_player = ?2
-                  AND EXISTS (
-                      SELECT 1
-                      FROM game_sources AS gs
-                      WHERE gs.id = game_metadata.game_source_id
-                        AND gs.source_id = ?3
-                  )
-                "#,
-                params![preview.player_id, &preview.name, preview.source_id],
-            )
-            .context("linking unresolved White-player source aliases")?;
-
-        let linked_black_count =
-            u64::try_from(linked_black).context("oversized Black-player update count")?;
-
-        let linked_white_count =
-            u64::try_from(linked_white).context("oversized White-player update count")?;
-
-        /*
-         * The preview and updates occur in one transaction. A mismatch is an
-         * invariant failure and must roll the whole operation back rather
-         * than silently accepting an unexpected set of rows.
-         */
-        if linked_black_count != preview.unresolved_black_count
-            || linked_white_count != preview.unresolved_white_count
-        {
-            bail!(
-                "source alias {alias_id} changed unexpectedly during resolution: \
-                 preview expected {} Black and {} White unresolved occurrence(s), \
-                 update found {} Black and {} White",
-                preview.unresolved_black_count,
-                preview.unresolved_white_count,
-                linked_black_count,
-                linked_white_count
-            );
-        }
-
-        let result = SourceAliasResolutionResult {
-            alias_id: preview.alias_id,
-            player_id: preview.player_id,
-            source_id: preview.source_id,
-            source_name: preview.source_name,
-            source_version: preview.source_version,
-            name: preview.name,
-            linked_black_count,
-            linked_white_count,
-        };
+        let result = apply_source_alias_resolution_on(&transaction, alias_id)?;
 
         transaction
             .commit()
             .context("committing source-alias resolution")?;
+
+        Ok(result)
+    }
+
+    /// Assign one exact source spelling to a Bermuda player identity.
+    ///
+    /// The source-specific alias and every corresponding unresolved metadata
+    /// link are created in one transaction. If the existing conflict guards
+    /// refuse the resolution, a newly inserted alias is rolled back as well.
+    ///
+    /// `name` is deliberately preserved exactly. It comes from imported
+    /// source metadata and is not normalised, case-folded, or fuzzy-matched.
+    pub fn assign_source_name_to_player(
+        &self,
+        player_id: i64,
+        source_id: i64,
+        name: &str,
+    ) -> Result<SourceAliasResolutionResult> {
+        if name.trim().is_empty() {
+            bail!("source player name must not be empty");
+        }
+
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .context("starting source-player assignment transaction")?;
+
+        let player_exists: i64 = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM players WHERE id = ?1)",
+                [player_id],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("checking player {player_id}"))?;
+
+        if player_exists == 0 {
+            bail!("player {player_id} does not exist");
+        }
+
+        let source_exists: i64 = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)",
+                [source_id],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("checking source {source_id}"))?;
+
+        if source_exists == 0 {
+            bail!("source {source_id} does not exist");
+        }
+
+        /*
+         * Reuse an existing identical assignment to the same identity.
+         * The schema's partial unique index guarantees there can be at most
+         * one such source-specific alias.
+         */
+        let existing_alias_id = transaction
+            .query_row(
+                r#"
+                SELECT id
+                FROM player_aliases
+                WHERE player_id = ?1
+                  AND source_id = ?2
+                  AND name = ?3
+                "#,
+                params![player_id, source_id, name],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .context("checking for an existing source-specific alias")?;
+
+        let alias_id = match existing_alias_id {
+            Some(alias_id) => alias_id,
+
+            None => {
+                transaction
+                    .execute(
+                        r#"
+                        INSERT INTO player_aliases(
+                            player_id,
+                            name,
+                            source_id,
+                            notes
+                        )
+                        VALUES (?1, ?2, ?3, NULL)
+                        "#,
+                        params![player_id, name, source_id],
+                    )
+                    .with_context(|| {
+                        format!(
+                            "creating source alias {name:?} for player {player_id} \
+                             and source {source_id}"
+                        )
+                    })?;
+
+                transaction.last_insert_rowid()
+            }
+        };
+
+        /*
+         * This is the same guarded operation used by the public bulk resolver.
+         * A competing alias, conflicting existing link, or row-count invariant
+         * failure aborts this outer transaction too.
+         */
+        let result = apply_source_alias_resolution_on(&transaction, alias_id)?;
+
+        transaction
+            .commit()
+            .context("committing source-player assignment")?;
 
         Ok(result)
     }
@@ -733,6 +755,99 @@ fn get_alias_from_connection(connection: &Connection, alias_id: i64) -> Result<P
         .with_context(|| format!("player alias {alias_id} does not exist"))
 }
 
+fn apply_source_alias_resolution_on(
+    connection: &Connection,
+    alias_id: i64,
+) -> Result<SourceAliasResolutionResult> {
+    let preview = preview_source_alias_resolution_on(connection, alias_id)?;
+
+    if preview.competing_alias_count != 0 {
+        bail!(
+            "source alias {alias_id} has {} competing alias assignment(s)",
+            preview.competing_alias_count
+        );
+    }
+
+    if preview.conflicting_link_count != 0 {
+        bail!(
+            "source alias {alias_id} has {} occurrence(s) already linked \
+             to another player",
+            preview.conflicting_link_count
+        );
+    }
+
+    let linked_black = connection
+        .execute(
+            r#"
+            UPDATE game_metadata
+            SET black_player_id = ?1
+            WHERE black_player_id IS NULL
+              AND black_player = ?2
+              AND EXISTS (
+                  SELECT 1
+                  FROM game_sources AS gs
+                  WHERE gs.id = game_metadata.game_source_id
+                    AND gs.source_id = ?3
+              )
+            "#,
+            params![preview.player_id, &preview.name, preview.source_id],
+        )
+        .context("linking unresolved Black-player source aliases")?;
+
+    let linked_white = connection
+        .execute(
+            r#"
+            UPDATE game_metadata
+            SET white_player_id = ?1
+            WHERE white_player_id IS NULL
+              AND white_player = ?2
+              AND EXISTS (
+                  SELECT 1
+                  FROM game_sources AS gs
+                  WHERE gs.id = game_metadata.game_source_id
+                    AND gs.source_id = ?3
+              )
+            "#,
+            params![preview.player_id, &preview.name, preview.source_id],
+        )
+        .context("linking unresolved White-player source aliases")?;
+
+    let linked_black_count =
+        u64::try_from(linked_black).context("oversized Black-player update count")?;
+
+    let linked_white_count =
+        u64::try_from(linked_white).context("oversized White-player update count")?;
+
+    /*
+     * The preview and updates occur under the caller's transaction. A mismatch
+     * is an invariant failure and must roll the whole operation back.
+     */
+    if linked_black_count != preview.unresolved_black_count
+        || linked_white_count != preview.unresolved_white_count
+    {
+        bail!(
+            "source alias {alias_id} changed unexpectedly during resolution: \
+             preview expected {} Black and {} White unresolved occurrence(s), \
+             update found {} Black and {} White",
+            preview.unresolved_black_count,
+            preview.unresolved_white_count,
+            linked_black_count,
+            linked_white_count
+        );
+    }
+
+    Ok(SourceAliasResolutionResult {
+        alias_id: preview.alias_id,
+        player_id: preview.player_id,
+        source_id: preview.source_id,
+        source_name: preview.source_name,
+        source_version: preview.source_version,
+        name: preview.name,
+        linked_black_count,
+        linked_white_count,
+    })
+}
+
 fn preview_source_alias_resolution_on(
     connection: &Connection,
     alias_id: i64,
@@ -1027,6 +1142,110 @@ mod tests {
 
         assert!(directory.aliases_for_player(first.id)?.is_empty());
         assert!(directory.remove_alias(first_alias.id).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn assigns_source_name_atomically_and_reuses_existing_alias() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+        let player = directory.create_player("Cho Chikun")?;
+
+        let result = directory.assign_source_name_to_player(player.id, 1, "Cho Chikun")?;
+
+        assert_eq!(result.player_id, player.id);
+        assert_eq!(result.source_id, 1);
+        assert_eq!(result.name, "Cho Chikun");
+        assert_eq!(result.linked_black_count, 1);
+        assert_eq!(result.linked_white_count, 0);
+
+        let aliases = directory.aliases_for_player(player.id)?;
+
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].name, "Cho Chikun");
+        assert_eq!(aliases[0].source_id, Some(1));
+
+        /*
+         * Repeating the same explicit assignment reuses the existing alias.
+         * The game is already linked, so there is nothing left to update.
+         */
+        let repeated = directory.assign_source_name_to_player(player.id, 1, "Cho Chikun")?;
+
+        assert_eq!(repeated.alias_id, result.alias_id);
+        assert_eq!(repeated.linked_count(), 0);
+        assert_eq!(directory.aliases_for_player(player.id)?.len(), 1);
+
+        let connection = database::open(&project.database_root())?;
+
+        let (raw_name, linked_id): (String, Option<i64>) = connection.query_row(
+            r#"
+            SELECT black_player, black_player_id
+            FROM game_metadata
+            WHERE game_source_id = 10
+            "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        assert_eq!(raw_name, "Cho Chikun");
+        assert_eq!(linked_id, Some(player.id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn source_name_assignment_rolls_back_new_alias_when_resolution_is_unsafe() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+
+        let intended = directory.create_player("Intended Cho")?;
+        let competing = directory.create_player("Competing Cho")?;
+
+        directory.add_alias(
+            competing.id,
+            "Cho Chikun",
+            Some(1),
+            Some("deliberately competing assignment"),
+        )?;
+
+        let error = directory
+            .assign_source_name_to_player(intended.id, 1, "Cho Chikun")
+            .expect_err("competing source alias must refuse assignment");
+
+        assert!(error.to_string().contains("competing"));
+
+        /*
+         * assign_source_name_to_player inserted the intended alias inside its
+         * transaction. Refusal must therefore roll that insertion back too.
+         */
+        assert!(directory.aliases_for_player(intended.id)?.is_empty());
+
+        let connection = database::open(&project.database_root())?;
+
+        let linked_id: Option<i64> = connection.query_row(
+            r#"
+            SELECT black_player_id
+            FROM game_metadata
+            WHERE game_source_id = 10
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(linked_id, None);
 
         Ok(())
     }

@@ -6,6 +6,7 @@ fn main() {
             .qml_file("src/qml/Main.qml")
             .qml_file("src/qml/DatabaseImportDialog.qml")
             .qml_file("src/qml/DatabaseProgressDialog.qml")
+            .qml_file("src/qml/PlayerIdentityDialog.qml")
             .qml_file("src/qml/GameList.qml")
             .qml_file("src/qml/GoBoard.qml")
             .qml_file("src/qml/ReplyInfluenceAnalysis.qml"),
@@ -13,5 +14,6 @@ fn main() {
     .file("src/app.rs")
     .file("src/database_operation_model.rs")
     .file("src/game_list_model.rs")
+    .file("src/player_identity_model.rs")
     .build();
 }
