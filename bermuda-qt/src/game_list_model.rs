@@ -98,6 +98,10 @@ pub mod ffi {
             project_path: &QString,
             column: &QString,
             ascending: bool,
+            then_column: &QString,
+            then_ascending: bool,
+            third_column: &QString,
+            third_ascending: bool,
             player: &QString,
             versus: &QString,
             colour: &QString,
@@ -371,6 +375,10 @@ impl ffi::GameListModel {
         project_path: &QString,
         column: &QString,
         ascending: bool,
+        then_column: &QString,
+        then_ascending: bool,
+        third_column: &QString,
+        third_ascending: bool,
         player: &QString,
         versus: &QString,
         colour: &QString,
@@ -379,28 +387,56 @@ impl ffi::GameListModel {
         date_to: &QString,
         result: &QString,
     ) -> bool {
-        let column_name = column.to_string();
+        let mut sort_fields = Vec::new();
+        let mut seen_columns = Vec::new();
 
-        let game_column = match column_name.as_str() {
-            "black" => GameColumn::BlackPlayer,
-            "white" => GameColumn::WhitePlayer,
-            "date" => GameColumn::Date,
-            "result" => GameColumn::Result,
-            "event" => GameColumn::Event,
+        for (sort_column, sort_ascending) in [
+            (column, ascending),
+            (then_column, then_ascending),
+            (third_column, third_ascending),
+        ] {
+            let column_name = sort_column.to_string();
+            let column_name = column_name.trim();
 
-            _ => {
-                self.as_mut().set_error_message(QString::from(format!(
-                    "unknown sort column: {column_name}"
-                )));
-                return false;
+            if column_name.is_empty() || column_name == "none" {
+                continue;
             }
-        };
 
-        let primary_sort = if ascending {
-            SortField::ascending(game_column)
-        } else {
-            SortField::descending(game_column)
-        };
+            if seen_columns
+                .iter()
+                .any(|seen: &String| seen.as_str() == column_name)
+            {
+                continue;
+            }
+
+            let game_column = match column_name {
+                "black" => GameColumn::BlackPlayer,
+                "white" => GameColumn::WhitePlayer,
+                "date" => GameColumn::Date,
+                "result" => GameColumn::Result,
+                "event" => GameColumn::Event,
+
+                _ => {
+                    self.as_mut().set_error_message(QString::from(format!(
+                        "unknown sort column: {column_name}"
+                    )));
+                    return false;
+                }
+            };
+
+            let sort_field = if sort_ascending {
+                SortField::ascending(game_column)
+            } else {
+                SortField::descending(game_column)
+            };
+
+            seen_columns.push(column_name.to_owned());
+            sort_fields.push(sort_field);
+        }
+
+        if sort_fields.is_empty() {
+            sort_fields = GameListQuery::default().sort_fields;
+        }
 
         let colour_name = colour.to_string();
 
@@ -449,7 +485,7 @@ impl ffi::GameListModel {
             date_from: optional_filter(date_from),
             date_to: optional_filter(date_to),
             result: result_filter,
-            sort_fields: vec![primary_sort],
+            sort_fields,
             ..GameListQuery::default()
         };
 

@@ -126,10 +126,14 @@ Kirigami.AbstractCard {
     readonly property string searchErrorMessage:
         searchModel.error_message
 
-    property string sortColumn: "date"
-    property bool whiteColumnFirst: false
-
+    property string sortColumn: "none"
     property bool sortAscending: false
+    property string sortThenColumn: "none"
+    property bool sortThenAscending: true
+    property string sortThirdColumn: "none"
+    property bool sortThirdAscending: true
+
+    property bool whiteColumnFirst: false
 
     property string cataloguePlayer: ""
     property string catalogueVersus: ""
@@ -138,6 +142,17 @@ Kirigami.AbstractCard {
     property string catalogueDateFrom: ""
     property string catalogueDateTo: ""
     property string catalogueResult: "any"
+
+    // These are the criteria that produced the rows currently displayed.
+    // Editing or clearing the fields above does not alter the result set
+    // until the user explicitly starts another catalogue search.
+    property string appliedCataloguePlayer: ""
+    property string appliedCatalogueVersus: ""
+    property string appliedCatalogueColour: "either"
+    property string appliedCatalogueEvent: ""
+    property string appliedCatalogueDateFrom: ""
+    property string appliedCatalogueDateTo: ""
+    property string appliedCatalogueResult: "any"
 
     property string searchFilterPlayer: ""
     property string searchFilterVersus: ""
@@ -165,15 +180,31 @@ Kirigami.AbstractCard {
                     projectPath,
                     sortColumn,
                     sortAscending,
-                    cataloguePlayer,
-                    catalogueVersus,
-                    catalogueColour,
-                    catalogueEvent,
-                    catalogueDateFrom,
-                    catalogueDateTo,
-                    catalogueResult)) {
+                    sortThenColumn,
+                    sortThenAscending,
+                    sortThirdColumn,
+                    sortThirdAscending,
+                    appliedCataloguePlayer,
+                    appliedCatalogueVersus,
+                    appliedCatalogueColour,
+                    appliedCatalogueEvent,
+                    appliedCatalogueDateFrom,
+                    appliedCatalogueDateTo,
+                    appliedCatalogueResult)) {
             projectLoaded = false
         }
+    }
+
+    function applyCatalogueSearch() {
+        appliedCataloguePlayer = cataloguePlayer
+        appliedCatalogueVersus = catalogueVersus
+        appliedCatalogueColour = catalogueColour
+        appliedCatalogueEvent = catalogueEvent
+        appliedCatalogueDateFrom = catalogueDateFrom
+        appliedCatalogueDateTo = catalogueDateTo
+        appliedCatalogueResult = catalogueResult
+
+        loadProject()
     }
 
     function filterSearchResults() {
@@ -213,6 +244,70 @@ Kirigami.AbstractCard {
         filterSearchResults()
     }
 
+    function catalogueSortDirectionLabels(column) {
+        if (column === "none")
+            return [qsTr("Direction")]
+
+        if (column === "date")
+            return [qsTr("Oldest first"), qsTr("Newest first")]
+
+        return [qsTr("A → Z"), qsTr("Z → A")]
+    }
+
+    function normaliseCatalogueSort() {
+        if (sortColumn === "none") {
+            sortThenColumn = "none"
+            sortThirdColumn = "none"
+            return
+        }
+
+        if (sortThenColumn === sortColumn)
+            sortThenColumn = "none"
+
+        if (sortThenColumn === "none") {
+            sortThirdColumn = "none"
+            return
+        }
+
+        if (sortThirdColumn === sortColumn
+                || sortThirdColumn === sortThenColumn) {
+            sortThirdColumn = "none"
+        }
+    }
+
+    function setCatalogueSortColumn(level, column) {
+        const firstAscending = column === "date" ? false : true
+
+        if (level === 0) {
+            sortColumn = column
+            sortAscending = firstAscending
+        } else if (level === 1) {
+            sortThenColumn = column
+
+            if (column !== "none")
+                sortThenAscending = firstAscending
+        } else {
+            sortThirdColumn = column
+
+            if (column !== "none")
+                sortThirdAscending = firstAscending
+        }
+
+        normaliseCatalogueSort()
+        loadProject()
+    }
+
+    function setCatalogueSortDirection(level, ascending) {
+        if (level === 0)
+            sortAscending = ascending
+        else if (level === 1)
+            sortThenAscending = ascending
+        else
+            sortThirdAscending = ascending
+
+        loadProject()
+    }
+
     function sortBy(column, firstAscending) {
         if (sortColumn === column) {
             sortAscending = !sortAscending
@@ -221,6 +316,7 @@ Kirigami.AbstractCard {
             sortAscending = firstAscending
         }
 
+        normaliseCatalogueSort()
         loadProject()
     }
 
@@ -898,7 +994,7 @@ Kirigami.AbstractCard {
                         placeholderText: qsTr("Exact player name")
                         text: root.cataloguePlayer
                         onTextChanged: root.cataloguePlayer = text
-                        onAccepted: root.loadProject()
+                        onAccepted: root.applyCatalogueSearch()
                     }
 
                     ComboBox {
@@ -936,7 +1032,7 @@ Kirigami.AbstractCard {
                         placeholderText: qsTr("Exact opponent name or blank")
                         text: root.catalogueVersus
                         onTextChanged: root.catalogueVersus = text
-                        onAccepted: root.loadProject()
+                        onAccepted: root.applyCatalogueSearch()
                     }
                 }
 
@@ -954,7 +1050,7 @@ Kirigami.AbstractCard {
                         placeholderText: qsTr("Tournament or event contains…")
                         text: root.catalogueEvent
                         onTextChanged: root.catalogueEvent = text
-                        onAccepted: root.loadProject()
+                        onAccepted: root.applyCatalogueSearch()
                     }
 
                     Label {
@@ -969,7 +1065,7 @@ Kirigami.AbstractCard {
                         text: root.catalogueDateFrom
                         onTextChanged:
                             root.catalogueDateFrom = text
-                        onAccepted: root.loadProject()
+                        onAccepted: root.applyCatalogueSearch()
                     }
 
                     Label {
@@ -984,7 +1080,7 @@ Kirigami.AbstractCard {
                         text: root.catalogueDateTo
                         onTextChanged:
                             root.catalogueDateTo = text
-                        onAccepted: root.loadProject()
+                        onAccepted: root.applyCatalogueSearch()
                     }
 
                     Label {
@@ -1031,11 +1127,11 @@ Kirigami.AbstractCard {
                         text: qsTr("Search")
                         enabled: !root.catalogueLoading
 
-                        onClicked: root.loadProject()
+                        onClicked: root.applyCatalogueSearch()
                     }
 
                     Button {
-                        text: qsTr("Clear")
+                        text: qsTr("Clear fields")
                         enabled: !root.catalogueLoading
 
                         onClicked: {
@@ -1055,9 +1151,185 @@ Kirigami.AbstractCard {
 
                             catalogueColourBox.currentIndex = 0
                             catalogueResultBox.currentIndex = 0
-
-                            root.loadProject()
                         }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Label {
+                        text: qsTr("Order")
+                    }
+
+                    ComboBox {
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 6
+
+                        model: [
+                            qsTr("None"),
+                            qsTr("Date"),
+                            qsTr("Black"),
+                            qsTr("White")
+                        ]
+
+                        currentIndex:
+                            root.sortColumn === "date"
+                            ? 1
+                            : root.sortColumn === "black"
+                              ? 2
+                              : root.sortColumn === "white"
+                                ? 3
+                                : 0
+
+                        onActivated: function(index) {
+                            root.setCatalogueSortColumn(
+                                0,
+                                index === 1
+                                ? "date"
+                                : index === 2
+                                  ? "black"
+                                  : index === 3
+                                    ? "white"
+                                    : "none")
+                        }
+                    }
+
+                    ComboBox {
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        enabled: root.sortColumn !== "none"
+                        model:
+                            root.catalogueSortDirectionLabels(
+                                root.sortColumn)
+                        currentIndex:
+                            root.sortColumn === "none"
+                            ? 0
+                            : root.sortAscending ? 0 : 1
+
+                        onActivated: function(index) {
+                            root.setCatalogueSortDirection(
+                                0, index === 0)
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("then")
+                        enabled: root.sortColumn !== "none"
+                    }
+
+                    ComboBox {
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 6
+                        enabled: root.sortColumn !== "none"
+
+                        model: [
+                            qsTr("None"),
+                            qsTr("Date"),
+                            qsTr("Black"),
+                            qsTr("White")
+                        ]
+
+                        currentIndex:
+                            root.sortThenColumn === "date"
+                            ? 1
+                            : root.sortThenColumn === "black"
+                              ? 2
+                              : root.sortThenColumn === "white"
+                                ? 3
+                                : 0
+
+                        onActivated: function(index) {
+                            root.setCatalogueSortColumn(
+                                1,
+                                index === 1
+                                ? "date"
+                                : index === 2
+                                  ? "black"
+                                  : index === 3
+                                    ? "white"
+                                    : "none")
+                        }
+                    }
+
+                    ComboBox {
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        enabled: root.sortThenColumn !== "none"
+                        model:
+                            root.catalogueSortDirectionLabels(
+                                root.sortThenColumn)
+                        currentIndex:
+                            root.sortThenColumn === "none"
+                            ? 0
+                            : root.sortThenAscending ? 0 : 1
+
+                        onActivated: function(index) {
+                            root.setCatalogueSortDirection(
+                                1, index === 0)
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("then")
+                        enabled: root.sortThenColumn !== "none"
+                    }
+
+                    ComboBox {
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 6
+                        enabled: root.sortThenColumn !== "none"
+
+                        model: [
+                            qsTr("None"),
+                            qsTr("Date"),
+                            qsTr("Black"),
+                            qsTr("White")
+                        ]
+
+                        currentIndex:
+                            root.sortThirdColumn === "date"
+                            ? 1
+                            : root.sortThirdColumn === "black"
+                              ? 2
+                              : root.sortThirdColumn === "white"
+                                ? 3
+                                : 0
+
+                        onActivated: function(index) {
+                            root.setCatalogueSortColumn(
+                                2,
+                                index === 1
+                                ? "date"
+                                : index === 2
+                                  ? "black"
+                                  : index === 3
+                                    ? "white"
+                                    : "none")
+                        }
+                    }
+
+                    ComboBox {
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 7
+                        enabled: root.sortThirdColumn !== "none"
+                        model:
+                            root.catalogueSortDirectionLabels(
+                                root.sortThirdColumn)
+                        currentIndex:
+                            root.sortThirdColumn === "none"
+                            ? 0
+                            : root.sortThirdAscending ? 0 : 1
+
+                        onActivated: function(index) {
+                            root.setCatalogueSortDirection(
+                                2, index === 0)
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
                     }
                 }
 
@@ -1365,29 +1637,10 @@ Kirigami.AbstractCard {
     }
 
     Label {
-        id: resultHeader
-
-        text: root.sortHeaderText(
-                  "result",
-                  qsTr("Result"))
-
+        text: qsTr("Result")
         Layout.preferredWidth: 80
         padding: Kirigami.Units.smallSpacing
         font.bold: true
-
-        color: resultSortArea.containsMouse
-               ? Kirigami.Theme.highlightColor
-               : Kirigami.Theme.textColor
-
-        MouseArea {
-            id: resultSortArea
-
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-
-            onClicked: root.sortBy("result", true)
-        }
     }
 
     Label {
@@ -1400,29 +1653,10 @@ Kirigami.AbstractCard {
     }
 
     Label {
-        id: eventHeader
-
-        text: root.sortHeaderText(
-                  "event",
-                  qsTr("Event"))
-
+        text: qsTr("Event")
         Layout.fillWidth: true
         padding: Kirigami.Units.smallSpacing
         font.bold: true
-
-        color: eventSortArea.containsMouse
-               ? Kirigami.Theme.highlightColor
-               : Kirigami.Theme.textColor
-
-        MouseArea {
-            id: eventSortArea
-
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-
-            onClicked: root.sortBy("event", true)
-        }
     }
 }
 
