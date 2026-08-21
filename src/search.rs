@@ -44,6 +44,8 @@ pub struct SearchResult {
 
     pub black_player: Option<String>,
     pub white_player: Option<String>,
+    pub black_player_id: Option<i64>,
+    pub white_player_id: Option<i64>,
 
     pub game_date: Option<String>,
     pub result: Option<String>,
@@ -65,6 +67,8 @@ pub struct SearchSummaryResult {
 
     pub black_player: Option<String>,
     pub white_player: Option<String>,
+    pub black_player_id: Option<i64>,
+    pub white_player_id: Option<i64>,
 
     pub game_date: Option<String>,
     pub result: Option<String>,
@@ -270,6 +274,8 @@ impl SearchEngine {
                     game_id: summary.game_id,
                     black_player: game.black_player,
                     white_player: game.white_player,
+                    black_player_id: game.black_player_id,
+                    white_player_id: game.white_player_id,
                     game_date: game.game_date,
                     result: game.result,
                     event: game.event,
@@ -335,6 +341,8 @@ impl SearchEngine {
                     game_id,
                     black_player: game.black_player,
                     white_player: game.white_player,
+                    black_player_id: game.black_player_id,
+                    white_player_id: game.white_player_id,
                     game_date: game.game_date,
                     result: game.result,
                     event: game.event,

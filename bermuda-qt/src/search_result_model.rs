@@ -21,7 +21,7 @@ use bermuda::{
     PatternSearchOptions, PatternSearchProgress, PatternSearchQuery, PatternSearchScope,
     PatternTransformation, SearchEngine, SearchOccurrence, SearchPatternSummaryReportOutcome,
     SearchSummaryReport, SearchSummaryResult,
-    game_list::{GameListQuery, GameResultFilter, PlayerColour},
+    game_list::{GameListPlayerMetadata, GameListQuery, GameResultFilter, PlayerColour},
     measure_local_activity,
     project_manager::ProjectManager,
     source_long_axis_edge_band,
@@ -47,6 +47,8 @@ struct SearchResultRow {
     game_id: i64,
     black_player: QString,
     white_player: QString,
+    black_player_id: Option<i64>,
+    white_player_id: Option<i64>,
     played_date: QString,
     result: QString,
     event: QString,
@@ -584,7 +586,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
         date_to: &QString,
         result: &QString,
     ) -> bool {
-        let filter = match metadata_filter_from_values(
+        let mut filter = match metadata_filter_from_values(
             player, versus, colour, event, date_from, date_to, result,
         ) {
             Ok(filter) => filter,
@@ -594,6 +596,28 @@ impl crate::game_list_model::ffi::SearchResultModel {
                 return false;
             }
         };
+
+        if filter.player.is_some() || filter.versus.is_some() {
+            let project_path = {
+                let rust = self.as_ref().get_ref().rust();
+
+                rust.search_query
+                    .as_ref()
+                    .map(|query| query.project_path.clone())
+            };
+
+            let Some(project_path) = project_path else {
+                self.as_mut().set_error_message(QString::from(
+                    "no project search is available for player filtering",
+                ));
+                return false;
+            };
+
+            if let Err(error) = resolve_metadata_player_ids(&project_path, &mut filter) {
+                self.as_mut().set_error_message(QString::from(error));
+                return false;
+            }
+        }
 
         let rows = {
             let rust = self.as_ref().get_ref().rust();
@@ -935,6 +959,35 @@ fn metadata_filter_from_values(
     })
 }
 
+fn resolve_metadata_player_ids(
+    project_path: &str,
+    filter: &mut GameListQuery,
+) -> Result<(), String> {
+    let directory = ProjectManager::new()
+        .open(Path::new(project_path))
+        .and_then(|project| project.player_directory())
+        .map_err(|error| error.to_string())?;
+
+    let player_ids = match filter.player.as_deref() {
+        Some(name) => directory
+            .player_ids_for_search_name(name)
+            .map_err(|error| error.to_string())?,
+        None => Vec::new(),
+    };
+
+    let versus_ids = match filter.versus.as_deref() {
+        Some(name) => directory
+            .player_ids_for_search_name(name)
+            .map_err(|error| error.to_string())?,
+        None => Vec::new(),
+    };
+
+    filter.resolved_player_ids = player_ids;
+    filter.resolved_versus_ids = versus_ids;
+
+    Ok(())
+}
+
 fn search_row_matches_metadata(row: &SearchResultRow, filter: &GameListQuery) -> bool {
     let black_player = row.black_player.to_string();
     let white_player = row.white_player.to_string();
@@ -943,8 +996,14 @@ fn search_row_matches_metadata(row: &SearchResultRow, filter: &GameListQuery) ->
     let event = row.event.to_string();
 
     filter.matches_metadata(
-        (!black_player.is_empty()).then_some(black_player.as_str()),
-        (!white_player.is_empty()).then_some(white_player.as_str()),
+        GameListPlayerMetadata {
+            source_name: (!black_player.is_empty()).then_some(black_player.as_str()),
+            player_id: row.black_player_id,
+        },
+        GameListPlayerMetadata {
+            source_name: (!white_player.is_empty()).then_some(white_player.as_str()),
+            player_id: row.white_player_id,
+        },
         (!played_date.is_empty()).then_some(played_date.as_str()),
         (!result.is_empty()).then_some(result.as_str()),
         (!event.is_empty()).then_some(event.as_str()),
@@ -1783,6 +1842,8 @@ fn search_results_to_rows(results: Vec<SearchSummaryResult>) -> Vec<SearchResult
                 game_id: result.game_id,
                 black_player: optional_text(&result.black_player),
                 white_player: optional_text(&result.white_player),
+                black_player_id: result.black_player_id,
+                white_player_id: result.white_player_id,
                 played_date: optional_text(&result.game_date),
                 result: optional_text(&result.result),
                 event: optional_text(&result.event),
@@ -2024,6 +2085,68 @@ mod search_result_sort_tests {
 
     fn ids(rows: &[SearchResultRow]) -> Vec<i64> {
         rows.iter().map(|row| row.game_id).collect()
+    }
+
+    #[test]
+    fn metadata_filter_uses_identity_for_linked_players_and_raw_for_unlinked_players() {
+        let identified = SearchResultRow {
+            game_id: 1,
+            black_player: QString::from("Source Alpha"),
+            black_player_id: Some(42),
+            ..SearchResultRow::default()
+        };
+
+        let preferred = GameListQuery {
+            player: Some("Preferred Alpha".to_owned()),
+            resolved_player_ids: vec![42],
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert!(search_row_matches_metadata(&identified, &preferred));
+
+        /*
+         * Several identities may legitimately share the typed search name.
+         * Membership in any of those identities is a valid search match.
+         */
+        let ambiguous = GameListQuery {
+            player: Some("Shared Name".to_owned()),
+            resolved_player_ids: vec![17, 42, 99],
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert!(search_row_matches_metadata(&identified, &ambiguous));
+
+        /*
+         * Once linked, the identity is authoritative. A literal PB spelling
+         * with no corresponding resolved identity must not bypass it.
+         */
+        let raw_only_against_identified = GameListQuery {
+            player: Some("Source Alpha".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert!(!search_row_matches_metadata(
+            &identified,
+            &raw_only_against_identified
+        ));
+
+        let unresolved = SearchResultRow {
+            game_id: 2,
+            black_player: QString::from("Unresolved Name"),
+            black_player_id: None,
+            ..SearchResultRow::default()
+        };
+
+        let raw_unresolved = GameListQuery {
+            player: Some("Unresolved Name".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert!(search_row_matches_metadata(&unresolved, &raw_unresolved));
     }
 
     #[test]

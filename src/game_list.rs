@@ -104,10 +104,24 @@ pub struct GameListRow {
     pub match_count: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameListPlayerMetadata<'a> {
+    pub source_name: Option<&'a str>,
+    pub player_id: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameListQuery {
     pub player: Option<String>,
     pub versus: Option<String>,
+
+    /*
+     * These ID sets are populated when the same query is used for in-memory
+     * filtering. SQL catalogue filtering resolves the typed names directly.
+     */
+    pub resolved_player_ids: Vec<i64>,
+    pub resolved_versus_ids: Vec<i64>,
+
     pub colour: PlayerColour,
     pub event: Option<String>,
     pub date_from: Option<String>,
@@ -123,6 +137,8 @@ impl Default for GameListQuery {
         Self {
             player: None,
             versus: None,
+            resolved_player_ids: Vec::new(),
+            resolved_versus_ids: Vec::new(),
             colour: PlayerColour::Either,
             event: None,
             date_from: None,
@@ -142,8 +158,8 @@ impl Default for GameListQuery {
 impl GameListQuery {
     pub fn matches_metadata(
         &self,
-        black_player: Option<&str>,
-        white_player: Option<&str>,
+        black_player: GameListPlayerMetadata<'_>,
+        white_player: GameListPlayerMetadata<'_>,
         game_date: Option<&str>,
         result: Option<&str>,
         event: Option<&str>,
@@ -154,21 +170,43 @@ impl GameListQuery {
             (None, Some(_)) => false,
 
             (Some(player), None) => match self.colour {
-                PlayerColour::Black => black_player == Some(player),
-                PlayerColour::White => white_player == Some(player),
+                PlayerColour::Black => {
+                    player_metadata_matches(player, &self.resolved_player_ids, black_player)
+                }
+
+                PlayerColour::White => {
+                    player_metadata_matches(player, &self.resolved_player_ids, white_player)
+                }
+
                 PlayerColour::Either => {
-                    black_player == Some(player) || white_player == Some(player)
+                    player_metadata_matches(player, &self.resolved_player_ids, black_player)
+                        || player_metadata_matches(player, &self.resolved_player_ids, white_player)
                 }
             },
 
             (Some(player), Some(versus)) => match self.colour {
-                PlayerColour::Black => black_player == Some(player) && white_player == Some(versus),
+                PlayerColour::Black => {
+                    player_metadata_matches(player, &self.resolved_player_ids, black_player)
+                        && player_metadata_matches(versus, &self.resolved_versus_ids, white_player)
+                }
 
-                PlayerColour::White => white_player == Some(player) && black_player == Some(versus),
+                PlayerColour::White => {
+                    player_metadata_matches(player, &self.resolved_player_ids, white_player)
+                        && player_metadata_matches(versus, &self.resolved_versus_ids, black_player)
+                }
 
                 PlayerColour::Either => {
-                    (black_player == Some(player) && white_player == Some(versus))
-                        || (white_player == Some(player) && black_player == Some(versus))
+                    (player_metadata_matches(player, &self.resolved_player_ids, black_player)
+                        && player_metadata_matches(versus, &self.resolved_versus_ids, white_player))
+                        || (player_metadata_matches(
+                            player,
+                            &self.resolved_player_ids,
+                            white_player,
+                        ) && player_metadata_matches(
+                            versus,
+                            &self.resolved_versus_ids,
+                            black_player,
+                        ))
                 }
             },
         };
@@ -216,6 +254,26 @@ impl GameListQuery {
     }
 }
 
+fn player_metadata_matches(
+    expected_source_name: &str,
+    resolved_player_ids: &[i64],
+    metadata: GameListPlayerMetadata<'_>,
+) -> bool {
+    match metadata.player_id {
+        /*
+         * Once Bermuda has a confirmed identity for this side, identity is
+         * authoritative. The literal source spelling must not bypass it.
+         */
+        Some(player_id) => resolved_player_ids.contains(&player_id),
+
+        /*
+         * Unidentified metadata remains searchable by its exact PB/PW text,
+         * preserving the behaviour that existed before player identities.
+         */
+        None => metadata.source_name == Some(expected_source_name),
+    }
+}
+
 fn starts_with_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
     value
         .get(..prefix.len())
@@ -244,18 +302,44 @@ fn result_matches(filter: GameResultFilter, result: Option<&str>) -> bool {
     }
 }
 
+fn player_side_condition(name_column: &str, player_id_column: &str, parameter: &str) -> String {
+    format!(
+        "(({player_id_column} IS NULL AND {name_column} = {parameter}) \
+         OR \
+         ({player_id_column} IS NOT NULL AND (\
+             EXISTS (\
+                 SELECT 1 \
+                 FROM players AS filter_player \
+                 WHERE filter_player.id = {player_id_column} \
+                   AND filter_player.preferred_name = {parameter}\
+             ) \
+             OR EXISTS (\
+                 SELECT 1 \
+                 FROM player_aliases AS filter_alias \
+                 WHERE filter_alias.player_id = {player_id_column} \
+                   AND filter_alias.name = {parameter}\
+             )\
+         )))"
+    )
+}
+
 fn player_condition(colour: PlayerColour, parameter: &str) -> String {
+    let black = player_side_condition(
+        "selected_metadata.black_player",
+        "selected_metadata.black_player_id",
+        parameter,
+    );
+
+    let white = player_side_condition(
+        "selected_metadata.white_player",
+        "selected_metadata.white_player_id",
+        parameter,
+    );
+
     match colour {
-        PlayerColour::Black => {
-            format!("selected_metadata.black_player = {parameter}")
-        }
-        PlayerColour::White => {
-            format!("selected_metadata.white_player = {parameter}")
-        }
-        PlayerColour::Either => format!(
-            "(selected_metadata.black_player = {parameter} \
-             OR selected_metadata.white_player = {parameter})"
-        ),
+        PlayerColour::Black => black,
+        PlayerColour::White => white,
+        PlayerColour::Either => format!("({black} OR {white})"),
     }
 }
 
@@ -264,21 +348,43 @@ fn matchup_condition(
     player_parameter: &str,
     versus_parameter: &str,
 ) -> String {
+    let black_player = player_side_condition(
+        "selected_metadata.black_player",
+        "selected_metadata.black_player_id",
+        player_parameter,
+    );
+
+    let white_player = player_side_condition(
+        "selected_metadata.white_player",
+        "selected_metadata.white_player_id",
+        player_parameter,
+    );
+
+    let black_versus = player_side_condition(
+        "selected_metadata.black_player",
+        "selected_metadata.black_player_id",
+        versus_parameter,
+    );
+
+    let white_versus = player_side_condition(
+        "selected_metadata.white_player",
+        "selected_metadata.white_player_id",
+        versus_parameter,
+    );
+
     match colour {
-        PlayerColour::Black => format!(
-            "(selected_metadata.black_player = {player_parameter} \
-             AND selected_metadata.white_player = {versus_parameter})"
-        ),
-        PlayerColour::White => format!(
-            "(selected_metadata.white_player = {player_parameter} \
-             AND selected_metadata.black_player = {versus_parameter})"
-        ),
+        PlayerColour::Black => {
+            format!("({black_player} AND {white_versus})")
+        }
+
+        PlayerColour::White => {
+            format!("({white_player} AND {black_versus})")
+        }
+
         PlayerColour::Either => format!(
-            "((selected_metadata.black_player = {player_parameter} \
-              AND selected_metadata.white_player = {versus_parameter}) \
+            "(({black_player} AND {white_versus}) \
              OR \
-             (selected_metadata.white_player = {player_parameter} \
-              AND selected_metadata.black_player = {versus_parameter}))"
+             ({white_player} AND {black_versus}))"
         ),
     }
 }
@@ -507,6 +613,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                 game_sources.game_id,
                 game_metadata.black_player,
                 game_metadata.white_player,
+                game_metadata.black_player_id,
+                game_metadata.white_player_id,
                 game_metadata.played_date,
                 game_metadata.played_date_sort,
                 game_metadata.result,
@@ -538,6 +646,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                 game_id,
                 black_player,
                 white_player,
+                black_player_id,
+                white_player_id,
                 played_date,
                 played_date_sort,
                 result,
@@ -831,6 +941,15 @@ mod tests {
             preferred_name  TEXT NOT NULL
         );
 
+        CREATE TABLE player_aliases (
+            id              INTEGER PRIMARY KEY,
+            player_id       INTEGER NOT NULL,
+            name            TEXT NOT NULL,
+            source_id       INTEGER,
+            notes           TEXT,
+            FOREIGN KEY(player_id) REFERENCES players(id)
+        );
+
         CREATE TABLE game_sources (
             id              INTEGER PRIMARY KEY,
             game_id         INTEGER NOT NULL,
@@ -946,6 +1065,25 @@ VALUES (
             (20, 'Preferred Beta');
 
         /*
+         * Alpha/Beta preserve the existing source-spelling tests while now
+         * exercising identity-aware filtering. A. Alpha is another confirmed
+         * source-specific alias. Shared Name deliberately denotes both
+         * identities so search ambiguity can broaden rather than fail.
+         */
+        INSERT INTO player_aliases(
+            id,
+            player_id,
+            name,
+            source_id
+        )
+        VALUES
+            (1, 10, 'Alpha', 1),
+            (2, 20, 'Beta', 1),
+            (3, 10, 'A. Alpha', 1),
+            (4, 10, 'Shared Name', NULL),
+            (5, 20, 'Shared Name', NULL);
+
+        /*
          * Only the preferred metadata row for canonical game 1 is linked.
          * The literal Alpha/Beta source strings remain unchanged.
          */
@@ -1030,6 +1168,31 @@ VALUES (
                 ..GameListQuery::default()
             },
             GameListQuery {
+                player: Some("Preferred Alpha".to_owned()),
+                colour: PlayerColour::Black,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                player: Some("A. Alpha".to_owned()),
+                colour: PlayerColour::Black,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                player: Some("Shared Name".to_owned()),
+                colour: PlayerColour::Black,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                player: Some("Shared Name".to_owned()),
+                colour: PlayerColour::White,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
+                player: Some("Delta".to_owned()),
+                colour: PlayerColour::Either,
+                ..GameListQuery::default()
+            },
+            GameListQuery {
                 player: Some("Alpha".to_owned()),
                 versus: Some("Beta".to_owned()),
                 colour: PlayerColour::Either,
@@ -1078,12 +1241,30 @@ VALUES (
                 .map(|game| game.game_id)
                 .collect::<Vec<_>>();
 
+            let mut memory_query = query.clone();
+
+            if let Some(name) = memory_query.player.clone() {
+                memory_query.resolved_player_ids =
+                    crate::player_directory::player_ids_for_search_name_on(&connection, &name)?;
+            }
+
+            if let Some(name) = memory_query.versus.clone() {
+                memory_query.resolved_versus_ids =
+                    crate::player_directory::player_ids_for_search_name_on(&connection, &name)?;
+            }
+
             let mut memory_ids = all_games
                 .iter()
                 .filter(|game| {
-                    query.matches_metadata(
-                        game.black_player.as_deref(),
-                        game.white_player.as_deref(),
+                    memory_query.matches_metadata(
+                        GameListPlayerMetadata {
+                            source_name: game.black_player.as_deref(),
+                            player_id: game.black_player_id,
+                        },
+                        GameListPlayerMetadata {
+                            source_name: game.white_player.as_deref(),
+                            player_id: game.white_player_id,
+                        },
                         game.game_date.as_deref(),
                         game.result.as_deref(),
                         game.event.as_deref(),
@@ -1097,6 +1278,69 @@ VALUES (
 
             assert_eq!(memory_ids, database_ids, "query was {query:?}");
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_identified_players_by_preferred_name_alias_and_ambiguity() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        for name in ["Preferred Alpha", "A. Alpha"] {
+            let query = GameListQuery {
+                player: Some(name.to_owned()),
+                colour: PlayerColour::Black,
+                ..GameListQuery::default()
+            };
+
+            assert_eq!(
+                list_games(&connection, &query)?
+                    .iter()
+                    .map(|game| game.game_id)
+                    .collect::<Vec<_>>(),
+                vec![1],
+                "search name was {name:?}"
+            );
+        }
+
+        /*
+         * Shared Name is deliberately attached to both identities. Search
+         * therefore finds either identity rather than arbitrarily choosing
+         * one of them.
+         */
+        for colour in [PlayerColour::Black, PlayerColour::White] {
+            let query = GameListQuery {
+                player: Some("Shared Name".to_owned()),
+                colour,
+                ..GameListQuery::default()
+            };
+
+            assert_eq!(
+                list_games(&connection, &query)?
+                    .iter()
+                    .map(|game| game.game_id)
+                    .collect::<Vec<_>>(),
+                vec![1]
+            );
+        }
+
+        /*
+         * Canonical game 2 has no identity links, so the historical exact
+         * raw-spelling behaviour remains available.
+         */
+        let unresolved = GameListQuery {
+            player: Some("Delta".to_owned()),
+            colour: PlayerColour::Either,
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &unresolved)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
 
         Ok(())
     }

@@ -240,6 +240,16 @@ impl PlayerDirectory {
             .with_context(|| format!("collecting aliases for player {player_id}"))
     }
 
+    /// Return every player identity explicitly known by this exact name.
+    ///
+    /// Search semantics deliberately differ from import-time resolution:
+    /// ambiguity broadens a search rather than forcing Bermuda to choose one
+    /// identity. Source-specific aliases are therefore also valid search
+    /// names for that identity in games from other sources.
+    pub fn player_ids_for_search_name(&self, name: &str) -> Result<Vec<i64>> {
+        player_ids_for_search_name_on(&self.connection, name)
+    }
+
     pub fn preview_source_alias_resolution(
         &self,
         alias_id: i64,
@@ -589,6 +599,46 @@ impl PlayerDirectory {
 
         Ok(name)
     }
+}
+
+pub(crate) fn player_ids_for_search_name_on(
+    connection: &Connection,
+    name: &str,
+) -> Result<Vec<i64>> {
+    /*
+     * Preferred names and aliases are both curated identity assertions.
+     *
+     * Unlike import-time resolution, alias source scope does not restrict
+     * searching: once a spelling is known to denote an identity, searching
+     * for that spelling should find that identity wherever it plays.
+     *
+     * UNION deliberately removes duplicate IDs when, for example, a player's
+     * preferred name is also one of that player's aliases.
+     */
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT id AS player_id
+            FROM players
+            WHERE preferred_name = ?1
+
+            UNION
+
+            SELECT player_id
+            FROM player_aliases
+            WHERE name = ?1
+
+            ORDER BY player_id
+            "#,
+        )
+        .context("preparing exact player search-name lookup")?;
+
+    let rows = statement
+        .query_map([name], |row| row.get::<_, i64>(0))
+        .with_context(|| format!("resolving exact player search name {name:?}"))?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("collecting player IDs for exact search name")
 }
 
 pub(crate) fn resolve_player_alias_for_source(
