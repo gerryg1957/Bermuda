@@ -921,12 +921,27 @@ Kirigami.AbstractCard {
         continuationFilterCleared()
     }
 
+    /*
+     * A bound projectPath may change while this component is being
+     * constructed.  Do not start a catalogue load at that point and then
+     * start the same load again from Component.onCompleted.
+     *
+     * Besides doing duplicate work, two simultaneous database opens can
+     * race when an older database needs a schema migration.
+     */
+    property bool componentReadyForProjectLoad: false
+
     onProjectPathChanged: {
         clearSearchResults()
-        loadProject()
+
+        if (componentReadyForProjectLoad)
+            loadProject()
     }
 
-    Component.onCompleted: loadProject()
+    Component.onCompleted: {
+        componentReadyForProjectLoad = true
+        loadProject()
+    }
     GameListModel {
         id: gameModel
     }
