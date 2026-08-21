@@ -325,7 +325,22 @@ menuBar: MenuBar {
             }
         }
     }
+    Menu {
+        title: qsTr("&Settings")
+
+        Action {
+            text: qsTr("Include &handicap games in pattern searches")
+            checkable: true
+            checked: root.includeHandicapGames
+
+            onToggled:
+                root.includeHandicapGames = checked
+        }
+    }
+
 }
+
+    property bool includeHandicapGames: false
 
     Settings {
         id: uiSettings
@@ -1051,7 +1066,8 @@ menuBar: MenuBar {
                                   boardPane.patternLeft,
                                   bottom,
                                   width,
-                                  height)
+                                  height,
+                                  root.includeHandicapGames)
                           }
                       }
 

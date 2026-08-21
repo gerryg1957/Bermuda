@@ -159,6 +159,7 @@ pub mod ffi {
             bottom: i32,
             width: i32,
             height: i32,
+            include_handicap_games: bool,
         ) -> bool;
 
         #[qinvokable]

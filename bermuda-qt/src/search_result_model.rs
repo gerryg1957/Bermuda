@@ -69,6 +69,7 @@ struct StoredSearchQuery {
     include_rotations: bool,
     include_reflections: bool,
     include_reversed_colours: bool,
+    include_handicap_games: bool,
 }
 
 #[derive(Default)]
@@ -618,6 +619,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
         bottom: i32,
         width: i32,
         height: i32,
+        include_handicap_games: bool,
     ) -> bool {
         if self.as_ref().get_ref().rust().search_in_progress {
             self.as_mut()
@@ -640,6 +642,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             include_rotations: true,
             include_reflections: true,
             include_reversed_colours: true,
+            include_handicap_games,
         };
 
         let cancel_token = Arc::new(AtomicBool::new(false));
@@ -700,6 +703,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
                 true,
                 true,
                 true,
+                include_handicap_games,
                 || cancel_token.load(Ordering::Relaxed),
                 |progress| {
                     let now = Instant::now();
@@ -926,6 +930,7 @@ fn create_search_engine_and_query(
     include_rotations: bool,
     include_reflections: bool,
     include_reversed_colours: bool,
+    include_handicap_games: bool,
     scope: PatternSearchScope,
 ) -> Result<(SearchEngine, PatternSearchQuery), String> {
     if project_path.trim().is_empty() {
@@ -972,7 +977,7 @@ fn create_search_engine_and_query(
             include_rotations,
             include_reflections,
             include_reversed_colours,
-            include_handicap_games: false,
+            include_handicap_games,
             long_axis_edge_band: source_long_axis_edge_band(
                 board.size(),
                 rect.width,
@@ -1001,6 +1006,7 @@ fn create_search_outcome<C, P>(
     include_rotations: bool,
     include_reflections: bool,
     include_reversed_colours: bool,
+    include_handicap_games: bool,
     is_cancelled: C,
     on_progress: P,
 ) -> Result<SearchPatternSummaryReportOutcome, String>
@@ -1019,6 +1025,7 @@ where
         include_rotations,
         include_reflections,
         include_reversed_colours,
+        include_handicap_games,
         PatternSearchScope::Project,
     )?;
 
@@ -1175,6 +1182,7 @@ fn create_game_occurrences(
         query.include_rotations,
         query.include_reflections,
         query.include_reversed_colours,
+        query.include_handicap_games,
         PatternSearchScope::Game(game_id),
     )?;
 
@@ -2065,6 +2073,7 @@ mod occurrence_continuation_tests {
             include_rotations: true,
             include_reflections: true,
             include_reversed_colours: true,
+            include_handicap_games: false,
         };
 
         let distribution = NextMoveDistribution {
@@ -2115,6 +2124,7 @@ mod occurrence_continuation_tests {
             include_rotations: true,
             include_reflections: true,
             include_reversed_colours: true,
+            include_handicap_games: false,
         };
 
         let distribution = NextMoveDistribution {
