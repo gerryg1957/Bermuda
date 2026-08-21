@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     game_catalogue::GameCatalogue, game_store::GameStore, importer::Importer,
-    indexer::PositionIndexer,
+    indexer::PositionIndexer, player_directory::PlayerDirectory,
 };
 const CONFIG_FILENAME: &str = "moyodb-project.toml";
 const DATABASE_DIRECTORY: &str = "database";
@@ -58,6 +58,10 @@ impl Project {
 
     pub fn importer(&self) -> Result<Importer> {
         Importer::open_project(self)
+    }
+
+    pub fn player_directory(&self) -> Result<PlayerDirectory> {
+        PlayerDirectory::open_project(self)
     }
 
     pub fn position_indexer(&self) -> Result<PositionIndexer> {
