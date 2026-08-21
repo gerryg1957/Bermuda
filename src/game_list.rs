@@ -83,8 +83,19 @@ pub enum GameResultFilter {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GameListRow {
     pub game_id: i64,
+
+    /*
+     * black_player / white_player are the literal spellings from the
+     * selected source metadata. The display fields are Bermuda's preferred
+     * presentation when a confirmed identity exists.
+     */
     pub black_player: Option<String>,
     pub white_player: Option<String>,
+    pub black_player_id: Option<i64>,
+    pub white_player_id: Option<i64>,
+    pub black_player_display: Option<String>,
+    pub white_player_display: Option<String>,
+
     pub game_date: Option<String>,
     pub result: Option<String>,
     pub event: Option<String>,
@@ -325,6 +336,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                 game_sources.game_id,
                 game_metadata.black_player,
                 game_metadata.white_player,
+                game_metadata.black_player_id,
+                game_metadata.white_player_id,
                 game_metadata.played_date,
                 game_metadata.played_date_sort,
                 game_metadata.result,
@@ -356,6 +369,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                 game_id,
                 black_player,
                 white_player,
+                black_player_id,
+                white_player_id,
                 played_date,
                 played_date_sort,
                 result,
@@ -371,6 +386,16 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
             games.id,
             selected_metadata.black_player,
             selected_metadata.white_player,
+            selected_metadata.black_player_id,
+            selected_metadata.white_player_id,
+            COALESCE(
+                black_identity.preferred_name,
+                selected_metadata.black_player
+            ),
+            COALESCE(
+                white_identity.preferred_name,
+                selected_metadata.white_player
+            ),
             selected_metadata.played_date,
 
             selected_metadata.result,
@@ -380,7 +405,13 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
         FROM games
 
         LEFT JOIN selected_metadata
-    ON selected_metadata.game_id = games.id
+            ON selected_metadata.game_id = games.id
+
+        LEFT JOIN players AS black_identity
+            ON black_identity.id = selected_metadata.black_player_id
+
+        LEFT JOIN players AS white_identity
+            ON white_identity.id = selected_metadata.white_player_id
 
 WHERE (
     (
@@ -443,10 +474,14 @@ ORDER BY {order_by}
                     game_id: row.get(0)?,
                     black_player: row.get(1)?,
                     white_player: row.get(2)?,
-                    game_date: row.get(3)?,
-                    result: row.get(4)?,
-                    event: row.get(5)?,
-                    komi: row.get(6)?,
+                    black_player_id: row.get(3)?,
+                    white_player_id: row.get(4)?,
+                    black_player_display: row.get(5)?,
+                    white_player_display: row.get(6)?,
+                    game_date: row.get(7)?,
+                    result: row.get(8)?,
+                    event: row.get(9)?,
+                    komi: row.get(10)?,
                     matched_move: None,
                     match_count: None,
                 })
@@ -580,6 +615,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 game_sources.game_id,
                 game_metadata.black_player,
                 game_metadata.white_player,
+                game_metadata.black_player_id,
+                game_metadata.white_player_id,
                 game_metadata.played_date,
                 game_metadata.played_date_sort,
                 game_metadata.result,
@@ -611,6 +648,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 game_id,
                 black_player,
                 white_player,
+                black_player_id,
+                white_player_id,
                 played_date,
                 played_date_sort,
                 result,
@@ -626,6 +665,16 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
             games.id,
             selected_metadata.black_player,
             selected_metadata.white_player,
+            selected_metadata.black_player_id,
+            selected_metadata.white_player_id,
+            COALESCE(
+                black_identity.preferred_name,
+                selected_metadata.black_player
+            ),
+            COALESCE(
+                white_identity.preferred_name,
+                selected_metadata.white_player
+            ),
             selected_metadata.played_date,
             selected_metadata.result,
             selected_metadata.event,
@@ -636,6 +685,12 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
         LEFT JOIN selected_metadata
             ON selected_metadata.game_id = games.id
 
+        LEFT JOIN players AS black_identity
+            ON black_identity.id = selected_metadata.black_player_id
+
+        LEFT JOIN players AS white_identity
+            ON white_identity.id = selected_metadata.white_player_id
+
         WHERE games.id = ?1
     "#;
 
@@ -645,10 +700,14 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 game_id: row.get(0)?,
                 black_player: row.get(1)?,
                 white_player: row.get(2)?,
-                game_date: row.get(3)?,
-                result: row.get(4)?,
-                event: row.get(5)?,
-                komi: row.get(6)?,
+                black_player_id: row.get(3)?,
+                white_player_id: row.get(4)?,
+                black_player_display: row.get(5)?,
+                white_player_display: row.get(6)?,
+                game_date: row.get(7)?,
+                result: row.get(8)?,
+                event: row.get(9)?,
+                komi: row.get(10)?,
                 matched_move: None,
                 match_count: None,
             })
@@ -767,6 +826,11 @@ mod tests {
             UNIQUE(name, version)
         );
 
+        CREATE TABLE players (
+            id              INTEGER PRIMARY KEY,
+            preferred_name  TEXT NOT NULL
+        );
+
         CREATE TABLE game_sources (
             id              INTEGER PRIMARY KEY,
             game_id         INTEGER NOT NULL,
@@ -784,6 +848,8 @@ mod tests {
             game_source_id  INTEGER PRIMARY KEY,
             black_player    TEXT,
             white_player    TEXT,
+            black_player_id INTEGER REFERENCES players(id),
+            white_player_id INTEGER REFERENCES players(id),
             played_date     TEXT,
             played_date_sort  TEXT,
             event           TEXT,
@@ -873,6 +939,21 @@ VALUES (
     'Autumn Tournament',
     'W+2.5'
 );
+
+        INSERT INTO players (id, preferred_name)
+        VALUES
+            (10, 'Preferred Alpha'),
+            (20, 'Preferred Beta');
+
+        /*
+         * Only the preferred metadata row for canonical game 1 is linked.
+         * The literal Alpha/Beta source strings remain unchanged.
+         */
+        UPDATE game_metadata
+        SET
+            black_player_id = 10,
+            white_player_id = 20
+        WHERE game_source_id = 2;
 "#,
         )?;
         Ok(connection)
@@ -892,8 +973,21 @@ VALUES (
             .find(|game| game.game_id == 1)
             .expect("canonical game 1 should be returned");
 
+        /*
+         * Source spelling and Bermuda display identity are both retained.
+         */
         assert_eq!(first_game.black_player.as_deref(), Some("Alpha"));
         assert_eq!(first_game.white_player.as_deref(), Some("Beta"));
+        assert_eq!(first_game.black_player_id, Some(10));
+        assert_eq!(first_game.white_player_id, Some(20));
+        assert_eq!(
+            first_game.black_player_display.as_deref(),
+            Some("Preferred Alpha")
+        );
+        assert_eq!(
+            first_game.white_player_display.as_deref(),
+            Some("Preferred Beta")
+        );
         assert_eq!(first_game.game_date.as_deref(), Some("2026-04-15"));
         assert_eq!(first_game.event.as_deref(), Some("Spring Tournament"));
         assert_eq!(first_game.result.as_deref(), Some("B+R"));
@@ -905,6 +999,14 @@ VALUES (
 
         assert_eq!(second_game.black_player.as_deref(), Some("Gamma"));
         assert_eq!(second_game.white_player.as_deref(), Some("Delta"));
+        assert_eq!(second_game.black_player_id, None);
+        assert_eq!(second_game.white_player_id, None);
+
+        /*
+         * Unresolved names simply display their source spelling.
+         */
+        assert_eq!(second_game.black_player_display.as_deref(), Some("Gamma"));
+        assert_eq!(second_game.white_player_display.as_deref(), Some("Delta"));
 
         Ok(())
     }
