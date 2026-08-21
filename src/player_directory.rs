@@ -591,6 +591,73 @@ impl PlayerDirectory {
     }
 }
 
+pub(crate) fn resolve_player_alias_for_source(
+    connection: &Connection,
+    source_id: i64,
+    name: &str,
+) -> Result<Option<i64>> {
+    /*
+     * Exact source-specific aliases take precedence over global aliases.
+     *
+     * The query deliberately returns at most two distinct player IDs. One
+     * candidate is unambiguous; zero candidates means unresolved; two means
+     * ambiguous and must also remain unresolved.
+     *
+     * If any source-specific candidate exists, global aliases are not
+     * considered. Thus a global assertion can never override or "repair" an
+     * ambiguous source-specific assertion.
+     */
+    let mut statement = connection
+        .prepare(
+            r#"
+            WITH candidates(player_id, priority) AS (
+                SELECT
+                    player_id,
+                    0
+                FROM player_aliases
+                WHERE source_id = ?1
+                  AND name = ?2
+
+                UNION ALL
+
+                SELECT
+                    player_id,
+                    1
+                FROM player_aliases
+                WHERE source_id IS NULL
+                  AND name = ?2
+            ),
+            best_priority(priority) AS (
+                SELECT MIN(priority)
+                FROM candidates
+            )
+            SELECT DISTINCT player_id
+            FROM candidates
+            WHERE priority = (
+                SELECT priority
+                FROM best_priority
+            )
+            ORDER BY player_id
+            LIMIT 2
+            "#,
+        )
+        .context("preparing exact player-alias lookup")?;
+
+    let rows = statement
+        .query_map(params![source_id, name], |row| row.get::<_, i64>(0))
+        .with_context(|| format!("resolving exact player alias {name:?} for source {source_id}"))?;
+
+    let player_ids = rows
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("collecting exact player-alias candidates")?;
+
+    match player_ids.as_slice() {
+        [player_id] => Ok(Some(*player_id)),
+        [] | [_, _] => Ok(None),
+        _ => unreachable!("alias query is limited to two rows"),
+    }
+}
+
 fn get_alias_from_connection(connection: &Connection, alias_id: i64) -> Result<PlayerAlias> {
     connection
         .query_row(

@@ -4,6 +4,7 @@ use crate::{
     GameRecord, canonical_hash, canonical_hash_hex, database, extract_main_variation, game,
     game_date::{normalise_played_date, played_date_sort_key},
     parse_collection,
+    player_directory::resolve_player_alias_for_source,
     project::Project,
     write_move_file,
 };
@@ -115,7 +116,7 @@ impl Importer {
 
         let game_source_id = insert_game_source(&transaction, game_id, source_id, &original_path)?;
 
-        insert_metadata(&transaction, game_source_id, &record)?;
+        insert_metadata(&transaction, game_source_id, source_id, &record)?;
 
         transaction
             .commit()
@@ -261,8 +262,30 @@ fn insert_game_source(
 fn insert_metadata(
     transaction: &Transaction<'_>,
     game_source_id: i64,
+    source_id: i64,
     record: &GameRecord,
 ) -> Result<()> {
+    /*
+     * Preserve PB/PW exactly as supplied by the source. Player IDs are
+     * Bermuda's separate interpretation, populated only by an unambiguous
+     * previously confirmed exact alias.
+     */
+    let black_player_id = record
+        .metadata
+        .black_player
+        .as_deref()
+        .map(|name| resolve_player_alias_for_source(transaction, source_id, name))
+        .transpose()?
+        .flatten();
+
+    let white_player_id = record
+        .metadata
+        .white_player
+        .as_deref()
+        .map(|name| resolve_player_alias_for_source(transaction, source_id, name))
+        .transpose()?
+        .flatten();
+
     let played_date = record.metadata.date.as_deref().map(normalise_played_date);
 
     let played_date_sort = played_date.as_deref().and_then(played_date_sort_key);
@@ -279,9 +302,11 @@ fn insert_metadata(
     event,
     result,
     komi,
-    handicap
+    handicap,
+    black_player_id,
+    white_player_id
 )
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             "#,
             params![
                 game_source_id,
@@ -293,6 +318,8 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 record.metadata.result.as_deref(),
                 record.metadata.komi,
                 record.metadata.handicap.map(i64::from),
+                black_player_id,
+                white_player_id,
             ],
         )
         .context("inserting source-specific game metadata")?;
@@ -373,7 +400,9 @@ mod tests {
             event           TEXT,
             result          TEXT,
             komi            REAL,
-            handicap        INTEGER
+            handicap        INTEGER,
+            black_player_id INTEGER,
+            white_player_id INTEGER
         );
         "#,
         )?;
@@ -382,7 +411,7 @@ mod tests {
         let record = extract_main_variation(&collection)?;
 
         let transaction = connection.transaction()?;
-        insert_metadata(&transaction, 1, &record)?;
+        insert_metadata(&transaction, 1, 1, &record)?;
         transaction.commit()?;
 
         let (stored_date, stored_sort_date): (String, String) = connection.query_row(
@@ -396,6 +425,192 @@ mod tests {
 
         assert_eq!(stored_date, "1683-01-01");
         assert_eq!(stored_sort_date, "1683-01-01");
+        Ok(())
+    }
+
+    #[test]
+    fn exact_alias_resolution_prefers_source_specific_and_refuses_ambiguity() -> Result<()> {
+        let connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            CREATE TABLE player_aliases (
+                id          INTEGER PRIMARY KEY,
+                player_id   INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                source_id   INTEGER,
+                notes       TEXT
+            );
+
+            /*
+             * Cho has both a source-specific and a global identity. The
+             * source-specific assertion must win.
+             */
+            INSERT INTO player_aliases(
+                id,
+                player_id,
+                name,
+                source_id
+            )
+            VALUES
+                (1, 101, 'Cho Chikun', 7),
+                (2, 999, 'Cho Chikun', NULL);
+
+            /*
+             * Kobayashi has only a global assertion, so it is a valid
+             * fallback for source 7.
+             */
+            INSERT INTO player_aliases(
+                id,
+                player_id,
+                name,
+                source_id
+            )
+            VALUES
+                (3, 201, 'Kobayashi Satoru', NULL);
+            "#,
+        )?;
+
+        assert_eq!(
+            resolve_player_alias_for_source(&connection, 7, "Cho Chikun")?,
+            Some(101)
+        );
+
+        assert_eq!(
+            resolve_player_alias_for_source(&connection, 7, "Kobayashi Satoru")?,
+            Some(201)
+        );
+
+        assert_eq!(
+            resolve_player_alias_for_source(&connection, 7, "Unknown Player")?,
+            None
+        );
+
+        /*
+         * A second source-specific identity makes Cho ambiguous. Bermuda
+         * must leave the name unresolved rather than fall back to the global
+         * alias.
+         */
+        connection.execute(
+            r#"
+            INSERT INTO player_aliases(
+                player_id,
+                name,
+                source_id
+            )
+            VALUES (?1, ?2, ?3)
+            "#,
+            params![102, "Cho Chikun", 7],
+        )?;
+
+        assert_eq!(
+            resolve_player_alias_for_source(&connection, 7, "Cho Chikun")?,
+            None
+        );
+
+        /*
+         * Global ambiguity is likewise unresolved when there is no
+         * source-specific assertion.
+         */
+        connection.execute(
+            r#"
+            INSERT INTO player_aliases(
+                player_id,
+                name,
+                source_id
+            )
+            VALUES (?1, ?2, NULL)
+            "#,
+            params![202, "Kobayashi Satoru"],
+        )?;
+
+        assert_eq!(
+            resolve_player_alias_for_source(&connection, 7, "Kobayashi Satoru")?,
+            None
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn insert_metadata_uses_known_aliases_without_rewriting_source_names() -> Result<()> {
+        let mut connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            CREATE TABLE player_aliases (
+                id          INTEGER PRIMARY KEY,
+                player_id   INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                source_id   INTEGER,
+                notes       TEXT
+            );
+
+            CREATE TABLE game_metadata (
+                id                INTEGER PRIMARY KEY,
+                game_source_id    INTEGER NOT NULL,
+                black_player      TEXT,
+                white_player      TEXT,
+                played_date       TEXT,
+                played_date_sort  TEXT,
+                event             TEXT,
+                result            TEXT,
+                komi              REAL,
+                handicap          INTEGER,
+                black_player_id   INTEGER,
+                white_player_id   INTEGER
+            );
+
+            INSERT INTO player_aliases(
+                player_id,
+                name,
+                source_id
+            )
+            VALUES
+                (101, 'Cho Chikun', 7),
+                (201, 'Kobayashi Satoru', NULL);
+            "#,
+        )?;
+
+        let collection =
+            parse_collection(b"(;FF[4]GM[1]SZ[19]PB[Cho Chikun]PW[Kobayashi Satoru])")?;
+
+        let record = extract_main_variation(&collection)?;
+
+        let transaction = connection.transaction()?;
+
+        insert_metadata(&transaction, 10, 7, &record)?;
+
+        transaction.commit()?;
+
+        let (black_player, white_player, black_player_id, white_player_id): (
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        ) = connection.query_row(
+            r#"
+            SELECT
+                black_player,
+                white_player,
+                black_player_id,
+                white_player_id
+            FROM game_metadata
+            WHERE game_source_id = 10
+            "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        /*
+         * Imported source strings remain the authoritative source record.
+         * The IDs are merely Bermuda's confirmed interpretation alongside.
+         */
+        assert_eq!(black_player.as_deref(), Some("Cho Chikun"));
+        assert_eq!(white_player.as_deref(), Some("Kobayashi Satoru"));
+        assert_eq!(black_player_id, Some(101));
+        assert_eq!(white_player_id, Some(201));
+
         Ok(())
     }
 }
