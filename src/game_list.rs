@@ -15,8 +15,12 @@ pub enum GameColumn {
 impl GameColumn {
     pub const fn sql_expression(self) -> &'static str {
         match self {
-            Self::BlackPlayer => "selected_metadata.black_player",
-            Self::WhitePlayer => "selected_metadata.white_player",
+            Self::BlackPlayer => {
+                "COALESCE(black_identity.preferred_name, selected_metadata.black_player)"
+            }
+            Self::WhitePlayer => {
+                "COALESCE(white_identity.preferred_name, selected_metadata.white_player)"
+            }
             Self::Date => "selected_metadata.played_date_sort",
             Self::Result => "selected_metadata.result",
             Self::Event => "selected_metadata.event",
@@ -875,7 +879,7 @@ mod tests {
     fn columns_map_to_fixed_sql_expressions() {
         assert_eq!(
             GameColumn::BlackPlayer.sql_expression(),
-            "selected_metadata.black_player"
+            "COALESCE(black_identity.preferred_name, selected_metadata.black_player)"
         );
         assert_eq!(
             GameColumn::Date.sql_expression(),
@@ -907,7 +911,7 @@ mod tests {
             order_by_clause(&query),
             concat!(
                 "selected_metadata.played_date_sort DESC, ",
-                "selected_metadata.black_player ASC, ",
+                "COALESCE(black_identity.preferred_name, selected_metadata.black_player) ASC, ",
                 "games.id ASC"
             )
         );

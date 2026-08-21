@@ -49,6 +49,8 @@ struct SearchResultRow {
     white_player: QString,
     black_player_id: Option<i64>,
     white_player_id: Option<i64>,
+    black_player_display: QString,
+    white_player_display: QString,
     played_date: QString,
     result: QString,
     event: QString,
@@ -163,8 +165,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         match role {
             GAME_ID_ROLE => QVariant::from(&row.game_id),
-            BLACK_PLAYER_ROLE => QVariant::from(&row.black_player),
-            WHITE_PLAYER_ROLE => QVariant::from(&row.white_player),
+            BLACK_PLAYER_ROLE => QVariant::from(&row.black_player_display),
+            WHITE_PLAYER_ROLE => QVariant::from(&row.white_player_display),
             PLAYED_DATE_ROLE => QVariant::from(&row.played_date),
             RESULT_ROLE => QVariant::from(&row.result),
             EVENT_ROLE => QVariant::from(&row.event),
@@ -1066,13 +1068,17 @@ fn compare_search_result_rows(
     use std::cmp::Ordering::Equal;
 
     let primary = match column {
-        SearchResultSortColumn::BlackPlayer => {
-            compare_search_text(&left.black_player, &right.black_player, ascending)
-        }
+        SearchResultSortColumn::BlackPlayer => compare_search_text(
+            &left.black_player_display,
+            &right.black_player_display,
+            ascending,
+        ),
 
-        SearchResultSortColumn::WhitePlayer => {
-            compare_search_text(&left.white_player, &right.white_player, ascending)
-        }
+        SearchResultSortColumn::WhitePlayer => compare_search_text(
+            &left.white_player_display,
+            &right.white_player_display,
+            ascending,
+        ),
 
         SearchResultSortColumn::Date => {
             compare_search_text(&left.played_date, &right.played_date, ascending)
@@ -1093,17 +1099,23 @@ fn compare_search_result_rows(
      * and deterministic while keeping the result list simple.
      */
     let secondary = match column {
-        SearchResultSortColumn::BlackPlayer => {
-            compare_search_text(&left.white_player, &right.white_player, true)
-        }
+        SearchResultSortColumn::BlackPlayer => compare_search_text(
+            &left.white_player_display,
+            &right.white_player_display,
+            true,
+        ),
 
-        SearchResultSortColumn::WhitePlayer => {
-            compare_search_text(&left.black_player, &right.black_player, true)
-        }
+        SearchResultSortColumn::WhitePlayer => compare_search_text(
+            &left.black_player_display,
+            &right.black_player_display,
+            true,
+        ),
 
-        SearchResultSortColumn::Date => {
-            compare_search_text(&left.black_player, &right.black_player, true)
-        }
+        SearchResultSortColumn::Date => compare_search_text(
+            &left.black_player_display,
+            &right.black_player_display,
+            true,
+        ),
 
         SearchResultSortColumn::Matches => {
             compare_search_text(&left.played_date, &right.played_date, false)
@@ -1119,13 +1131,17 @@ fn compare_search_result_rows(
             compare_search_text(&left.played_date, &right.played_date, false)
         }
 
-        SearchResultSortColumn::Date => {
-            compare_search_text(&left.white_player, &right.white_player, true)
-        }
+        SearchResultSortColumn::Date => compare_search_text(
+            &left.white_player_display,
+            &right.white_player_display,
+            true,
+        ),
 
-        SearchResultSortColumn::Matches => {
-            compare_search_text(&left.black_player, &right.black_player, true)
-        }
+        SearchResultSortColumn::Matches => compare_search_text(
+            &left.black_player_display,
+            &right.black_player_display,
+            true,
+        ),
     };
 
     if tertiary != Equal {
@@ -1133,7 +1149,11 @@ fn compare_search_result_rows(
     }
 
     if column == SearchResultSortColumn::Matches {
-        let quaternary = compare_search_text(&left.white_player, &right.white_player, true);
+        let quaternary = compare_search_text(
+            &left.white_player_display,
+            &right.white_player_display,
+            true,
+        );
 
         if quaternary != Equal {
             return quaternary;
@@ -1844,6 +1864,8 @@ fn search_results_to_rows(results: Vec<SearchSummaryResult>) -> Vec<SearchResult
                 white_player: optional_text(&result.white_player),
                 black_player_id: result.black_player_id,
                 white_player_id: result.white_player_id,
+                black_player_display: optional_text(&result.black_player_display),
+                white_player_display: optional_text(&result.white_player_display),
                 played_date: optional_text(&result.game_date),
                 result: optional_text(&result.result),
                 event: optional_text(&result.event),
@@ -2077,6 +2099,8 @@ mod search_result_sort_tests {
             game_id,
             black_player: QString::from(black),
             white_player: QString::from(white),
+            black_player_display: QString::from(black),
+            white_player_display: QString::from(white),
             played_date: QString::from(date),
             match_count: matches,
             ..SearchResultRow::default()
@@ -2147,6 +2171,32 @@ mod search_result_sort_tests {
         };
 
         assert!(search_row_matches_metadata(&unresolved, &raw_unresolved));
+    }
+
+    #[test]
+    fn player_sort_uses_display_name_not_source_spelling() {
+        let mut rows = vec![
+            SearchResultRow {
+                game_id: 1,
+                black_player: QString::from("Zulu Source Spelling"),
+                black_player_display: QString::from("Alpha Preferred"),
+                white_player: QString::from("Opponent"),
+                white_player_display: QString::from("Opponent"),
+                ..SearchResultRow::default()
+            },
+            SearchResultRow {
+                game_id: 2,
+                black_player: QString::from("Alpha Source Spelling"),
+                black_player_display: QString::from("Zulu Preferred"),
+                white_player: QString::from("Opponent"),
+                white_player_display: QString::from("Opponent"),
+                ..SearchResultRow::default()
+            },
+        ];
+
+        sort_search_result_rows(&mut rows, SearchResultSortColumn::BlackPlayer, true);
+
+        assert_eq!(ids(&rows), vec![1, 2]);
     }
 
     #[test]

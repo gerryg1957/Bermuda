@@ -536,8 +536,8 @@ impl ffi::GameListModel {
                         .into_iter()
                         .map(|game| GameListRow {
                             game_id: game.game_id,
-                            black_player: optional_text(&game.black_player),
-                            white_player: optional_text(&game.white_player),
+                            black_player: optional_text(&game.black_player_display),
+                            white_player: optional_text(&game.white_player_display),
                             black_rank: String::new(),
                             white_rank: String::new(),
                             played_date: optional_text(&game.game_date),
