@@ -134,6 +134,7 @@ Kirigami.AbstractCard {
     property bool sortThirdAscending: true
 
     property bool whiteColumnFirst: false
+    readonly property int playerColumnWidth: 150
 
     property string cataloguePlayer: ""
     property string catalogueVersus: ""
@@ -1600,7 +1601,7 @@ Kirigami.AbstractCard {
                       ? qsTr("White")
                       : qsTr("Black"))
 
-        Layout.preferredWidth: 134
+        Layout.preferredWidth: root.playerColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -1642,7 +1643,7 @@ Kirigami.AbstractCard {
                       ? qsTr("Black")
                       : qsTr("White"))
 
-        Layout.preferredWidth: 134
+        Layout.preferredWidth: root.playerColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -1745,7 +1746,7 @@ Kirigami.AbstractCard {
                               ? qsTr("White")
                               : qsTr("Black"))
 
-                    Layout.preferredWidth: 134
+                    Layout.preferredWidth: root.playerColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
 
@@ -1794,7 +1795,7 @@ Kirigami.AbstractCard {
                               ? qsTr("Black")
                               : qsTr("White"))
 
-                    Layout.preferredWidth: 134
+                    Layout.preferredWidth: root.playerColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
 
@@ -1995,7 +1996,7 @@ Kirigami.AbstractCard {
                         text: root.whiteColumnFirst
                               ? searchRowDelegate.whitePlayer
                               : searchRowDelegate.blackPlayer
-                        Layout.preferredWidth: 134
+                        Layout.preferredWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
@@ -2008,7 +2009,7 @@ Kirigami.AbstractCard {
                         text: root.whiteColumnFirst
                               ? searchRowDelegate.blackPlayer
                               : searchRowDelegate.whitePlayer
-                        Layout.preferredWidth: 134
+                        Layout.preferredWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
@@ -2224,7 +2225,7 @@ Kirigami.AbstractCard {
                         text: root.whiteColumnFirst
                               ? rowDelegate.whitePlayer
                               : rowDelegate.blackPlayer
-                        Layout.preferredWidth: 134
+                        Layout.preferredWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
@@ -2237,7 +2238,7 @@ Kirigami.AbstractCard {
                         text: root.whiteColumnFirst
                               ? rowDelegate.blackPlayer
                               : rowDelegate.whitePlayer
-                        Layout.preferredWidth: 134
+                        Layout.preferredWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
