@@ -1,13 +1,15 @@
 use anyhow::{Context, Result, bail};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::game_date::{normalise_played_date, played_date_sort_key};
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_MIGRATION_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn initialise(root: &Path) -> Result<()> {
     if root.exists() && !root.is_dir() {
@@ -27,7 +29,7 @@ pub fn initialise(root: &Path) -> Result<()> {
         .with_context(|| format!("creating {}", root.join("tmp").display()))?;
 
     let sqlite_path = metadata_path(root);
-    let connection = Connection::open(&sqlite_path)
+    let mut connection = Connection::open(&sqlite_path)
         .with_context(|| format!("opening {}", sqlite_path.display()))?;
 
     connection
@@ -188,7 +190,7 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
         )
         .context("creating database schema")?;
 
-    check_or_record_schema_version(&connection)?;
+    check_or_record_schema_version(&mut connection)?;
 
     println!("Initialised database: {}", root.display());
     println!("Schema version: {SCHEMA_VERSION}");
@@ -198,35 +200,27 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
     Ok(())
 }
 
-fn migrate(connection: &Connection, from_version: i64) -> Result<()> {
-    let transaction = connection
-        .unchecked_transaction()
-        .context("starting database schema migration")?;
-
+fn migrate_locked(connection: &Connection, from_version: i64) -> Result<()> {
     let mut version = from_version;
 
     while version < SCHEMA_VERSION {
         match version {
-            2 => migrate_2_to_3(&transaction)?,
-            3 => migrate_3_to_4(&transaction)?,
-            4 => migrate_4_to_5(&transaction)?,
-            5 => migrate_5_to_6(&transaction)?,
+            2 => migrate_2_to_3(connection)?,
+            3 => migrate_3_to_4(connection)?,
+            4 => migrate_4_to_5(connection)?,
+            5 => migrate_5_to_6(connection)?,
             _ => bail!("no migration available from schema version {version}"),
         }
 
         version += 1;
     }
 
-    transaction
+    connection
         .execute(
             "UPDATE schema_info SET schema_version = ?1",
             [SCHEMA_VERSION],
         )
         .context("recording migrated schema version")?;
-
-    transaction
-        .commit()
-        .context("committing database schema migration")?;
 
     Ok(())
 }
@@ -439,36 +433,91 @@ fn migrate_5_to_6(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn check_or_record_schema_version(connection: &Connection) -> Result<()> {
-    let current_version: Option<i64> = connection
+fn read_schema_version(connection: &Connection) -> Result<Option<i64>> {
+    connection
         .query_row(
             "SELECT schema_version FROM schema_info LIMIT 1",
             [],
             |row| row.get(0),
         )
         .optional()
-        .context("reading schema version")?;
+        .context("reading schema version")
+}
 
-    match current_version {
-        Some(version) if version < SCHEMA_VERSION => migrate(connection, version),
+fn check_or_record_schema_version(connection: &mut Connection) -> Result<()> {
+    check_or_record_schema_version_after_observation(connection, |_| {})
+}
+
+fn check_or_record_schema_version_after_observation<F>(
+    connection: &mut Connection,
+    after_observation: F,
+) -> Result<()>
+where
+    F: FnOnce(Option<i64>),
+{
+    let observed_version = read_schema_version(connection)?;
+
+    match observed_version {
+        Some(version) if version > SCHEMA_VERSION => {
+            bail!("database schema version {version} is newer than this program supports");
+        }
+
+        Some(version) if version == SCHEMA_VERSION => return Ok(()),
+
+        _ => {}
+    }
+
+    /*
+     * This hook is a no-op in normal use.  The database tests use it to
+     * deterministically reproduce another connection completing a migration
+     * after this connection has observed the old version.
+     */
+    after_observation(observed_version);
+
+    /*
+     * An older schema requires a write transaction.  Acquire the write lock
+     * before deciding which migration to perform, then read the version again.
+     *
+     * Another Bermuda connection may have completed the migration after our
+     * first read but before we acquired this lock.  The second read prevents
+     * us from applying the same migration twice.
+     */
+    connection
+        .busy_timeout(SCHEMA_MIGRATION_BUSY_TIMEOUT)
+        .context("setting database migration busy timeout")?;
+
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .context("locking database schema for migration")?;
+
+    let locked_version = read_schema_version(&transaction)?;
+
+    match locked_version {
+        Some(version) if version < SCHEMA_VERSION => {
+            migrate_locked(&transaction, version)?;
+        }
 
         Some(version) if version > SCHEMA_VERSION => {
             bail!("database schema version {version} is newer than this program supports");
         }
 
-        Some(_) => Ok(()),
+        Some(_) => {}
 
         None => {
-            connection
+            transaction
                 .execute(
                     "INSERT INTO schema_info(schema_version) VALUES (?1)",
                     [SCHEMA_VERSION],
                 )
                 .context("recording schema version")?;
-
-            Ok(())
         }
     }
+
+    transaction
+        .commit()
+        .context("committing database schema version check")?;
+
+    Ok(())
 }
 
 pub fn open(root: &Path) -> Result<Connection> {
@@ -478,14 +527,14 @@ pub fn open(root: &Path) -> Result<Connection> {
         bail!("{} is not an initialised Bermuda database", root.display());
     }
 
-    let connection = Connection::open(&sqlite_path)
+    let mut connection = Connection::open(&sqlite_path)
         .with_context(|| format!("opening {}", sqlite_path.display()))?;
 
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
         .context("enabling SQLite foreign keys")?;
 
-    check_or_record_schema_version(&connection)?;
+    check_or_record_schema_version(&mut connection)?;
 
     Ok(connection)
 }
@@ -497,10 +546,12 @@ pub fn metadata_path(root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{sync::mpsc, thread};
+    use tempfile::tempdir;
 
     #[test]
     fn migrates_version_3_dates_and_creates_sort_keys() -> Result<()> {
-        let connection = Connection::open_in_memory()?;
+        let mut connection = Connection::open_in_memory()?;
 
         connection.execute_batch(
             r#"
@@ -527,7 +578,7 @@ mod tests {
             "#,
         )?;
 
-        migrate(&connection, 3)?;
+        check_or_record_schema_version(&mut connection)?;
 
         let schema_version: i64 =
             connection.query_row("SELECT schema_version FROM schema_info", [], |row| {
@@ -595,7 +646,7 @@ mod tests {
     }
     #[test]
     fn migrates_version_5_to_player_identity_without_rewriting_source_names() -> Result<()> {
-        let connection = Connection::open_in_memory()?;
+        let mut connection = Connection::open_in_memory()?;
 
         connection.execute_batch(
             r#"
@@ -642,7 +693,7 @@ mod tests {
             "#,
         )?;
 
-        migrate(&connection, 5)?;
+        check_or_record_schema_version(&mut connection)?;
 
         let schema_version: i64 =
             connection.query_row("SELECT schema_version FROM schema_info", [], |row| {
@@ -733,6 +784,113 @@ mod tests {
          */
         assert_eq!(stored_name.as_deref(), Some("Cho Chikun"));
         assert_eq!(stored_player_id, Some(player_id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn stale_schema_observation_does_not_repeat_completed_migration() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let sqlite_path = temporary_directory.path().join("metadata.sqlite3");
+
+        let mut first_connection = Connection::open(&sqlite_path)?;
+
+        first_connection.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE schema_info (
+                schema_version INTEGER NOT NULL
+            );
+
+            INSERT INTO schema_info(schema_version)
+            VALUES (5);
+
+            CREATE TABLE sources (
+                id       INTEGER PRIMARY KEY,
+                name     TEXT NOT NULL,
+                version  TEXT NOT NULL
+            );
+
+            CREATE TABLE game_metadata (
+                game_source_id    INTEGER PRIMARY KEY,
+                black_player      TEXT,
+                white_player      TEXT,
+                played_date       TEXT,
+                played_date_sort  TEXT,
+                event             TEXT,
+                result            TEXT,
+                komi              REAL,
+                handicap          INTEGER
+            );
+            "#,
+        )?;
+
+        let (observed_sender, observed_receiver) = mpsc::channel();
+        let (continue_sender, continue_receiver) = mpsc::channel();
+
+        let second_sqlite_path = sqlite_path.clone();
+
+        let second_thread = thread::spawn(move || -> Result<()> {
+            let mut second_connection = Connection::open(second_sqlite_path)?;
+
+            check_or_record_schema_version_after_observation(
+                &mut second_connection,
+                move |observed_version| {
+                    observed_sender
+                        .send(observed_version)
+                        .expect("report observed schema version");
+
+                    continue_receiver
+                        .recv()
+                        .expect("wait for first migration to complete");
+                },
+            )
+        });
+
+        /*
+         * Connection B has definitely completed its first schema-version
+         * read, and has deliberately been paused before taking the migration
+         * lock.  This avoids timing assumptions or sleeps in the test.
+         */
+        let observed_version = observed_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .context("waiting for stale schema observation")?;
+
+        assert_eq!(observed_version, Some(5));
+
+        /*
+         * Connection A now performs the migration while B still holds the
+         * stale observation of schema 5.
+         */
+        check_or_record_schema_version(&mut first_connection)?;
+
+        let migrated_version = read_schema_version(&first_connection)?;
+        assert_eq!(migrated_version, Some(6));
+
+        /*
+         * B must now take the IMMEDIATE transaction, re-read schema_info,
+         * discover schema 6, and refrain from trying 5 -> 6 a second time.
+         */
+        continue_sender
+            .send(())
+            .context("releasing second schema opener")?;
+
+        second_thread
+            .join()
+            .expect("second schema opener thread panicked")?;
+
+        assert_eq!(read_schema_version(&first_connection)?, Some(6));
+
+        let player_count: i64 =
+            first_connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
+
+        let alias_count: i64 =
+            first_connection
+                .query_row("SELECT COUNT(*) FROM player_aliases", [], |row| row.get(0))?;
+
+        assert_eq!(player_count, 0);
+        assert_eq!(alias_count, 0);
 
         Ok(())
     }
