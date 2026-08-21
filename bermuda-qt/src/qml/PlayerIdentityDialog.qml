@@ -17,7 +17,7 @@ Dialog {
     title: qsTr("Player Identities")
 
     width: Math.min(parent.width - 80, 1120)
-    height: Math.min(parent.height - 80, 720)
+    height: Math.min(parent.height - 80, 760)
 
     signal identitiesChanged()
 
@@ -65,11 +65,12 @@ Dialog {
         selectedSourceName = ""
         selectedSourceVersion = ""
         selectedRawName = ""
+        newPlayerNameField.text = ""
     }
 
     function openForProject(projectPath) {
         clearUnresolvedSelection()
-        preferredNameField.text = ""
+        renamePlayerField.text = ""
 
         identityModel.loadProject(projectPath)
         open()
@@ -86,9 +87,9 @@ Dialog {
             Layout.fillWidth: true
 
             text: qsTr(
-                "Bermuda never merges player names automatically. "
-                + "Select an unresolved source spelling and the player "
-                + "identity it belongs to, then assign it explicitly.")
+                "Select a source spelling on the left. "
+                + "Then either create a new Bermuda player for it, "
+                + "or assign it to an existing player.")
             wrapMode: Text.WordWrap
         }
 
@@ -109,8 +110,10 @@ Dialog {
 
                 Label {
                     Layout.fillWidth: true
+
                     text: qsTr("%1 unresolved spelling(s)")
                           .arg(root.unresolvedNames.length)
+
                     opacity: 0.7
                 }
 
@@ -120,8 +123,6 @@ Dialog {
                     padding: 0
 
                     ListView {
-                        id: unresolvedList
-
                         anchors.fill: parent
                         clip: true
 
@@ -171,24 +172,19 @@ Dialog {
 
                                 root.selectedRawName =
                                     modelData.name
+
+                                /*
+                                 * A new identity will usually use the source
+                                 * spelling as its preferred name, so make that
+                                 * the default rather than requiring retyping.
+                                 */
+                                newPlayerNameField.text =
+                                    modelData.name
                             }
                         }
 
                         ScrollBar.vertical: ScrollBar {}
                     }
-                }
-
-                Label {
-                    Layout.fillWidth: true
-
-                    text: root.selectedSourceId < 0
-                          ? qsTr("No unresolved name selected")
-                          : qsTr("Selected: %1 — %2 %3")
-                                .arg(root.selectedRawName)
-                                .arg(root.selectedSourceName)
-                                .arg(root.selectedSourceVersion)
-
-                    elide: Text.ElideRight
                 }
             }
 
@@ -206,12 +202,10 @@ Dialog {
                 Frame {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.preferredHeight: 280
+                    Layout.preferredHeight: 250
                     padding: 0
 
                     ListView {
-                        id: playerList
-
                         anchors.fill: parent
                         clip: true
 
@@ -228,7 +222,7 @@ Dialog {
                             onClicked: {
                                 if (identityModel.loadAliases(
                                             Number(modelData.id))) {
-                                    preferredNameField.text =
+                                    renamePlayerField.text =
                                         modelData.preferredName
                                 }
                             }
@@ -238,58 +232,16 @@ Dialog {
                     }
                 }
 
-                RowLayout {
+                Label {
                     Layout.fillWidth: true
 
-                    TextField {
-                        id: preferredNameField
+                    text: root.selectedPlayerId < 0
+                          ? qsTr("No Bermuda player selected")
+                          : qsTr("Selected player: %1")
+                                .arg(root.selectedPlayerName())
 
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Preferred player name")
-
-                        onAccepted: {
-                            if (root.selectedPlayerId >= 0) {
-                                if (identityModel.renamePlayer(
-                                            root.selectedPlayerId,
-                                            text)) {
-                                    root.identitiesChanged()
-                                }
-                            } else {
-                                if (identityModel.createPlayer(text)) {
-                                    root.identitiesChanged()
-                                    text = ""
-                                }
-                            }
-                        }
-                    }
-
-                    Button {
-                        text: qsTr("Create")
-                        enabled: preferredNameField.text.trim().length > 0
-
-                        onClicked: {
-                            if (identityModel.createPlayer(
-                                        preferredNameField.text)) {
-                                root.identitiesChanged()
-                                preferredNameField.text = ""
-                            }
-                        }
-                    }
-
-                    Button {
-                        text: qsTr("Rename")
-
-                        enabled: root.selectedPlayerId >= 0
-                                 && preferredNameField.text.trim().length > 0
-
-                        onClicked: {
-                            if (identityModel.renamePlayer(
-                                        root.selectedPlayerId,
-                                        preferredNameField.text)) {
-                                root.identitiesChanged()
-                            }
-                        }
-                    }
+                    font.bold: root.selectedPlayerId >= 0
+                    elide: Text.ElideRight
                 }
 
                 Label {
@@ -299,7 +251,7 @@ Dialog {
 
                 Frame {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 150
+                    Layout.preferredHeight: 130
                     padding: 0
 
                     ListView {
@@ -339,26 +291,137 @@ Dialog {
                     }
                 }
 
-                Button {
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        text: qsTr("Rename selected player:")
+                    }
+
+                    TextField {
+                        id: renamePlayerField
+
+                        Layout.fillWidth: true
+
+                        enabled: root.selectedPlayerId >= 0
+                        placeholderText: qsTr("Preferred name")
+                    }
+
+                    Button {
+                        text: qsTr("Rename")
+
+                        enabled: root.selectedPlayerId >= 0
+                                 && renamePlayerField.text.trim().length > 0
+                                 && renamePlayerField.text
+                                    !== root.selectedPlayerName()
+
+                        onClicked: {
+                            if (identityModel.renamePlayer(
+                                        root.selectedPlayerId,
+                                        renamePlayerField.text)) {
+                                root.identitiesChanged()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Frame {
+            Layout.fillWidth: true
+
+            contentItem: ColumnLayout {
+                spacing: 8
+
+                Label {
+                    text: qsTr("Resolve selected source name")
+                    font.bold: true
+                }
+
+                Label {
                     Layout.fillWidth: true
 
                     text: root.selectedSourceId < 0
-                          || root.selectedPlayerId < 0
-                          ? qsTr("Assign to selected player")
-                          : qsTr("Assign “%1” to %2")
+                          ? qsTr(
+                                "Select an unresolved source name above.")
+                          : qsTr(
+                                "“%1” from %2 %3")
                                 .arg(root.selectedRawName)
-                                .arg(root.selectedPlayerName())
+                                .arg(root.selectedSourceName)
+                                .arg(root.selectedSourceVersion)
 
-                    enabled: root.selectedSourceId >= 0
-                             && root.selectedPlayerId >= 0
+                    wrapMode: Text.WordWrap
+                }
 
-                    onClicked: {
-                        if (identityModel.assignSourceName(
-                                    root.selectedPlayerId,
-                                    root.selectedSourceId,
-                                    root.selectedRawName)) {
-                            root.clearUnresolvedSelection()
-                            root.identitiesChanged()
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        text: qsTr("Create new player:")
+                    }
+
+                    TextField {
+                        id: newPlayerNameField
+
+                        Layout.fillWidth: true
+
+                        enabled: root.selectedSourceId >= 0
+                        placeholderText: qsTr("Preferred player name")
+                    }
+
+                    Button {
+                        text: qsTr("Create and assign")
+
+                        enabled: root.selectedSourceId >= 0
+                                 && newPlayerNameField.text.trim().length > 0
+
+                        onClicked: {
+                            if (identityModel.createPlayerAndAssign(
+                                        newPlayerNameField.text,
+                                        root.selectedSourceId,
+                                        root.selectedRawName)) {
+                                root.clearUnresolvedSelection()
+                                root.identitiesChanged()
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        text: qsTr("Or use existing player:")
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+
+                        text: root.selectedPlayerId < 0
+                              ? qsTr("Select a Bermuda player above")
+                              : root.selectedPlayerName()
+
+                        font.bold: root.selectedPlayerId >= 0
+                        elide: Text.ElideRight
+                    }
+
+                    Button {
+                        text: root.selectedPlayerId < 0
+                              ? qsTr("Assign to existing player")
+                              : qsTr("Assign to %1")
+                                    .arg(root.selectedPlayerName())
+
+                        enabled: root.selectedSourceId >= 0
+                                 && root.selectedPlayerId >= 0
+
+                        onClicked: {
+                            if (identityModel.assignSourceName(
+                                        root.selectedPlayerId,
+                                        root.selectedSourceId,
+                                        root.selectedRawName)) {
+                                root.clearUnresolvedSelection()
+                                root.identitiesChanged()
+                            }
                         }
                     }
                 }

@@ -37,6 +37,15 @@ mod ffi {
         fn create_player(self: Pin<&mut PlayerIdentityModel>, preferred_name: &QString) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "createPlayerAndAssign"]
+        fn create_player_and_assign(
+            self: Pin<&mut PlayerIdentityModel>,
+            preferred_name: &QString,
+            source_id: i64,
+            source_name: &QString,
+        ) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "renamePlayer"]
         fn rename_player(
             self: Pin<&mut PlayerIdentityModel>,
@@ -144,6 +153,50 @@ impl ffi::PlayerIdentityModel {
             &project_path,
             Some(player.id),
             Some(format!("Created player {}", player.preferred_name)),
+        )
+    }
+
+    fn create_player_and_assign(
+        self: Pin<&mut Self>,
+        preferred_name: &QString,
+        source_id: i64,
+        source_name: &QString,
+    ) -> bool {
+        let project_path = self.as_ref().rust().project_path.clone();
+
+        if project_path.is_empty() {
+            return set_failure(self, "no Bermuda database is currently open".to_owned());
+        }
+
+        let preferred_name = preferred_name.to_string();
+        let source_name = source_name.to_string();
+
+        let (player, result) = match ProjectManager::new()
+            .open(Path::new(&project_path))
+            .and_then(|project| project.player_directory())
+            .and_then(|directory| {
+                directory.create_player_and_assign_source_name(
+                    &preferred_name,
+                    source_id,
+                    &source_name,
+                )
+            }) {
+            Ok(value) => value,
+            Err(error) => return set_failure(self, error.to_string()),
+        };
+
+        refresh_model(
+            self,
+            &project_path,
+            Some(player.id),
+            Some(format!(
+                "Created {} and assigned {} occurrence(s) of {:?} from {} {}",
+                player.preferred_name,
+                result.linked_count(),
+                result.name,
+                result.source_name,
+                result.source_version
+            )),
         )
     }
 

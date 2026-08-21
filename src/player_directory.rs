@@ -389,6 +389,92 @@ impl PlayerDirectory {
         Ok(result)
     }
 
+    /// Create a new Bermuda player and assign one exact source spelling to it.
+    ///
+    /// Player creation, source-specific alias creation, and linking every
+    /// unresolved occurrence all happen in one transaction. If the existing
+    /// source-alias guards refuse the assignment, neither the player nor the
+    /// alias survives.
+    ///
+    /// The preferred name is normalised in the same way as create_player().
+    /// The imported source spelling itself remains exact.
+    pub fn create_player_and_assign_source_name(
+        &self,
+        preferred_name: &str,
+        source_id: i64,
+        name: &str,
+    ) -> Result<(PlayerIdentity, SourceAliasResolutionResult)> {
+        let preferred_name = required_text(preferred_name, "preferred player name")?;
+
+        if name.trim().is_empty() {
+            bail!("source player name must not be empty");
+        }
+
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .context("starting new-player source assignment transaction")?;
+
+        let source_exists: i64 = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)",
+                [source_id],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("checking source {source_id}"))?;
+
+        if source_exists == 0 {
+            bail!("source {source_id} does not exist");
+        }
+
+        transaction
+            .execute(
+                "INSERT INTO players(preferred_name) VALUES (?1)",
+                [preferred_name],
+            )
+            .context("creating player identity for source assignment")?;
+
+        let player = PlayerIdentity {
+            id: transaction.last_insert_rowid(),
+            preferred_name: preferred_name.to_owned(),
+        };
+
+        transaction
+            .execute(
+                r#"
+                INSERT INTO player_aliases(
+                    player_id,
+                    name,
+                    source_id,
+                    notes
+                )
+                VALUES (?1, ?2, ?3, NULL)
+                "#,
+                params![player.id, name, source_id],
+            )
+            .with_context(|| {
+                format!(
+                    "creating source alias {name:?} for new player {} \
+                     and source {source_id}",
+                    player.id
+                )
+            })?;
+
+        let alias_id = transaction.last_insert_rowid();
+
+        /*
+         * Reuse exactly the same conflict detection, updates, and invariant
+         * checks as an assignment to an existing player.
+         */
+        let result = apply_source_alias_resolution_on(&transaction, alias_id)?;
+
+        transaction
+            .commit()
+            .context("committing new-player source assignment")?;
+
+        Ok((player, result))
+    }
+
     pub fn unresolved_names(&self) -> Result<Vec<UnresolvedPlayerName>> {
         /*
          * Each row describes a source spelling which is still unlinked in
@@ -1142,6 +1228,118 @@ mod tests {
 
         assert!(directory.aliases_for_player(first.id)?.is_empty());
         assert!(directory.remove_alias(first_alias.id).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn creates_player_and_assigns_source_name_in_one_transaction() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+
+        let (player, result) =
+            directory.create_player_and_assign_source_name("  Cho Chikun  ", 1, "Cho Chikun")?;
+
+        assert_eq!(player.preferred_name, "Cho Chikun");
+        assert_eq!(result.player_id, player.id);
+        assert_eq!(result.source_id, 1);
+        assert_eq!(result.name, "Cho Chikun");
+        assert_eq!(result.linked_count(), 1);
+
+        assert_eq!(
+            directory.list_players()?,
+            vec![PlayerIdentity {
+                id: player.id,
+                preferred_name: "Cho Chikun".to_owned(),
+            }]
+        );
+
+        let aliases = directory.aliases_for_player(player.id)?;
+
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].name, "Cho Chikun");
+        assert_eq!(aliases[0].source_id, Some(1));
+
+        let connection = database::open(&project.database_root())?;
+
+        let (raw_name, linked_id): (String, Option<i64>) = connection.query_row(
+            r#"
+                SELECT black_player, black_player_id
+                FROM game_metadata
+                WHERE game_source_id = 10
+                "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        /*
+         * The source text remains exactly as imported.
+         */
+        assert_eq!(raw_name, "Cho Chikun");
+        assert_eq!(linked_id, Some(player.id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn new_player_is_rolled_back_when_source_assignment_is_unsafe() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+
+        let existing = directory.create_player("Existing Cho")?;
+
+        directory.add_alias(
+            existing.id,
+            "Cho Chikun",
+            Some(1),
+            Some("existing explicit assignment"),
+        )?;
+
+        let error = directory
+            .create_player_and_assign_source_name("New Cho", 1, "Cho Chikun")
+            .expect_err("competing source alias must refuse new-player assignment");
+
+        assert!(error.to_string().contains("competing"));
+
+        /*
+         * The attempted new identity was created inside the failed
+         * transaction and therefore must not survive.
+         */
+        assert_eq!(
+            directory.list_players()?,
+            vec![PlayerIdentity {
+                id: existing.id,
+                preferred_name: "Existing Cho".to_owned(),
+            }]
+        );
+
+        assert_eq!(directory.aliases_for_player(existing.id)?.len(), 1);
+
+        let connection = database::open(&project.database_root())?;
+
+        let linked_id: Option<i64> = connection.query_row(
+            r#"
+            SELECT black_player_id
+            FROM game_metadata
+            WHERE game_source_id = 10
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(linked_id, None);
 
         Ok(())
     }
