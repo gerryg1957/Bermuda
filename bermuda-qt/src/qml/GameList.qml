@@ -162,6 +162,9 @@ Kirigami.AbstractCard {
     property string searchFilterDateTo: ""
     property string searchFilterResult: "any"
 
+    property string searchSortColumn: "none"
+    property bool searchSortAscending: false
+
     readonly property bool catalogueLoading: gameModel.loading
     property string loadingIndicatorStyle: "stones"
     padding: 0
@@ -242,6 +245,39 @@ Kirigami.AbstractCard {
     function clearSearchResultFilters() {
         resetSearchResultFilters()
         filterSearchResults()
+    }
+
+    function resetSearchResultSort() {
+        searchSortColumn = "none"
+        searchSortAscending = false
+    }
+
+    function searchSortHeaderText(column, title) {
+        if (searchSortColumn !== column)
+            return title + " ↕"
+
+        return title + (searchSortAscending ? " ▲" : " ▼")
+    }
+
+    function sortSearchResults(column, firstAscending) {
+        if (!searchHasRun || searchModel.search_in_progress)
+            return
+
+        selectedSearchRow = -1
+        pendingSearchGame = null
+
+        if (searchSortColumn === column) {
+            searchSortAscending = !searchSortAscending
+        } else {
+            searchSortColumn = column
+            searchSortAscending = firstAscending
+        }
+
+        if (!searchModel.sortResults(
+                    column,
+                    searchSortAscending)) {
+            console.warn(searchModel.error_message)
+        }
     }
 
     function catalogueSortDirectionLabels(column) {
@@ -663,6 +699,7 @@ Kirigami.AbstractCard {
         continuationCandidates = []
         comparisonCandidateA = null
         comparisonCandidateB = null
+        resetSearchResultSort()
         searchModel.clearResults()
     }
 
@@ -689,6 +726,7 @@ Kirigami.AbstractCard {
         comparisonCandidateA = null
         comparisonCandidateB = null
 
+        resetSearchResultSort()
         searchModel.clearResults()
         catalogueTabs.currentIndex = 1
 
@@ -1682,12 +1720,40 @@ Kirigami.AbstractCard {
                 spacing: 0
 
                 Label {
-                    text: root.whiteColumnFirst
-                          ? qsTr("White")
-                          : qsTr("Black")
+                    id: searchFirstPlayerHeader
+
+                    text: root.searchSortHeaderText(
+                              root.whiteColumnFirst
+                              ? "white"
+                              : "black",
+                              root.whiteColumnFirst
+                              ? qsTr("White")
+                              : qsTr("Black"))
+
                     Layout.preferredWidth: 134
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
+
+                    color: searchFirstPlayerSortArea.containsMouse
+                           ? Kirigami.Theme.highlightColor
+                           : Kirigami.Theme.textColor
+
+                    MouseArea {
+                        id: searchFirstPlayerSortArea
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled:
+                            root.searchHasRun
+                            && !searchModel.search_in_progress
+                        cursorShape: Qt.PointingHandCursor
+
+                        onClicked: root.sortSearchResults(
+                                       root.whiteColumnFirst
+                                       ? "white"
+                                       : "black",
+                                       true)
+                    }
                 }
 
                 ToolButton {
@@ -1703,19 +1769,70 @@ Kirigami.AbstractCard {
                 }
 
                 Label {
-                    text: root.whiteColumnFirst
-                          ? qsTr("Black")
-                          : qsTr("White")
+                    id: searchSecondPlayerHeader
+
+                    text: root.searchSortHeaderText(
+                              root.whiteColumnFirst
+                              ? "black"
+                              : "white",
+                              root.whiteColumnFirst
+                              ? qsTr("Black")
+                              : qsTr("White"))
+
                     Layout.preferredWidth: 134
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
+
+                    color: searchSecondPlayerSortArea.containsMouse
+                           ? Kirigami.Theme.highlightColor
+                           : Kirigami.Theme.textColor
+
+                    MouseArea {
+                        id: searchSecondPlayerSortArea
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled:
+                            root.searchHasRun
+                            && !searchModel.search_in_progress
+                        cursorShape: Qt.PointingHandCursor
+
+                        onClicked: root.sortSearchResults(
+                                       root.whiteColumnFirst
+                                       ? "black"
+                                       : "white",
+                                       true)
+                    }
                 }
 
                 Label {
-                    text: qsTr("Date")
+                    id: searchDateHeader
+
+                    text: root.searchSortHeaderText(
+                              "date",
+                              qsTr("Date"))
+
                     Layout.preferredWidth: 105
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
+
+                    color: searchDateSortArea.containsMouse
+                           ? Kirigami.Theme.highlightColor
+                           : Kirigami.Theme.textColor
+
+                    MouseArea {
+                        id: searchDateSortArea
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled:
+                            root.searchHasRun
+                            && !searchModel.search_in_progress
+                        cursorShape: Qt.PointingHandCursor
+
+                        onClicked:
+                            root.sortSearchResults("date", false)
+                    }
                 }
 
                 Label {
@@ -1726,11 +1843,34 @@ Kirigami.AbstractCard {
                 }
 
                 Label {
-                    text: qsTr("Matches")
+                    id: searchMatchesHeader
+
+                    text: root.searchSortHeaderText(
+                              "matches",
+                              qsTr("Matches"))
+
                     Layout.preferredWidth: 80
                     padding: Kirigami.Units.smallSpacing
                     horizontalAlignment: Text.AlignHCenter
                     font.bold: true
+
+                    color: searchMatchesSortArea.containsMouse
+                           ? Kirigami.Theme.highlightColor
+                           : Kirigami.Theme.textColor
+
+                    MouseArea {
+                        id: searchMatchesSortArea
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled:
+                            root.searchHasRun
+                            && !searchModel.search_in_progress
+                        cursorShape: Qt.PointingHandCursor
+
+                        onClicked:
+                            root.sortSearchResults("matches", false)
+                    }
                 }
 
                 Label {

@@ -57,6 +57,14 @@ struct SearchResultRow {
     first_match_bottom: i32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchResultSortColumn {
+    BlackPlayer,
+    WhitePlayer,
+    Date,
+    Matches,
+}
+
 #[derive(Clone, Debug)]
 struct StoredSearchQuery {
     project_path: String,
@@ -610,6 +618,56 @@ impl crate::game_list_model::ffi::SearchResultModel {
         true
     }
 
+    pub(crate) fn sort_results(
+        mut self: Pin<&mut Self>,
+        column: &QString,
+        ascending: bool,
+    ) -> bool {
+        let column_name = column.to_string();
+
+        let Some(sort_column) = search_result_sort_column(column_name.trim()) else {
+            self.as_mut().set_error_message(QString::from(format!(
+                "unknown search-result sort column: {column_name}"
+            )));
+            return false;
+        };
+
+        /*
+         * all_rows is the source from which metadata and continuation
+         * filters rebuild the displayed rows.  Keeping it sorted means
+         * every later filtering operation naturally preserves the user's
+         * chosen result ordering without rerunning the pattern search.
+         */
+        let (all_rows, rows) = {
+            let rust = self.as_ref().get_ref().rust();
+            let mut all_rows = rust.all_rows.clone();
+
+            sort_search_result_rows(&mut all_rows, sort_column, ascending);
+
+            let rows = filtered_search_rows(
+                &all_rows,
+                &rust.metadata_filter,
+                rust.selected_continuation,
+                &rust.continuation_game_ids,
+            );
+
+            (all_rows, rows)
+        };
+
+        self.as_mut().begin_reset_model();
+
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.all_rows = all_rows;
+            rust.rows = rows;
+        }
+
+        self.as_mut().end_reset_model();
+        self.as_mut().set_error_message(QString::default());
+
+        true
+    }
+
     pub(crate) fn search_project(
         mut self: Pin<&mut Self>,
         project_path: &QString,
@@ -891,6 +949,147 @@ fn search_row_matches_metadata(row: &SearchResultRow, filter: &GameListQuery) ->
         (!result.is_empty()).then_some(result.as_str()),
         (!event.is_empty()).then_some(event.as_str()),
     )
+}
+
+fn search_result_sort_column(name: &str) -> Option<SearchResultSortColumn> {
+    match name {
+        "black" => Some(SearchResultSortColumn::BlackPlayer),
+        "white" => Some(SearchResultSortColumn::WhitePlayer),
+        "date" => Some(SearchResultSortColumn::Date),
+        "matches" => Some(SearchResultSortColumn::Matches),
+        _ => None,
+    }
+}
+
+fn compare_search_text(left: &QString, right: &QString, ascending: bool) -> std::cmp::Ordering {
+    let left = left.to_string();
+    let right = right.to_string();
+
+    let left = left.trim();
+    let right = right.trim();
+
+    /*
+     * Missing metadata is less useful for browsing and therefore remains
+     * at the end in both ascending and descending orders.
+     */
+    match (left.is_empty(), right.is_empty()) {
+        (true, true) => return std::cmp::Ordering::Equal,
+        (true, false) => return std::cmp::Ordering::Greater,
+        (false, true) => return std::cmp::Ordering::Less,
+        (false, false) => {}
+    }
+
+    let ordering = left.to_lowercase().cmp(&right.to_lowercase());
+
+    if ascending {
+        ordering
+    } else {
+        ordering.reverse()
+    }
+}
+
+fn compare_match_count(left: i32, right: i32, ascending: bool) -> std::cmp::Ordering {
+    let ordering = left.cmp(&right);
+
+    if ascending {
+        ordering
+    } else {
+        ordering.reverse()
+    }
+}
+
+fn compare_search_result_rows(
+    left: &SearchResultRow,
+    right: &SearchResultRow,
+    column: SearchResultSortColumn,
+    ascending: bool,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering::Equal;
+
+    let primary = match column {
+        SearchResultSortColumn::BlackPlayer => {
+            compare_search_text(&left.black_player, &right.black_player, ascending)
+        }
+
+        SearchResultSortColumn::WhitePlayer => {
+            compare_search_text(&left.white_player, &right.white_player, ascending)
+        }
+
+        SearchResultSortColumn::Date => {
+            compare_search_text(&left.played_date, &right.played_date, ascending)
+        }
+
+        SearchResultSortColumn::Matches => {
+            compare_match_count(left.match_count, right.match_count, ascending)
+        }
+    };
+
+    if primary != Equal {
+        return primary;
+    }
+
+    /*
+     * Secondary ordering is deliberately automatic rather than another
+     * Search Results UI.  These fixed tie-breaks make nearby rows useful
+     * and deterministic while keeping the result list simple.
+     */
+    let secondary = match column {
+        SearchResultSortColumn::BlackPlayer => {
+            compare_search_text(&left.white_player, &right.white_player, true)
+        }
+
+        SearchResultSortColumn::WhitePlayer => {
+            compare_search_text(&left.black_player, &right.black_player, true)
+        }
+
+        SearchResultSortColumn::Date => {
+            compare_search_text(&left.black_player, &right.black_player, true)
+        }
+
+        SearchResultSortColumn::Matches => {
+            compare_search_text(&left.played_date, &right.played_date, false)
+        }
+    };
+
+    if secondary != Equal {
+        return secondary;
+    }
+
+    let tertiary = match column {
+        SearchResultSortColumn::BlackPlayer | SearchResultSortColumn::WhitePlayer => {
+            compare_search_text(&left.played_date, &right.played_date, false)
+        }
+
+        SearchResultSortColumn::Date => {
+            compare_search_text(&left.white_player, &right.white_player, true)
+        }
+
+        SearchResultSortColumn::Matches => {
+            compare_search_text(&left.black_player, &right.black_player, true)
+        }
+    };
+
+    if tertiary != Equal {
+        return tertiary;
+    }
+
+    if column == SearchResultSortColumn::Matches {
+        let quaternary = compare_search_text(&left.white_player, &right.white_player, true);
+
+        if quaternary != Equal {
+            return quaternary;
+        }
+    }
+
+    left.game_id.cmp(&right.game_id)
+}
+
+fn sort_search_result_rows(
+    rows: &mut [SearchResultRow],
+    column: SearchResultSortColumn,
+    ascending: bool,
+) {
+    rows.sort_by(|left, right| compare_search_result_rows(left, right, column, ascending));
 }
 
 fn filtered_search_rows(
@@ -1805,6 +2004,79 @@ where
     match value {
         Some(value) => QString::from(value.to_string()),
         None => QString::default(),
+    }
+}
+
+#[cfg(test)]
+mod search_result_sort_tests {
+    use super::*;
+
+    fn row(game_id: i64, black: &str, white: &str, date: &str, matches: i32) -> SearchResultRow {
+        SearchResultRow {
+            game_id,
+            black_player: QString::from(black),
+            white_player: QString::from(white),
+            played_date: QString::from(date),
+            match_count: matches,
+            ..SearchResultRow::default()
+        }
+    }
+
+    fn ids(rows: &[SearchResultRow]) -> Vec<i64> {
+        rows.iter().map(|row| row.game_id).collect()
+    }
+
+    #[test]
+    fn sorts_matches_descending_with_useful_fixed_ties() {
+        let mut rows = vec![
+            row(1, "Lee", "Cho", "2020-01-01", 2),
+            row(2, "Lee", "Cho", "2023-01-01", 4),
+            row(3, "Cho", "Lee", "2021-01-01", 4),
+            row(4, "Cho", "Lee", "2019-01-01", 1),
+        ];
+
+        sort_search_result_rows(&mut rows, SearchResultSortColumn::Matches, false);
+
+        /*
+         * Four-match games come first; their tie is broken by newest
+         * date.  Remaining rows then follow by match count.
+         */
+        assert_eq!(ids(&rows), vec![2, 3, 1, 4]);
+    }
+
+    #[test]
+    fn sorts_player_names_case_insensitively_then_by_opponent_and_date() {
+        let mut rows = vec![
+            row(4, "Lee", "Zhao", "2020-01-01", 1),
+            row(3, "lee", "Cho", "2019-01-01", 1),
+            row(2, "Lee", "Cho", "2022-01-01", 1),
+            row(1, "Cho", "Lee", "2021-01-01", 1),
+        ];
+
+        sort_search_result_rows(&mut rows, SearchResultSortColumn::BlackPlayer, true);
+
+        /*
+         * Cho precedes Lee.  Lee/lee are equivalent for the primary
+         * comparison, then opponent A-Z and newest date break the ties.
+         */
+        assert_eq!(ids(&rows), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn keeps_missing_dates_at_the_end_in_both_directions() {
+        let original = vec![
+            row(1, "A", "B", "", 1),
+            row(2, "A", "B", "2020-01-01", 1),
+            row(3, "A", "B", "2022-01-01", 1),
+        ];
+
+        let mut descending = original.clone();
+        sort_search_result_rows(&mut descending, SearchResultSortColumn::Date, false);
+        assert_eq!(ids(&descending), vec![3, 2, 1]);
+
+        let mut ascending = original;
+        sort_search_result_rows(&mut ascending, SearchResultSortColumn::Date, true);
+        assert_eq!(ids(&ascending), vec![2, 3, 1]);
     }
 }
 

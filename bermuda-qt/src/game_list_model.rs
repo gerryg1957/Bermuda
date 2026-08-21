@@ -184,6 +184,14 @@ pub mod ffi {
         ) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "sortResults"]
+        fn sort_results(
+            self: Pin<&mut SearchResultModel>,
+            column: &QString,
+            ascending: bool,
+        ) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "filterContinuationAtOccurrence"]
         fn filter_continuation_at_occurrence(
             self: Pin<&mut SearchResultModel>,
