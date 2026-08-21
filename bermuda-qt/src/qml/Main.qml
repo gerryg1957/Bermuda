@@ -41,7 +41,7 @@ ApplicationWindow {
         return path
     }
 
-    readonly property string managedProjectPath: {
+    function managedProjectPathForDirectory(directoryName) {
         const location =
             StandardPaths.writableLocation(
                 StandardPaths.GenericDataLocation)
@@ -51,7 +51,24 @@ ApplicationWindow {
         if (basePath.length === 0)
             return ""
 
-        return basePath.replace(/\/+$/, "") + "/MoyoDB/games-database"
+        return basePath.replace(/\/+$/, "")
+                + "/" + directoryName + "/games-database"
+    }
+
+    /*
+     * New installations use the Bermuda application-data directory.
+     * The former MoyoDB location remains recognised so existing managed
+     * databases continue to open without an implicit filesystem move.
+     */
+    readonly property string managedProjectPath:
+        managedProjectPathForDirectory("Bermuda")
+
+    readonly property string legacyManagedProjectPath:
+        managedProjectPathForDirectory("MoyoDB")
+
+    function isManagedProjectPath(path) {
+        return path === root.managedProjectPath
+                || path === root.legacyManagedProjectPath
     }
 
     property string projectPath: Qt.application.arguments.length > 1
@@ -264,7 +281,7 @@ menuBar: MenuBar {
                      && !databaseOperation.in_progress
 
             onTriggered: {
-                if (root.projectPath === root.managedProjectPath) {
+                if (root.isManagedProjectPath(root.projectPath)) {
                     databaseImportDialog.openManagedAdd(
                         root.projectPath)
                 } else {
@@ -390,6 +407,14 @@ menuBar: MenuBar {
             if (gameController.projectExists(
                     root.managedProjectPath)) {
                 root.projectPath = root.managedProjectPath
+            } else if (root.legacyManagedProjectPath.length > 0
+                    && gameController.projectExists(
+                        root.legacyManagedProjectPath)) {
+                /*
+                 * Compatibility with managed databases created before
+                 * the application was renamed from MoyoDB to Bermuda.
+                 */
+                root.projectPath = root.legacyManagedProjectPath
             } else {
                 databaseImportDialog.openManagedCreate(
                     root.managedProjectPath)
