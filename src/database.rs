@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 pub fn initialise(root: &Path) -> Result<()> {
     if root.exists() && !root.is_dir() {
@@ -58,6 +58,26 @@ pub fn initialise(root: &Path) -> Result<()> {
                 UNIQUE(name, version)
             );
 
+            CREATE TABLE IF NOT EXISTS players (
+                id              INTEGER PRIMARY KEY,
+                preferred_name  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS player_aliases (
+                id              INTEGER PRIMARY KEY,
+                player_id       INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                source_id       INTEGER,
+                notes           TEXT,
+
+                FOREIGN KEY(player_id)
+                    REFERENCES players(id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(source_id)
+                    REFERENCES sources(id)
+                    ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS game_sources (
                 id              INTEGER PRIMARY KEY,
                 game_id         INTEGER NOT NULL,
@@ -81,10 +101,16 @@ pub fn initialise(root: &Path) -> Result<()> {
                 result          TEXT,
                 komi            REAL,
                 handicap        INTEGER,
+                black_player_id INTEGER,
+                white_player_id INTEGER,
 
                 FOREIGN KEY(game_source_id)
                     REFERENCES game_sources(id)
-                    ON DELETE CASCADE
+                    ON DELETE CASCADE,
+                FOREIGN KEY(black_player_id)
+                    REFERENCES players(id),
+                FOREIGN KEY(white_player_id)
+                    REFERENCES players(id)
             );
         CREATE TABLE IF NOT EXISTS indexed_games (
     game_id           INTEGER PRIMARY KEY,
@@ -121,11 +147,34 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
             CREATE INDEX IF NOT EXISTS game_sources_source_id
                 ON game_sources(source_id);
 
+            CREATE INDEX IF NOT EXISTS players_preferred_name
+                ON players(preferred_name);
+
+            CREATE INDEX IF NOT EXISTS player_aliases_name_source
+                ON player_aliases(name, source_id);
+
+            CREATE INDEX IF NOT EXISTS player_aliases_player_id
+                ON player_aliases(player_id);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS player_aliases_global_assignment
+                ON player_aliases(player_id, name)
+                WHERE source_id IS NULL;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS player_aliases_source_assignment
+                ON player_aliases(player_id, source_id, name)
+                WHERE source_id IS NOT NULL;
+
             CREATE INDEX IF NOT EXISTS game_metadata_black_player
                 ON game_metadata(black_player);
 
             CREATE INDEX IF NOT EXISTS game_metadata_white_player
                 ON game_metadata(white_player);
+
+            CREATE INDEX IF NOT EXISTS game_metadata_black_player_id
+                ON game_metadata(black_player_id);
+
+            CREATE INDEX IF NOT EXISTS game_metadata_white_player_id
+                ON game_metadata(white_player_id);
 
             CREATE INDEX IF NOT EXISTS game_metadata_played_date
                 ON game_metadata(played_date);
@@ -161,6 +210,7 @@ fn migrate(connection: &Connection, from_version: i64) -> Result<()> {
             2 => migrate_2_to_3(&transaction)?,
             3 => migrate_3_to_4(&transaction)?,
             4 => migrate_4_to_5(&transaction)?,
+            5 => migrate_5_to_6(&transaction)?,
             _ => bail!("no migration available from schema version {version}"),
         }
 
@@ -328,6 +378,67 @@ fn migrate_4_to_5(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_5_to_6(connection: &Connection) -> Result<()> {
+    connection
+        .execute_batch(
+            r#"
+            CREATE TABLE players (
+                id              INTEGER PRIMARY KEY,
+                preferred_name  TEXT NOT NULL
+            );
+
+            CREATE TABLE player_aliases (
+                id              INTEGER PRIMARY KEY,
+                player_id       INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                source_id       INTEGER,
+                notes           TEXT,
+
+                FOREIGN KEY(player_id)
+                    REFERENCES players(id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(source_id)
+                    REFERENCES sources(id)
+                    ON DELETE CASCADE
+            );
+
+            ALTER TABLE game_metadata
+                ADD COLUMN black_player_id INTEGER
+                    REFERENCES players(id);
+
+            ALTER TABLE game_metadata
+                ADD COLUMN white_player_id INTEGER
+                    REFERENCES players(id);
+
+            CREATE INDEX players_preferred_name
+                ON players(preferred_name);
+
+            CREATE INDEX player_aliases_name_source
+                ON player_aliases(name, source_id);
+
+            CREATE INDEX player_aliases_player_id
+                ON player_aliases(player_id);
+
+            CREATE UNIQUE INDEX player_aliases_global_assignment
+                ON player_aliases(player_id, name)
+                WHERE source_id IS NULL;
+
+            CREATE UNIQUE INDEX player_aliases_source_assignment
+                ON player_aliases(player_id, source_id, name)
+                WHERE source_id IS NOT NULL;
+
+            CREATE INDEX game_metadata_black_player_id
+                ON game_metadata(black_player_id);
+
+            CREATE INDEX game_metadata_white_player_id
+                ON game_metadata(white_player_id);
+            "#,
+        )
+        .context("adding player identity schema")?;
+
+    Ok(())
+}
+
 fn check_or_record_schema_version(connection: &Connection) -> Result<()> {
     let current_version: Option<i64> = connection
         .query_row(
@@ -423,7 +534,7 @@ mod tests {
                 row.get(0)
             })?;
 
-        assert_eq!(schema_version, 5);
+        assert_eq!(schema_version, 6);
 
         let stored_dates = {
             let mut statement = connection.prepare(
@@ -479,6 +590,149 @@ mod tests {
                 (6, None, None),
             ]
         );
+
+        Ok(())
+    }
+    #[test]
+    fn migrates_version_5_to_player_identity_without_rewriting_source_names() -> Result<()> {
+        let connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE schema_info (
+                schema_version INTEGER NOT NULL
+            );
+
+            INSERT INTO schema_info(schema_version)
+            VALUES (5);
+
+            CREATE TABLE sources (
+                id              INTEGER PRIMARY KEY,
+                name            TEXT NOT NULL,
+                version         TEXT NOT NULL
+            );
+
+            INSERT INTO sources(id, name, version)
+            VALUES (1, 'GoGoD', '2026');
+
+            CREATE TABLE game_metadata (
+                game_source_id    INTEGER PRIMARY KEY,
+                black_player      TEXT,
+                white_player      TEXT,
+                played_date       TEXT,
+                played_date_sort  TEXT,
+                event             TEXT,
+                result            TEXT,
+                komi              REAL,
+                handicap          INTEGER
+            );
+
+            INSERT INTO game_metadata(
+                game_source_id,
+                black_player,
+                white_player
+            )
+            VALUES (
+                10,
+                'Cho Chikun',
+                'Kobayashi Satoru'
+            );
+            "#,
+        )?;
+
+        migrate(&connection, 5)?;
+
+        let schema_version: i64 =
+            connection.query_row("SELECT schema_version FROM schema_info", [], |row| {
+                row.get(0)
+            })?;
+
+        assert_eq!(schema_version, 6);
+
+        let player_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
+
+        let alias_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_aliases", [], |row| row.get(0))?;
+
+        assert_eq!(player_count, 0);
+        assert_eq!(alias_count, 0);
+
+        let (black_player, white_player, black_player_id, white_player_id): (
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        ) = connection.query_row(
+            r#"
+            SELECT
+                black_player,
+                white_player,
+                black_player_id,
+                white_player_id
+            FROM game_metadata
+            WHERE game_source_id = 10
+            "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        /*
+         * Migration is structural only.  It neither invents identities
+         * nor rewrites the metadata supplied by an SGF source.
+         */
+        assert_eq!(black_player.as_deref(), Some("Cho Chikun"));
+        assert_eq!(white_player.as_deref(), Some("Kobayashi Satoru"));
+        assert_eq!(black_player_id, None);
+        assert_eq!(white_player_id, None);
+
+        connection.execute(
+            "INSERT INTO players(preferred_name) VALUES (?1)",
+            ["Cho Chikun"],
+        )?;
+
+        let player_id = connection.last_insert_rowid();
+
+        connection.execute(
+            r#"
+            INSERT INTO player_aliases(
+                player_id,
+                name,
+                source_id,
+                notes
+            )
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![player_id, "Cho Chikun", 1_i64, "migration test",],
+        )?;
+
+        connection.execute(
+            r#"
+            UPDATE game_metadata
+            SET black_player_id = ?1
+            WHERE game_source_id = 10
+            "#,
+            [player_id],
+        )?;
+
+        let (stored_name, stored_player_id): (Option<String>, Option<i64>) = connection.query_row(
+            r#"
+                SELECT black_player, black_player_id
+                FROM game_metadata
+                WHERE game_source_id = 10
+                "#,
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        /*
+         * Bermuda's interpretation is stored alongside the source text,
+         * never in place of it.
+         */
+        assert_eq!(stored_name.as_deref(), Some("Cho Chikun"));
+        assert_eq!(stored_player_id, Some(player_id));
 
         Ok(())
     }
