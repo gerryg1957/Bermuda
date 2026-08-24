@@ -4,6 +4,9 @@ use crate::{
     GameRecord, canonical_hash, canonical_hash_hex, database, extract_main_variation, game,
     game_date::{normalise_played_date, played_date_sort_key},
     parse_collection,
+    player_catalogue::{
+        CatalogueNameResolution, PlayerCatalogue, materialise_player_in_transaction,
+    },
     player_directory::{PlayerAliasResolution, resolve_player_alias_for_source},
     project::Project,
     write_move_file,
@@ -28,15 +31,18 @@ pub enum ImportOutcome {
 pub struct Importer {
     database_root: PathBuf,
     connection: Connection,
+    player_catalogue: PlayerCatalogue,
 }
 
 impl Importer {
     pub fn open(database_root: &Path) -> Result<Self> {
         let connection = database::open(database_root)?;
+        let player_catalogue = PlayerCatalogue::supplied()?;
 
         Ok(Self {
             database_root: database_root.to_path_buf(),
             connection,
+            player_catalogue,
         })
     }
 
@@ -116,7 +122,13 @@ impl Importer {
 
         let game_source_id = insert_game_source(&transaction, game_id, source_id, &original_path)?;
 
-        insert_metadata(&transaction, game_source_id, source_id, &record)?;
+        insert_metadata(
+            &transaction,
+            game_source_id,
+            source_id,
+            &self.player_catalogue,
+            &record,
+        )?;
 
         transaction
             .commit()
@@ -259,44 +271,113 @@ fn insert_game_source(
     Ok(transaction.last_insert_rowid())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ImportedPlayerIdentity {
+    player_id: Option<i64>,
+    catalogue_derived: bool,
+}
+
+impl ImportedPlayerIdentity {
+    const UNRESOLVED: Self = Self {
+        player_id: None,
+        catalogue_derived: false,
+    };
+
+    fn local(player_id: i64) -> Self {
+        Self {
+            player_id: Some(player_id),
+            catalogue_derived: false,
+        }
+    }
+
+    fn catalogue(player_id: i64) -> Self {
+        Self {
+            player_id: Some(player_id),
+            catalogue_derived: true,
+        }
+    }
+}
+
+fn resolve_imported_player_identity(
+    transaction: &Transaction<'_>,
+    source_id: i64,
+    player_catalogue: &PlayerCatalogue,
+    name: Option<&str>,
+) -> Result<ImportedPlayerIdentity> {
+    let Some(name) = name else {
+        return Ok(ImportedPlayerIdentity::UNRESOLVED);
+    };
+
+    /*
+     * Local curated knowledge has strict precedence over the supplied
+     * catalogue.
+     *
+     * In particular, local ambiguity is itself meaningful user data. Bermuda
+     * must leave that spelling unresolved rather than allowing the supplied
+     * catalogue to "repair" the ambiguity.
+     */
+    match resolve_player_alias_for_source(transaction, source_id, name)? {
+        PlayerAliasResolution::Unique(player_id) => {
+            return Ok(ImportedPlayerIdentity::local(player_id));
+        }
+
+        PlayerAliasResolution::Ambiguous => {
+            return Ok(ImportedPlayerIdentity::UNRESOLVED);
+        }
+
+        PlayerAliasResolution::Unrecognised => {}
+    }
+
+    /*
+     * Catalogue matching is likewise exact and conservative. Only one unique
+     * supplied identity may create a catalogue-derived link.
+     */
+    let catalogue_player = match player_catalogue.resolve_name(name) {
+        CatalogueNameResolution::Unique(player) => player,
+
+        CatalogueNameResolution::Unrecognised | CatalogueNameResolution::Ambiguous(_) => {
+            return Ok(ImportedPlayerIdentity::UNRESOLVED);
+        }
+    };
+
+    /*
+     * Materialisation uses this same game-import transaction. If metadata
+     * insertion or any later part of the import fails, the new local player
+     * row is rolled back with the rest of the import.
+     */
+    let materialisation = materialise_player_in_transaction(transaction, catalogue_player)?;
+
+    Ok(ImportedPlayerIdentity::catalogue(materialisation.player_id))
+}
+
 fn insert_metadata(
     transaction: &Transaction<'_>,
     game_source_id: i64,
     source_id: i64,
+    player_catalogue: &PlayerCatalogue,
     record: &GameRecord,
 ) -> Result<()> {
     /*
-     * Preserve PB/PW exactly as supplied by the source. Player IDs are
-     * Bermuda's separate interpretation, populated only by an unambiguous
-     * previously confirmed exact alias.
+     * Preserve PB/PW exactly as supplied by the source.
+     *
+     * Numeric player IDs are Bermuda's interpretation alongside those raw
+     * strings. Local exact aliases have precedence. Only names with no local
+     * assertion may fall through to one unique exact supplied-catalogue
+     * identity.
      */
-    let black_player_resolution = record
-        .metadata
-        .black_player
-        .as_deref()
-        .map(|name| resolve_player_alias_for_source(transaction, source_id, name))
-        .transpose()?;
+    let black_player = resolve_imported_player_identity(
+        transaction,
+        source_id,
+        player_catalogue,
+        record.metadata.black_player.as_deref(),
+    )?;
 
-    let black_player_id = match black_player_resolution {
-        Some(PlayerAliasResolution::Unique(player_id)) => Some(player_id),
-        Some(PlayerAliasResolution::Unrecognised)
-        | Some(PlayerAliasResolution::Ambiguous)
-        | None => None,
-    };
-
-    let white_player_resolution = record
-        .metadata
-        .white_player
-        .as_deref()
-        .map(|name| resolve_player_alias_for_source(transaction, source_id, name))
-        .transpose()?;
-
-    let white_player_id = match white_player_resolution {
-        Some(PlayerAliasResolution::Unique(player_id)) => Some(player_id),
-        Some(PlayerAliasResolution::Unrecognised)
-        | Some(PlayerAliasResolution::Ambiguous)
-        | None => None,
-    };
+    let white_player = resolve_imported_player_identity(
+        transaction,
+        source_id,
+        player_catalogue,
+        record.metadata.white_player.as_deref(),
+    )?;
 
     let played_date = record.metadata.date.as_deref().map(normalise_played_date);
 
@@ -306,19 +387,24 @@ fn insert_metadata(
         .execute(
             r#"
             INSERT INTO game_metadata(
-    game_source_id,
-    black_player,
-    white_player,
-    played_date,
-    played_date_sort,
-    event,
-    result,
-    komi,
-    handicap,
-    black_player_id,
-    white_player_id
-)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                game_source_id,
+                black_player,
+                white_player,
+                played_date,
+                played_date_sort,
+                event,
+                result,
+                komi,
+                handicap,
+                black_player_id,
+                white_player_id,
+                black_player_catalogue_derived,
+                white_player_catalogue_derived
+            )
+            VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                ?8, ?9, ?10, ?11, ?12, ?13
+            )
             "#,
             params![
                 game_source_id,
@@ -330,8 +416,10 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                 record.metadata.result.as_deref(),
                 record.metadata.komi,
                 record.metadata.handicap.map(i64::from),
-                black_player_id,
-                white_player_id,
+                black_player.player_id,
+                white_player.player_id,
+                black_player.catalogue_derived,
+                white_player.catalogue_derived,
             ],
         )
         .context("inserting source-specific game metadata")?;
@@ -342,6 +430,19 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use tempfile::tempdir;
+
+    fn empty_player_catalogue() -> Result<PlayerCatalogue> {
+        PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": []
+            }
+            "#,
+        )
+    }
 
     #[test]
     fn move_files_use_hash_subdirectories() {
@@ -397,6 +498,284 @@ mod tests {
     }
 
     #[test]
+    fn insert_metadata_uses_catalogue_only_after_local_resolution() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let database_root = temporary_directory.path().join("database");
+
+        database::initialise(&database_root)?;
+        let mut connection = database::open(&database_root)?;
+
+        let player_catalogue = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": [
+                {
+                  "key": "test:shadowed",
+                  "preferred_name": "Catalogue Shadowed",
+                  "aliases": [
+                    { "name": "Local Name" }
+                  ]
+                },
+                {
+                  "key": "test:catalogue-only",
+                  "preferred_name": "Catalogue Name"
+                },
+                {
+                  "key": "test:ambiguous-local",
+                  "preferred_name": "Catalogue Ambiguous Local",
+                  "aliases": [
+                    { "name": "Ambiguous Local" }
+                  ]
+                },
+                {
+                  "key": "test:shared-a",
+                  "preferred_name": "Shared A",
+                  "aliases": [
+                    { "name": "Shared Catalogue" }
+                  ]
+                },
+                {
+                  "key": "test:shared-b",
+                  "preferred_name": "Shared B",
+                  "aliases": [
+                    { "name": "Shared Catalogue" }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        let transaction = connection.transaction()?;
+
+        let source_id = find_or_create_source(&transaction, "Test Source", "1")?;
+
+        transaction.execute(
+            "INSERT INTO players(preferred_name) VALUES ('Local Player')",
+            [],
+        )?;
+        let local_player_id = transaction.last_insert_rowid();
+
+        transaction.execute(
+            "INSERT INTO players(preferred_name) VALUES ('Ambiguous Local A')",
+            [],
+        )?;
+        let ambiguous_a_id = transaction.last_insert_rowid();
+
+        transaction.execute(
+            "INSERT INTO players(preferred_name) VALUES ('Ambiguous Local B')",
+            [],
+        )?;
+        let ambiguous_b_id = transaction.last_insert_rowid();
+
+        transaction.execute(
+            r#"
+            INSERT INTO player_aliases(player_id, name, source_id)
+            VALUES (?1, 'Local Name', ?2)
+            "#,
+            params![local_player_id, source_id],
+        )?;
+
+        transaction.execute(
+            r#"
+            INSERT INTO player_aliases(player_id, name, source_id)
+            VALUES
+                (?1, 'Ambiguous Local', ?3),
+                (?2, 'Ambiguous Local', ?3)
+            "#,
+            params![ambiguous_a_id, ambiguous_b_id, source_id],
+        )?;
+
+        /*
+         * Local unique knowledge beats an otherwise matching catalogue alias.
+         * The White name has no local assertion and therefore falls through
+         * to one unique supplied catalogue identity.
+         */
+        let first_collection =
+            parse_collection(b"(;FF[4]GM[1]SZ[19]PB[Local Name]PW[Catalogue Name])")?;
+        let first_record = extract_main_variation(&first_collection)?;
+
+        let first_game_id = insert_game(
+            &transaction,
+            &[1_u8; 32],
+            &first_record,
+            Path::new("test-1.moves"),
+        )?;
+
+        let first_game_source_id =
+            insert_game_source(&transaction, first_game_id, source_id, "test-1.sgf")?;
+
+        insert_metadata(
+            &transaction,
+            first_game_source_id,
+            source_id,
+            &player_catalogue,
+            &first_record,
+        )?;
+
+        let (
+            first_black_name,
+            first_white_name,
+            first_black_id,
+            first_white_id,
+            first_black_derived,
+            first_white_derived,
+        ): (String, String, Option<i64>, Option<i64>, i64, i64) = transaction.query_row(
+            r#"
+            SELECT
+                black_player,
+                white_player,
+                black_player_id,
+                white_player_id,
+                black_player_catalogue_derived,
+                white_player_catalogue_derived
+            FROM game_metadata
+            WHERE game_source_id = ?1
+            "#,
+            [first_game_source_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )?;
+
+        assert_eq!(first_black_name, "Local Name");
+        assert_eq!(first_white_name, "Catalogue Name");
+
+        assert_eq!(first_black_id, Some(local_player_id));
+        assert_eq!(first_black_derived, 0);
+
+        let first_white_id = first_white_id.expect("unique catalogue name must materialise");
+
+        assert_eq!(first_white_derived, 1);
+
+        let first_white_key: Option<String> = transaction.query_row(
+            "SELECT catalogue_key FROM players WHERE id = ?1",
+            [first_white_id],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(first_white_key.as_deref(), Some("test:catalogue-only"));
+
+        /*
+         * Local ambiguity is a stop condition, not permission to consult the
+         * catalogue. Supplied ambiguity is likewise unresolved.
+         */
+        let second_collection =
+            parse_collection(b"(;FF[4]GM[1]SZ[19]PB[Ambiguous Local]PW[Shared Catalogue])")?;
+        let second_record = extract_main_variation(&second_collection)?;
+
+        let second_game_id = insert_game(
+            &transaction,
+            &[2_u8; 32],
+            &second_record,
+            Path::new("test-2.moves"),
+        )?;
+
+        let second_game_source_id =
+            insert_game_source(&transaction, second_game_id, source_id, "test-2.sgf")?;
+
+        insert_metadata(
+            &transaction,
+            second_game_source_id,
+            source_id,
+            &player_catalogue,
+            &second_record,
+        )?;
+
+        let (second_black_id, second_white_id, second_black_derived, second_white_derived): (
+            Option<i64>,
+            Option<i64>,
+            i64,
+            i64,
+        ) = transaction.query_row(
+            r#"
+                SELECT
+                    black_player_id,
+                    white_player_id,
+                    black_player_catalogue_derived,
+                    white_player_catalogue_derived
+                FROM game_metadata
+                WHERE game_source_id = ?1
+                "#,
+            [second_game_source_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        assert_eq!(second_black_id, None);
+        assert_eq!(second_white_id, None);
+        assert_eq!(second_black_derived, 0);
+        assert_eq!(second_white_derived, 0);
+
+        /*
+         * A name known to neither layer remains unresolved.
+         */
+        let third_collection = parse_collection(b"(;FF[4]GM[1]SZ[19]PB[Unknown Player])")?;
+        let third_record = extract_main_variation(&third_collection)?;
+
+        let third_game_id = insert_game(
+            &transaction,
+            &[3_u8; 32],
+            &third_record,
+            Path::new("test-3.moves"),
+        )?;
+
+        let third_game_source_id =
+            insert_game_source(&transaction, third_game_id, source_id, "test-3.sgf")?;
+
+        insert_metadata(
+            &transaction,
+            third_game_source_id,
+            source_id,
+            &player_catalogue,
+            &third_record,
+        )?;
+
+        let (third_black_id, third_black_derived): (Option<i64>, i64) = transaction.query_row(
+            r#"
+                SELECT
+                    black_player_id,
+                    black_player_catalogue_derived
+                FROM game_metadata
+                WHERE game_source_id = ?1
+                "#,
+            [third_game_source_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        assert_eq!(third_black_id, None);
+        assert_eq!(third_black_derived, 0);
+
+        /*
+         * Exactly one supplied identity was materialised: the unique
+         * catalogue-only White player from the first game. In particular,
+         * neither local ambiguity nor catalogue ambiguity created players.
+         */
+        let materialised_catalogue_count: i64 = transaction.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM players
+            WHERE catalogue_key IS NOT NULL
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(materialised_catalogue_count, 1);
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    #[test]
     fn insert_metadata_stores_normalised_played_date() -> Result<()> {
         let mut connection = Connection::open_in_memory()?;
 
@@ -414,7 +793,9 @@ mod tests {
             komi            REAL,
             handicap        INTEGER,
             black_player_id INTEGER,
-            white_player_id INTEGER
+            white_player_id INTEGER,
+            black_player_catalogue_derived INTEGER NOT NULL DEFAULT 0,
+            white_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
         );
         "#,
         )?;
@@ -422,8 +803,10 @@ mod tests {
         let collection = parse_collection(b"(;FF[4]GM[1]SZ[19]DT[c. 1683])")?;
         let record = extract_main_variation(&collection)?;
 
+        let player_catalogue = empty_player_catalogue()?;
+
         let transaction = connection.transaction()?;
-        insert_metadata(&transaction, 1, 1, &record)?;
+        insert_metadata(&transaction, 1, 1, &player_catalogue, &record)?;
         transaction.commit()?;
 
         let (stored_date, stored_sort_date): (String, String) = connection.query_row(
@@ -569,8 +952,10 @@ mod tests {
                 result            TEXT,
                 komi              REAL,
                 handicap          INTEGER,
-                black_player_id   INTEGER,
-                white_player_id   INTEGER
+                black_player_id INTEGER,
+                white_player_id INTEGER,
+                black_player_catalogue_derived INTEGER NOT NULL DEFAULT 0,
+                white_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
             );
 
             INSERT INTO player_aliases(
@@ -589,9 +974,11 @@ mod tests {
 
         let record = extract_main_variation(&collection)?;
 
+        let player_catalogue = empty_player_catalogue()?;
+
         let transaction = connection.transaction()?;
 
-        insert_metadata(&transaction, 10, 7, &record)?;
+        insert_metadata(&transaction, 10, 7, &player_catalogue, &record)?;
 
         transaction.commit()?;
 

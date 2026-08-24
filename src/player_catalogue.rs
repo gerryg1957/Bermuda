@@ -276,7 +276,7 @@ impl PlayerCatalogue {
     }
 }
 
-fn materialise_player_in_transaction(
+pub(crate) fn materialise_player_in_transaction(
     transaction: &Transaction<'_>,
     player: &CataloguePlayer,
 ) -> Result<CataloguePlayerMaterialisation> {
