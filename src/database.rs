@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const SCHEMA_MIGRATION_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn initialise(root: &Path) -> Result<()> {
@@ -144,6 +144,10 @@ pub fn initialise(root: &Path) -> Result<()> {
                     CHECK (black_player_catalogue_derived IN (0, 1)),
                 white_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
                     CHECK (white_player_catalogue_derived IN (0, 1)),
+                black_player_catalogue_suppressed INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_suppressed IN (0, 1)),
+                white_player_catalogue_suppressed INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_suppressed IN (0, 1)),
 
                 FOREIGN KEY(game_source_id)
                     REFERENCES game_sources(id)
@@ -249,6 +253,7 @@ fn migrate_locked(connection: &Connection, from_version: i64) -> Result<()> {
             4 => migrate_4_to_5(connection)?,
             5 => migrate_5_to_6(connection)?,
             6 => migrate_6_to_7(connection)?,
+            7 => migrate_7_to_8(connection)?,
             _ => bail!("no migration available from schema version {version}"),
         }
 
@@ -530,6 +535,26 @@ fn migrate_6_to_7(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_7_to_8(connection: &Connection) -> Result<()> {
+    connection
+        .execute_batch(
+            r#"
+            ALTER TABLE game_metadata
+                ADD COLUMN black_player_catalogue_suppressed
+                    INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_suppressed IN (0, 1));
+
+            ALTER TABLE game_metadata
+                ADD COLUMN white_player_catalogue_suppressed
+                    INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_suppressed IN (0, 1));
+            "#,
+        )
+        .context("adding player catalogue suppression foundation")?;
+
+    Ok(())
+}
+
 fn read_schema_version(connection: &Connection) -> Result<Option<i64>> {
     connection
         .query_row(
@@ -682,7 +707,7 @@ mod tests {
                 row.get(0)
             })?;
 
-        assert_eq!(schema_version, 7);
+        assert_eq!(schema_version, SCHEMA_VERSION);
 
         let stored_dates = {
             let mut statement = connection.prepare(
@@ -797,7 +822,7 @@ mod tests {
                 row.get(0)
             })?;
 
-        assert_eq!(schema_version, 7);
+        assert_eq!(schema_version, SCHEMA_VERSION);
 
         let player_count: i64 =
             connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
@@ -935,7 +960,7 @@ mod tests {
 
         check_or_record_schema_version(&mut connection)?;
 
-        assert_eq!(read_schema_version(&connection)?, Some(7));
+        assert_eq!(read_schema_version(&connection)?, Some(SCHEMA_VERSION));
 
         let (
             black_player,
@@ -1068,6 +1093,152 @@ mod tests {
     }
 
     #[test]
+    fn migrates_version_7_to_catalogue_suppression_foundation() -> Result<()> {
+        let mut connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE schema_info (
+                schema_version INTEGER NOT NULL
+            );
+
+            INSERT INTO schema_info(schema_version)
+            VALUES (7);
+
+            CREATE TABLE players (
+                id              INTEGER PRIMARY KEY,
+                preferred_name  TEXT NOT NULL,
+                catalogue_key   TEXT
+            );
+
+            CREATE TABLE game_metadata (
+                game_source_id  INTEGER PRIMARY KEY,
+                black_player    TEXT,
+                white_player    TEXT,
+                black_player_id INTEGER REFERENCES players(id),
+                white_player_id INTEGER REFERENCES players(id),
+                black_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_derived IN (0, 1)),
+                white_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_derived IN (0, 1))
+            );
+
+            INSERT INTO players(id, preferred_name)
+            VALUES
+                (1, 'Local Player'),
+                (2, 'Catalogue Player');
+
+            /*
+             * Row 10 contains one local assignment and one catalogue-derived
+             * assignment. Row 20 is unresolved on both sides.
+             */
+            INSERT INTO game_metadata(
+                game_source_id,
+                black_player,
+                white_player,
+                black_player_id,
+                white_player_id,
+                black_player_catalogue_derived,
+                white_player_catalogue_derived
+            )
+            VALUES
+                (
+                    10,
+                    'Local Spelling',
+                    'Catalogue Spelling',
+                    1,
+                    2,
+                    0,
+                    1
+                ),
+                (
+                    20,
+                    'Unknown Black',
+                    'Unknown White',
+                    NULL,
+                    NULL,
+                    0,
+                    0
+                );
+            "#,
+        )?;
+
+        check_or_record_schema_version(&mut connection)?;
+
+        assert_eq!(read_schema_version(&connection)?, Some(SCHEMA_VERSION));
+
+        let mut statement = connection.prepare(
+            r#"
+            SELECT
+                game_source_id,
+                black_player_id,
+                black_player_catalogue_derived,
+                black_player_catalogue_suppressed,
+                white_player_id,
+                white_player_catalogue_derived,
+                white_player_catalogue_suppressed
+            FROM game_metadata
+            ORDER BY game_source_id
+            "#,
+        )?;
+
+        let states = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        assert_eq!(
+            states,
+            vec![
+                (10, Some(1), 0, 0, Some(2), 1, 0,),
+                (20, None, 0, 0, None, 0, 0,),
+            ]
+        );
+
+        /*
+         * The new suppression fields are boolean at the storage boundary.
+         */
+        assert!(
+            connection
+                .execute(
+                    r#"
+                    UPDATE game_metadata
+                    SET black_player_catalogue_suppressed = 2
+                    WHERE game_source_id = 10
+                    "#,
+                    [],
+                )
+                .is_err()
+        );
+
+        assert!(
+            connection
+                .execute(
+                    r#"
+                    UPDATE game_metadata
+                    SET white_player_catalogue_suppressed = 2
+                    WHERE game_source_id = 10
+                    "#,
+                    [],
+                )
+                .is_err()
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn stale_schema_observation_does_not_repeat_completed_migration() -> Result<()> {
         let temporary_directory = tempdir()?;
         let sqlite_path = temporary_directory.path().join("metadata.sqlite3");
@@ -1145,11 +1316,12 @@ mod tests {
         check_or_record_schema_version(&mut first_connection)?;
 
         let migrated_version = read_schema_version(&first_connection)?;
-        assert_eq!(migrated_version, Some(7));
+        assert_eq!(migrated_version, Some(SCHEMA_VERSION));
 
         /*
          * B must now take the IMMEDIATE transaction, re-read schema_info,
-         * discover schema 7, and refrain from migrating schema 5 a second time.
+         * discover the current schema version, and refrain from migrating
+         * schema 5 a second time.
          */
         continue_sender
             .send(())
@@ -1159,7 +1331,10 @@ mod tests {
             .join()
             .expect("second schema opener thread panicked")?;
 
-        assert_eq!(read_schema_version(&first_connection)?, Some(7));
+        assert_eq!(
+            read_schema_version(&first_connection)?,
+            Some(SCHEMA_VERSION)
+        );
 
         let player_count: i64 =
             first_connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
