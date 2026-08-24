@@ -4,13 +4,13 @@ use crate::{
     GameRecord, canonical_hash, canonical_hash_hex, database, extract_main_variation, game,
     game_date::{normalise_played_date, played_date_sort_key},
     parse_collection,
-    player_catalogue::{
-        CatalogueNameResolution, PlayerCatalogue, materialise_player_in_transaction,
-    },
-    player_directory::{PlayerAliasResolution, resolve_player_alias_for_source},
+    player_catalogue::{PlayerCatalogue, resolve_player_identity_in_transaction},
     project::Project,
     write_move_file,
 };
+
+#[cfg(test)]
+use crate::player_directory::{PlayerAliasResolution, resolve_player_alias_for_source};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{
@@ -271,85 +271,6 @@ fn insert_game_source(
     Ok(transaction.last_insert_rowid())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ImportedPlayerIdentity {
-    player_id: Option<i64>,
-    catalogue_derived: bool,
-}
-
-impl ImportedPlayerIdentity {
-    const UNRESOLVED: Self = Self {
-        player_id: None,
-        catalogue_derived: false,
-    };
-
-    fn local(player_id: i64) -> Self {
-        Self {
-            player_id: Some(player_id),
-            catalogue_derived: false,
-        }
-    }
-
-    fn catalogue(player_id: i64) -> Self {
-        Self {
-            player_id: Some(player_id),
-            catalogue_derived: true,
-        }
-    }
-}
-
-fn resolve_imported_player_identity(
-    transaction: &Transaction<'_>,
-    source_id: i64,
-    player_catalogue: &PlayerCatalogue,
-    name: Option<&str>,
-) -> Result<ImportedPlayerIdentity> {
-    let Some(name) = name else {
-        return Ok(ImportedPlayerIdentity::UNRESOLVED);
-    };
-
-    /*
-     * Local curated knowledge has strict precedence over the supplied
-     * catalogue.
-     *
-     * In particular, local ambiguity is itself meaningful user data. Bermuda
-     * must leave that spelling unresolved rather than allowing the supplied
-     * catalogue to "repair" the ambiguity.
-     */
-    match resolve_player_alias_for_source(transaction, source_id, name)? {
-        PlayerAliasResolution::Unique(player_id) => {
-            return Ok(ImportedPlayerIdentity::local(player_id));
-        }
-
-        PlayerAliasResolution::Ambiguous => {
-            return Ok(ImportedPlayerIdentity::UNRESOLVED);
-        }
-
-        PlayerAliasResolution::Unrecognised => {}
-    }
-
-    /*
-     * Catalogue matching is likewise exact and conservative. Only one unique
-     * supplied identity may create a catalogue-derived link.
-     */
-    let catalogue_player = match player_catalogue.resolve_name(name) {
-        CatalogueNameResolution::Unique(player) => player,
-
-        CatalogueNameResolution::Unrecognised | CatalogueNameResolution::Ambiguous(_) => {
-            return Ok(ImportedPlayerIdentity::UNRESOLVED);
-        }
-    };
-
-    /*
-     * Materialisation uses this same game-import transaction. If metadata
-     * insertion or any later part of the import fails, the new local player
-     * row is rolled back with the rest of the import.
-     */
-    let materialisation = materialise_player_in_transaction(transaction, catalogue_player)?;
-
-    Ok(ImportedPlayerIdentity::catalogue(materialisation.player_id))
-}
-
 fn insert_metadata(
     transaction: &Transaction<'_>,
     game_source_id: i64,
@@ -365,14 +286,14 @@ fn insert_metadata(
      * assertion may fall through to one unique exact supplied-catalogue
      * identity.
      */
-    let black_player = resolve_imported_player_identity(
+    let black_player = resolve_player_identity_in_transaction(
         transaction,
         source_id,
         player_catalogue,
         record.metadata.black_player.as_deref(),
     )?;
 
-    let white_player = resolve_imported_player_identity(
+    let white_player = resolve_player_identity_in_transaction(
         transaction,
         source_id,
         player_catalogue,

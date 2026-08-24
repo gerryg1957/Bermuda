@@ -1,10 +1,13 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use anyhow::{Context, Result, bail};
-use rusqlite::{Connection, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::Deserialize;
 
+use crate::player_directory::{PlayerAliasResolution, resolve_player_alias_for_source};
+
 const SUPPLIED_CATALOGUE_JSON: &str = include_str!("../data/player_catalogue.json");
+const PLAYER_CATALOGUE_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PlayerCatalogue {
@@ -32,6 +35,33 @@ pub enum CatalogueNameResolution<'a> {
 pub struct CataloguePlayerMaterialisation {
     pub player_id: i64,
     pub created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResolvedPlayerIdentity {
+    pub(crate) player_id: Option<i64>,
+    pub(crate) catalogue_derived: bool,
+}
+
+impl ResolvedPlayerIdentity {
+    const UNRESOLVED: Self = Self {
+        player_id: None,
+        catalogue_derived: false,
+    };
+
+    fn local(player_id: i64) -> Self {
+        Self {
+            player_id: Some(player_id),
+            catalogue_derived: false,
+        }
+    }
+
+    fn catalogue(player_id: i64) -> Self {
+        Self {
+            player_id: Some(player_id),
+            catalogue_derived: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -124,109 +154,79 @@ impl PlayerCatalogue {
         Ok(result)
     }
 
-    pub fn synchronise(&self, connection: &mut Connection) -> Result<()> {
-        /*
-         * Validation is repeated here deliberately. PlayerCatalogue's fields
-         * are public, so callers are not required to have constructed it via
-         * from_json().
-         */
+    /// Synchronise the supplied catalogue and reconcile catalogue-owned
+    /// player interpretations when the bundled catalogue version changes.
+    ///
+    /// The supplied tables and every metadata repair are committed atomically.
+    /// Local assignments and explicitly catalogue-suppressed occurrences are
+    /// never rewritten by this operation.
+    ///
+    /// Returns true when a catalogue version was applied and false when the
+    /// database was already at this exact supplied-data version.
+    pub fn synchronise(&self, connection: &mut Connection) -> Result<bool> {
         self.validate()?;
 
         let data_version = i64::try_from(self.version)
             .context("player catalogue version exceeds SQLite integer range")?;
 
+        let observed_version = read_catalogue_data_version(connection)?;
+
+        match observed_version {
+            Some(version) if version > data_version => {
+                bail!(
+                    "project player catalogue version {version} is newer than \
+                     this Bermuda catalogue version {data_version}"
+                );
+            }
+
+            Some(version) if version == data_version => return Ok(false),
+
+            _ => {}
+        }
+
         /*
-         * The supplied catalogue is replaced as one SQLite transaction.
-         *
-         * This operation deliberately owns only player_catalogue_* tables.
-         * In particular it must not rewrite players, player_aliases,
-         * game_metadata, or source PB/PW strings.
+         * As with schema migration, the first read is only a fast path.
+         * Acquire the SQLite write lock and then read the version again so two
+         * Bermuda connections cannot both act on the same stale observation.
          */
+        connection
+            .busy_timeout(PLAYER_CATALOGUE_BUSY_TIMEOUT)
+            .context("setting player catalogue synchronisation busy timeout")?;
+
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
-            .context("starting supplied player catalogue synchronisation")?;
+            .context("locking database for supplied player catalogue synchronisation")?;
 
-        transaction
-            .execute("DELETE FROM player_catalogue_aliases", [])
-            .context("clearing supplied player catalogue aliases")?;
+        let locked_version = read_catalogue_data_version(&transaction)?;
 
-        transaction
-            .execute("DELETE FROM player_catalogue_players", [])
-            .context("clearing supplied player catalogue players")?;
-
-        transaction
-            .execute("DELETE FROM player_catalogue_state", [])
-            .context("clearing supplied player catalogue state")?;
-
-        {
-            let mut insert_player = transaction
-                .prepare(
-                    r#"
-                    INSERT INTO player_catalogue_players(
-                        catalogue_key,
-                        preferred_name
-                    )
-                    VALUES (?1, ?2)
-                    "#,
-                )
-                .context("preparing supplied catalogue player insertion")?;
-
-            for player in &self.players {
-                insert_player
-                    .execute(params![player.key.as_str(), player.preferred_name.as_str(),])
-                    .with_context(|| {
-                        format!("storing supplied catalogue player {:?}", player.key)
-                    })?;
+        match locked_version {
+            Some(version) if version > data_version => {
+                bail!(
+                    "project player catalogue version {version} is newer than \
+                     this Bermuda catalogue version {data_version}"
+                );
             }
+
+            Some(version) if version == data_version => {
+                transaction
+                    .commit()
+                    .context("committing no-op player catalogue synchronisation")?;
+
+                return Ok(false);
+            }
+
+            _ => {}
         }
 
-        {
-            let mut insert_alias = transaction
-                .prepare(
-                    r#"
-                    INSERT INTO player_catalogue_aliases(
-                        catalogue_key,
-                        name,
-                        notes
-                    )
-                    VALUES (?1, ?2, ?3)
-                    "#,
-                )
-                .context("preparing supplied catalogue alias insertion")?;
+        synchronise_supplied_tables_in_transaction(&transaction, self, data_version)?;
 
-            for player in &self.players {
-                for alias in &player.aliases {
-                    insert_alias
-                        .execute(params![
-                            player.key.as_str(),
-                            alias.name.as_str(),
-                            alias.notes.as_deref(),
-                        ])
-                        .with_context(|| {
-                            format!(
-                                "storing supplied catalogue alias {:?} for {:?}",
-                                alias.name, player.key
-                            )
-                        })?;
-                }
-            }
-        }
-
-        transaction
-            .execute(
-                r#"
-                INSERT INTO player_catalogue_state(id, data_version)
-                VALUES (1, ?1)
-                "#,
-                [data_version],
-            )
-            .context("recording supplied player catalogue version")?;
+        reconcile_game_metadata_in_transaction(&transaction, self)?;
 
         transaction
             .commit()
-            .context("committing supplied player catalogue synchronisation")?;
+            .context("committing supplied player catalogue reconciliation")?;
 
-        Ok(())
+        Ok(true)
     }
 
     fn validate(&self) -> Result<()> {
@@ -274,6 +274,294 @@ impl PlayerCatalogue {
 
         Ok(())
     }
+}
+
+fn read_catalogue_data_version(connection: &Connection) -> Result<Option<i64>> {
+    connection
+        .query_row(
+            "SELECT data_version FROM player_catalogue_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("reading supplied player catalogue version")
+}
+
+fn synchronise_supplied_tables_in_transaction(
+    transaction: &Transaction<'_>,
+    catalogue: &PlayerCatalogue,
+    data_version: i64,
+) -> Result<()> {
+    /*
+     * This helper owns only the supplied player_catalogue_* tables. Its caller
+     * owns the transaction so table replacement and metadata reconciliation
+     * either both commit or both roll back.
+     */
+    transaction
+        .execute("DELETE FROM player_catalogue_aliases", [])
+        .context("clearing supplied player catalogue aliases")?;
+
+    transaction
+        .execute("DELETE FROM player_catalogue_players", [])
+        .context("clearing supplied player catalogue players")?;
+
+    transaction
+        .execute("DELETE FROM player_catalogue_state", [])
+        .context("clearing supplied player catalogue state")?;
+
+    {
+        let mut insert_player = transaction
+            .prepare(
+                r#"
+                INSERT INTO player_catalogue_players(
+                    catalogue_key,
+                    preferred_name
+                )
+                VALUES (?1, ?2)
+                "#,
+            )
+            .context("preparing supplied catalogue player insertion")?;
+
+        for player in &catalogue.players {
+            insert_player
+                .execute(params![player.key.as_str(), player.preferred_name.as_str(),])
+                .with_context(|| format!("storing supplied catalogue player {:?}", player.key))?;
+        }
+    }
+
+    {
+        let mut insert_alias = transaction
+            .prepare(
+                r#"
+                INSERT INTO player_catalogue_aliases(
+                    catalogue_key,
+                    name,
+                    notes
+                )
+                VALUES (?1, ?2, ?3)
+                "#,
+            )
+            .context("preparing supplied catalogue alias insertion")?;
+
+        for player in &catalogue.players {
+            for alias in &player.aliases {
+                insert_alias
+                    .execute(params![
+                        player.key.as_str(),
+                        alias.name.as_str(),
+                        alias.notes.as_deref(),
+                    ])
+                    .with_context(|| {
+                        format!(
+                            "storing supplied catalogue alias {:?} for {:?}",
+                            alias.name, player.key
+                        )
+                    })?;
+            }
+        }
+    }
+
+    transaction
+        .execute(
+            r#"
+            INSERT INTO player_catalogue_state(id, data_version)
+            VALUES (1, ?1)
+            "#,
+            [data_version],
+        )
+        .context("recording supplied player catalogue version")?;
+
+    Ok(())
+}
+
+/// Resolve one imported/source player spelling using Bermuda's complete
+/// precedence rules.
+///
+/// Exact local source-specific aliases win over exact local global aliases.
+/// Local ambiguity is a stop condition. Only a name unrecognised by the local
+/// layer may fall through to one unique exact supplied-catalogue identity.
+pub(crate) fn resolve_player_identity_in_transaction(
+    transaction: &Transaction<'_>,
+    source_id: i64,
+    player_catalogue: &PlayerCatalogue,
+    name: Option<&str>,
+) -> Result<ResolvedPlayerIdentity> {
+    let Some(name) = name else {
+        return Ok(ResolvedPlayerIdentity::UNRESOLVED);
+    };
+
+    match resolve_player_alias_for_source(transaction, source_id, name)? {
+        PlayerAliasResolution::Unique(player_id) => {
+            return Ok(ResolvedPlayerIdentity::local(player_id));
+        }
+
+        PlayerAliasResolution::Ambiguous => {
+            return Ok(ResolvedPlayerIdentity::UNRESOLVED);
+        }
+
+        PlayerAliasResolution::Unrecognised => {}
+    }
+
+    let catalogue_player = match player_catalogue.resolve_name(name) {
+        CatalogueNameResolution::Unique(player) => player,
+
+        CatalogueNameResolution::Unrecognised | CatalogueNameResolution::Ambiguous(_) => {
+            return Ok(ResolvedPlayerIdentity::UNRESOLVED);
+        }
+    };
+
+    let materialisation = materialise_player_in_transaction(transaction, catalogue_player)?;
+
+    Ok(ResolvedPlayerIdentity::catalogue(materialisation.player_id))
+}
+
+fn reconcile_game_metadata_in_transaction(
+    transaction: &Transaction<'_>,
+    player_catalogue: &PlayerCatalogue,
+) -> Result<()> {
+    /*
+     * Resolve each source/name pair once rather than once per game occurrence.
+     *
+     * Eligible rows are exactly:
+     *   - ordinary unresolved occurrences; and
+     *   - catalogue-derived occurrences from the previous catalogue version.
+     *
+     * Local assignments are excluded by the player-id/provenance predicate.
+     * Explicitly suppressed occurrences are excluded independently.
+     */
+    let source_names = {
+        let mut statement = transaction
+            .prepare(
+                r#"
+                SELECT
+                    gs.source_id,
+                    gm.black_player AS raw_name
+                FROM game_metadata AS gm
+                JOIN game_sources AS gs
+                    ON gs.id = gm.game_source_id
+                WHERE gm.black_player IS NOT NULL
+                  AND TRIM(gm.black_player) <> ''
+                  AND gm.black_player_catalogue_suppressed = 0
+                  AND (
+                        gm.black_player_id IS NULL
+                        OR gm.black_player_catalogue_derived = 1
+                      )
+
+                UNION
+
+                SELECT
+                    gs.source_id,
+                    gm.white_player AS raw_name
+                FROM game_metadata AS gm
+                JOIN game_sources AS gs
+                    ON gs.id = gm.game_source_id
+                WHERE gm.white_player IS NOT NULL
+                  AND TRIM(gm.white_player) <> ''
+                  AND gm.white_player_catalogue_suppressed = 0
+                  AND (
+                        gm.white_player_id IS NULL
+                        OR gm.white_player_catalogue_derived = 1
+                      )
+
+                ORDER BY source_id, raw_name
+                "#,
+            )
+            .context("preparing player catalogue reconciliation candidates")?;
+
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .context("reading player catalogue reconciliation candidates")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collecting player catalogue reconciliation candidates")?
+    };
+
+    for (source_id, raw_name) in source_names {
+        let identity = resolve_player_identity_in_transaction(
+            transaction,
+            source_id,
+            player_catalogue,
+            Some(&raw_name),
+        )?;
+
+        let catalogue_derived = if identity.catalogue_derived {
+            1_i64
+        } else {
+            0_i64
+        };
+
+        transaction
+            .execute(
+                r#"
+                UPDATE game_metadata
+                SET black_player_id = ?1,
+                    black_player_catalogue_derived = ?2,
+                    black_player_catalogue_suppressed = 0
+                WHERE black_player = ?3
+                  AND black_player_catalogue_suppressed = 0
+                  AND (
+                        black_player_id IS NULL
+                        OR black_player_catalogue_derived = 1
+                      )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM game_sources AS gs
+                        WHERE gs.id = game_metadata.game_source_id
+                          AND gs.source_id = ?4
+                      )
+                "#,
+                params![
+                    identity.player_id,
+                    catalogue_derived,
+                    raw_name.as_str(),
+                    source_id,
+                ],
+            )
+            .with_context(|| {
+                format!(
+                    "reconciling Black player name {:?} for source {}",
+                    raw_name, source_id
+                )
+            })?;
+
+        transaction
+            .execute(
+                r#"
+                UPDATE game_metadata
+                SET white_player_id = ?1,
+                    white_player_catalogue_derived = ?2,
+                    white_player_catalogue_suppressed = 0
+                WHERE white_player = ?3
+                  AND white_player_catalogue_suppressed = 0
+                  AND (
+                        white_player_id IS NULL
+                        OR white_player_catalogue_derived = 1
+                      )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM game_sources AS gs
+                        WHERE gs.id = game_metadata.game_source_id
+                          AND gs.source_id = ?4
+                      )
+                "#,
+                params![
+                    identity.player_id,
+                    catalogue_derived,
+                    raw_name.as_str(),
+                    source_id,
+                ],
+            )
+            .with_context(|| {
+                format!(
+                    "reconciling White player name {:?} for source {}",
+                    raw_name, source_id
+                )
+            })?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn materialise_player_in_transaction(
@@ -582,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn synchronises_only_supplied_catalogue_data() -> Result<()> {
+    fn synchronises_catalogue_without_deleting_local_identity_data() -> Result<()> {
         let temporary_directory = tempdir()?;
         let database_root = temporary_directory.path().join("database");
 
@@ -618,7 +906,7 @@ mod tests {
             "#,
         )?;
 
-        first.synchronise(&mut connection)?;
+        assert!(first.synchronise(&mut connection)?);
 
         let first_version: i64 = connection.query_row(
             "SELECT data_version FROM player_catalogue_state WHERE id = 1",
@@ -697,7 +985,7 @@ mod tests {
             "#,
         )?;
 
-        second.synchronise(&mut connection)?;
+        assert!(second.synchronise(&mut connection)?);
 
         let second_version: i64 = connection.query_row(
             "SELECT data_version FROM player_catalogue_state WHERE id = 1",
@@ -786,6 +1074,606 @@ mod tests {
         )?;
 
         assert_eq!(local_alias_count, 1);
+
+        Ok(())
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct ReconciledSideState {
+        raw_name: Option<String>,
+        player_id: Option<i64>,
+        catalogue_derived: i64,
+        catalogue_suppressed: i64,
+    }
+
+    fn reconciliation_test_connection() -> Result<rusqlite::Connection> {
+        let connection = rusqlite::Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            CREATE TABLE players (
+                id              INTEGER PRIMARY KEY,
+                preferred_name  TEXT NOT NULL,
+                catalogue_key   TEXT
+            );
+
+            CREATE UNIQUE INDEX players_catalogue_key
+                ON players(catalogue_key)
+                WHERE catalogue_key IS NOT NULL;
+
+            CREATE TABLE player_aliases (
+                id          INTEGER PRIMARY KEY,
+                player_id   INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                source_id   INTEGER,
+                notes       TEXT
+            );
+
+            CREATE TABLE game_sources (
+                id          INTEGER PRIMARY KEY,
+                source_id   INTEGER NOT NULL
+            );
+
+            CREATE TABLE game_metadata (
+                game_source_id INTEGER PRIMARY KEY,
+                black_player TEXT,
+                white_player TEXT,
+                black_player_id INTEGER,
+                white_player_id INTEGER,
+                black_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_derived IN (0, 1)),
+                white_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_derived IN (0, 1)),
+                black_player_catalogue_suppressed INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_suppressed IN (0, 1)),
+                white_player_catalogue_suppressed INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_suppressed IN (0, 1))
+            );
+
+            CREATE TABLE player_catalogue_state (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                data_version    INTEGER NOT NULL CHECK (data_version >= 0)
+            );
+
+            CREATE TABLE player_catalogue_players (
+                catalogue_key   TEXT PRIMARY KEY,
+                preferred_name  TEXT NOT NULL
+            );
+
+            CREATE TABLE player_catalogue_aliases (
+                id              INTEGER PRIMARY KEY,
+                catalogue_key   TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                notes           TEXT
+            );
+
+            CREATE UNIQUE INDEX player_catalogue_alias_assignment
+                ON player_catalogue_aliases(catalogue_key, name);
+            "#,
+        )?;
+
+        Ok(connection)
+    }
+
+    fn reconciled_side_state(
+        connection: &rusqlite::Connection,
+        game_source_id: i64,
+        black: bool,
+    ) -> Result<ReconciledSideState> {
+        let sql = if black {
+            r#"
+            SELECT
+                black_player,
+                black_player_id,
+                black_player_catalogue_derived,
+                black_player_catalogue_suppressed
+            FROM game_metadata
+            WHERE game_source_id = ?1
+            "#
+        } else {
+            r#"
+            SELECT
+                white_player,
+                white_player_id,
+                white_player_catalogue_derived,
+                white_player_catalogue_suppressed
+            FROM game_metadata
+            WHERE game_source_id = ?1
+            "#
+        };
+
+        connection
+            .query_row(sql, [game_source_id], |row| {
+                Ok(ReconciledSideState {
+                    raw_name: row.get(0)?,
+                    player_id: row.get(1)?,
+                    catalogue_derived: row.get(2)?,
+                    catalogue_suppressed: row.get(3)?,
+                })
+            })
+            .context("reading reconciled player-side state")
+    }
+
+    #[test]
+    fn catalogue_reconciliation_respects_local_ambiguity_and_suppression() -> Result<()> {
+        let mut connection = reconciliation_test_connection()?;
+
+        connection.execute_batch(
+            r#"
+            INSERT INTO players(id, preferred_name)
+            VALUES
+                (101, 'Local Winner'),
+                (102, 'Ambiguous Local A'),
+                (103, 'Ambiguous Local B'),
+                (104, 'Local Locked');
+
+            INSERT INTO player_aliases(player_id, name, source_id)
+            VALUES
+                (101, 'Local Name', 1),
+                (102, 'Ambiguous Local', 1),
+                (103, 'Ambiguous Local', 1);
+
+            INSERT INTO game_sources(id, source_id)
+            VALUES
+                (10, 1),
+                (11, 1),
+                (12, 1),
+                (13, 1);
+
+            INSERT INTO game_metadata(
+                game_source_id,
+                black_player,
+                white_player,
+                black_player_id,
+                white_player_id,
+                black_player_catalogue_derived,
+                white_player_catalogue_derived,
+                black_player_catalogue_suppressed,
+                white_player_catalogue_suppressed
+            )
+            VALUES
+                (
+                    10,
+                    'Catalogue Name',
+                    'Local Name',
+                    NULL,
+                    NULL,
+                    0,
+                    0,
+                    0,
+                    0
+                ),
+                (
+                    11,
+                    'Ambiguous Local',
+                    'Shared Catalogue',
+                    NULL,
+                    NULL,
+                    0,
+                    0,
+                    0,
+                    0
+                ),
+                (
+                    12,
+                    'Suppressed Name',
+                    'Unknown',
+                    NULL,
+                    NULL,
+                    0,
+                    0,
+                    1,
+                    0
+                ),
+                (
+                    13,
+                    'Local Locked',
+                    'Catalogue Name',
+                    104,
+                    NULL,
+                    0,
+                    0,
+                    0,
+                    0
+                );
+            "#,
+        )?;
+
+        let catalogue = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": [
+                {
+                  "key": "test:catalogue-only",
+                  "preferred_name": "Catalogue Name"
+                },
+                {
+                  "key": "test:shadowed",
+                  "preferred_name": "Catalogue Shadow",
+                  "aliases": [
+                    { "name": "Local Name" }
+                  ]
+                },
+                {
+                  "key": "test:local-ambiguous",
+                  "preferred_name": "Catalogue Local Ambiguous",
+                  "aliases": [
+                    { "name": "Ambiguous Local" }
+                  ]
+                },
+                {
+                  "key": "test:shared-a",
+                  "preferred_name": "Shared A",
+                  "aliases": [
+                    { "name": "Shared Catalogue" }
+                  ]
+                },
+                {
+                  "key": "test:shared-b",
+                  "preferred_name": "Shared B",
+                  "aliases": [
+                    { "name": "Shared Catalogue" }
+                  ]
+                },
+                {
+                  "key": "test:suppressed",
+                  "preferred_name": "Suppressed Name"
+                },
+                {
+                  "key": "test:local-locked",
+                  "preferred_name": "Local Locked"
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        assert!(catalogue.synchronise(&mut connection)?);
+
+        let catalogue_player_id: i64 = connection.query_row(
+            r#"
+            SELECT id
+            FROM players
+            WHERE catalogue_key = 'test:catalogue-only'
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(
+            reconciled_side_state(&connection, 10, true)?,
+            ReconciledSideState {
+                raw_name: Some("Catalogue Name".to_owned()),
+                player_id: Some(catalogue_player_id),
+                catalogue_derived: 1,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        assert_eq!(
+            reconciled_side_state(&connection, 10, false)?,
+            ReconciledSideState {
+                raw_name: Some("Local Name".to_owned()),
+                player_id: Some(101),
+                catalogue_derived: 0,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        /*
+         * Local ambiguity is a stop condition. Supplied ambiguity is also
+         * unresolved rather than guessed.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 11, true)?,
+            ReconciledSideState {
+                raw_name: Some("Ambiguous Local".to_owned()),
+                player_id: None,
+                catalogue_derived: 0,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        assert_eq!(
+            reconciled_side_state(&connection, 11, false)?,
+            ReconciledSideState {
+                raw_name: Some("Shared Catalogue".to_owned()),
+                player_id: None,
+                catalogue_derived: 0,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        /*
+         * Explicit suppression wins over a supplied catalogue match.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 12, true)?,
+            ReconciledSideState {
+                raw_name: Some("Suppressed Name".to_owned()),
+                player_id: None,
+                catalogue_derived: 0,
+                catalogue_suppressed: 1,
+            }
+        );
+
+        /*
+         * Existing local ownership is not rewritten even when the raw spelling
+         * also exists in the supplied catalogue.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 13, true)?,
+            ReconciledSideState {
+                raw_name: Some("Local Locked".to_owned()),
+                player_id: Some(104),
+                catalogue_derived: 0,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        assert_eq!(
+            reconciled_side_state(&connection, 13, false)?,
+            ReconciledSideState {
+                raw_name: Some("Catalogue Name".to_owned()),
+                player_id: Some(catalogue_player_id),
+                catalogue_derived: 1,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        let stored_version: i64 = connection.query_row(
+            "SELECT data_version FROM player_catalogue_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(stored_version, 1);
+
+        /*
+         * Reopening against the same bundled data version is a genuine no-op.
+         */
+        assert!(!catalogue.synchronise(&mut connection)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn catalogue_version_change_repairs_only_catalogue_owned_interpretations() -> Result<()> {
+        let mut connection = reconciliation_test_connection()?;
+
+        connection.execute_batch(
+            r#"
+            INSERT INTO players(id, preferred_name)
+            VALUES (201, 'Local Retarget');
+
+            INSERT INTO game_sources(id, source_id)
+            VALUES
+                (20, 1),
+                (21, 1),
+                (22, 1),
+                (23, 1),
+                (24, 1);
+
+            INSERT INTO game_metadata(
+                game_source_id,
+                black_player
+            )
+            VALUES
+                (20, 'Stable'),
+                (21, 'Removed'),
+                (22, 'Retarget'),
+                (23, 'Rekeyed'),
+                (24, 'New Name');
+            "#,
+        )?;
+
+        let first = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": [
+                {
+                  "key": "test:stable",
+                  "preferred_name": "Stable"
+                },
+                {
+                  "key": "test:old",
+                  "preferred_name": "Old Player",
+                  "aliases": [
+                    { "name": "Removed" },
+                    { "name": "Retarget" },
+                    { "name": "Rekeyed" }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        assert!(first.synchronise(&mut connection)?);
+
+        let stable_id: i64 = connection.query_row(
+            "SELECT id FROM players WHERE catalogue_key = 'test:stable'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        let old_id: i64 = connection.query_row(
+            "SELECT id FROM players WHERE catalogue_key = 'test:old'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(
+            reconciled_side_state(&connection, 20, true)?.player_id,
+            Some(stable_id)
+        );
+        assert_eq!(
+            reconciled_side_state(&connection, 21, true)?.player_id,
+            Some(old_id)
+        );
+        assert_eq!(
+            reconciled_side_state(&connection, 22, true)?.player_id,
+            Some(old_id)
+        );
+        assert_eq!(
+            reconciled_side_state(&connection, 23, true)?.player_id,
+            Some(old_id)
+        );
+        assert_eq!(
+            reconciled_side_state(&connection, 24, true)?.player_id,
+            None
+        );
+
+        /*
+         * Local knowledge added after catalogue version 1 must take precedence
+         * when version 2 re-evaluates the old catalogue-derived Retarget link.
+         */
+        connection.execute(
+            r#"
+            INSERT INTO player_aliases(player_id, name, source_id)
+            VALUES (201, 'Retarget', 1)
+            "#,
+            [],
+        )?;
+
+        let second = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 2,
+              "players": [
+                {
+                  "key": "test:stable",
+                  "preferred_name": "Stable"
+                },
+                {
+                  "key": "test:old",
+                  "preferred_name": "Old Player"
+                },
+                {
+                  "key": "test:new",
+                  "preferred_name": "New Name",
+                  "aliases": [
+                    { "name": "Rekeyed" }
+                  ]
+                },
+                {
+                  "key": "test:catalogue-retarget",
+                  "preferred_name": "Catalogue Retarget",
+                  "aliases": [
+                    { "name": "Retarget" }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        assert!(second.synchronise(&mut connection)?);
+
+        let new_id: i64 = connection.query_row(
+            "SELECT id FROM players WHERE catalogue_key = 'test:new'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        /*
+         * A still-valid catalogue interpretation remains catalogue-owned.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 20, true)?,
+            ReconciledSideState {
+                raw_name: Some("Stable".to_owned()),
+                player_id: Some(stable_id),
+                catalogue_derived: 1,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        /*
+         * Bermuda withdrawing an interpretation makes it ordinarily
+         * unresolved, not user-suppressed.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 21, true)?,
+            ReconciledSideState {
+                raw_name: Some("Removed".to_owned()),
+                player_id: None,
+                catalogue_derived: 0,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        /*
+         * Local exact knowledge added since the previous catalogue version
+         * replaces the old catalogue interpretation.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 22, true)?,
+            ReconciledSideState {
+                raw_name: Some("Retarget".to_owned()),
+                player_id: Some(201),
+                catalogue_derived: 0,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        /*
+         * A supplied spelling may legitimately move to a different stable
+         * catalogue identity.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 23, true)?,
+            ReconciledSideState {
+                raw_name: Some("Rekeyed".to_owned()),
+                player_id: Some(new_id),
+                catalogue_derived: 1,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        /*
+         * Previously unresolved historical metadata may acquire an identity
+         * when the newer catalogue learns that spelling.
+         */
+        assert_eq!(
+            reconciled_side_state(&connection, 24, true)?,
+            ReconciledSideState {
+                raw_name: Some("New Name".to_owned()),
+                player_id: Some(new_id),
+                catalogue_derived: 1,
+                catalogue_suppressed: 0,
+            }
+        );
+
+        assert_eq!(
+            connection.query_row(
+                "SELECT data_version FROM player_catalogue_state WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            2
+        );
+
+        /*
+         * An older Bermuda binary must not silently downgrade a project whose
+         * supplied catalogue state was written by a newer catalogue version.
+         */
+        let downgrade_error = first
+            .synchronise(&mut connection)
+            .expect_err("catalogue downgrade must be refused");
+
+        assert!(downgrade_error.to_string().contains("newer"));
+
+        assert_eq!(
+            connection.query_row(
+                "SELECT data_version FROM player_catalogue_state WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?,
+            2
+        );
 
         Ok(())
     }
