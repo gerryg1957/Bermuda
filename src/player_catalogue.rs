@@ -21,6 +21,13 @@ pub struct CataloguePlayer {
     pub aliases: Vec<CatalogueAlias>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum CatalogueNameResolution<'a> {
+    Unrecognised,
+    Unique(&'a CataloguePlayer),
+    Ambiguous(Vec<&'a CataloguePlayer>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CatalogueAlias {
     pub name: String,
@@ -42,6 +49,34 @@ impl PlayerCatalogue {
         catalogue.validate()?;
 
         Ok(catalogue)
+    }
+
+    pub fn resolve_name(&self, name: &str) -> CatalogueNameResolution<'_> {
+        /*
+         * Catalogue resolution is deliberately exact and conservative.
+         *
+         * This is identity resolution for imported source text, not the
+         * user-facing search facility. It therefore does not trim, fold case,
+         * perform fuzzy matching, or otherwise guess that two spellings are
+         * equivalent.
+         *
+         * A player is included at most once even if the same spelling appears
+         * both as that player's preferred name and as one of their aliases.
+         */
+        let matches = self
+            .players
+            .iter()
+            .filter(|player| {
+                player.preferred_name == name
+                    || player.aliases.iter().any(|alias| alias.name == name)
+            })
+            .collect::<Vec<_>>();
+
+        match matches.as_slice() {
+            [] => CatalogueNameResolution::Unrecognised,
+            [player] => CatalogueNameResolution::Unique(player),
+            _ => CatalogueNameResolution::Ambiguous(matches),
+        }
     }
 
     pub fn synchronise(&self, connection: &mut Connection) -> Result<()> {
@@ -202,6 +237,103 @@ mod tests {
 
     use super::*;
     use crate::database;
+
+    #[test]
+    fn resolves_catalogue_names_without_guessing() -> Result<()> {
+        let catalogue = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": [
+                {
+                  "key": "test:player-a",
+                  "preferred_name": "Player A",
+                  "aliases": [
+                    {
+                      "name": "Alias A"
+                    },
+                    {
+                      "name": "Player A"
+                    }
+                  ]
+                },
+                {
+                  "key": "test:player-b",
+                  "preferred_name": "Player B",
+                  "aliases": [
+                    {
+                      "name": "Shared Alias"
+                    }
+                  ]
+                },
+                {
+                  "key": "test:player-c",
+                  "preferred_name": "Player C",
+                  "aliases": [
+                    {
+                      "name": "Shared Alias"
+                    }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        match catalogue.resolve_name("Player A") {
+            CatalogueNameResolution::Unique(player) => {
+                assert_eq!(player.key, "test:player-a");
+            }
+            other => panic!("expected unique preferred-name match, got {other:?}"),
+        }
+
+        match catalogue.resolve_name("Alias A") {
+            CatalogueNameResolution::Unique(player) => {
+                assert_eq!(player.key, "test:player-a");
+            }
+            other => panic!("expected unique alias match, got {other:?}"),
+        }
+
+        /*
+         * Matching both preferred name and alias on the same identity must
+         * still yield one player, not a false ambiguity.
+         */
+        match catalogue.resolve_name("Player A") {
+            CatalogueNameResolution::Unique(player) => {
+                assert_eq!(player.key, "test:player-a");
+            }
+            other => panic!("expected one deduplicated identity, got {other:?}"),
+        }
+
+        assert_eq!(
+            catalogue.resolve_name("player a"),
+            CatalogueNameResolution::Unrecognised
+        );
+
+        assert_eq!(
+            catalogue.resolve_name(" Player A "),
+            CatalogueNameResolution::Unrecognised
+        );
+
+        match catalogue.resolve_name("Shared Alias") {
+            CatalogueNameResolution::Ambiguous(players) => {
+                let keys = players
+                    .iter()
+                    .map(|player| player.key.as_str())
+                    .collect::<Vec<_>>();
+
+                assert_eq!(keys, vec!["test:player-b", "test:player-c"]);
+            }
+            other => panic!("expected ambiguous catalogue match, got {other:?}"),
+        }
+
+        assert_eq!(
+            catalogue.resolve_name("Unknown Player"),
+            CatalogueNameResolution::Unrecognised
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn synchronises_only_supplied_catalogue_data() -> Result<()> {
