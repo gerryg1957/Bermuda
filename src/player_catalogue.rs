@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
+use rusqlite::{Connection, TransactionBehavior, params};
 use serde::Deserialize;
 
 const SUPPLIED_CATALOGUE_JSON: &str = include_str!("../data/player_catalogue.json");
@@ -41,6 +42,111 @@ impl PlayerCatalogue {
         catalogue.validate()?;
 
         Ok(catalogue)
+    }
+
+    pub fn synchronise(&self, connection: &mut Connection) -> Result<()> {
+        /*
+         * Validation is repeated here deliberately. PlayerCatalogue's fields
+         * are public, so callers are not required to have constructed it via
+         * from_json().
+         */
+        self.validate()?;
+
+        let data_version = i64::try_from(self.version)
+            .context("player catalogue version exceeds SQLite integer range")?;
+
+        /*
+         * The supplied catalogue is replaced as one SQLite transaction.
+         *
+         * This operation deliberately owns only player_catalogue_* tables.
+         * In particular it must not rewrite players, player_aliases,
+         * game_metadata, or source PB/PW strings.
+         */
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("starting supplied player catalogue synchronisation")?;
+
+        transaction
+            .execute("DELETE FROM player_catalogue_aliases", [])
+            .context("clearing supplied player catalogue aliases")?;
+
+        transaction
+            .execute("DELETE FROM player_catalogue_players", [])
+            .context("clearing supplied player catalogue players")?;
+
+        transaction
+            .execute("DELETE FROM player_catalogue_state", [])
+            .context("clearing supplied player catalogue state")?;
+
+        {
+            let mut insert_player = transaction
+                .prepare(
+                    r#"
+                    INSERT INTO player_catalogue_players(
+                        catalogue_key,
+                        preferred_name
+                    )
+                    VALUES (?1, ?2)
+                    "#,
+                )
+                .context("preparing supplied catalogue player insertion")?;
+
+            for player in &self.players {
+                insert_player
+                    .execute(params![player.key.as_str(), player.preferred_name.as_str(),])
+                    .with_context(|| {
+                        format!("storing supplied catalogue player {:?}", player.key)
+                    })?;
+            }
+        }
+
+        {
+            let mut insert_alias = transaction
+                .prepare(
+                    r#"
+                    INSERT INTO player_catalogue_aliases(
+                        catalogue_key,
+                        name,
+                        notes
+                    )
+                    VALUES (?1, ?2, ?3)
+                    "#,
+                )
+                .context("preparing supplied catalogue alias insertion")?;
+
+            for player in &self.players {
+                for alias in &player.aliases {
+                    insert_alias
+                        .execute(params![
+                            player.key.as_str(),
+                            alias.name.as_str(),
+                            alias.notes.as_deref(),
+                        ])
+                        .with_context(|| {
+                            format!(
+                                "storing supplied catalogue alias {:?} for {:?}",
+                                alias.name, player.key
+                            )
+                        })?;
+                }
+            }
+        }
+
+        transaction
+            .execute(
+                r#"
+                INSERT INTO player_catalogue_state(id, data_version)
+                VALUES (1, ?1)
+                "#,
+                [data_version],
+            )
+            .context("recording supplied player catalogue version")?;
+
+        transaction
+            .commit()
+            .context("committing supplied player catalogue synchronisation")?;
+
+        Ok(())
     }
 
     fn validate(&self) -> Result<()> {
@@ -92,7 +198,219 @@ impl PlayerCatalogue {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::tempdir;
+
     use super::*;
+    use crate::database;
+
+    #[test]
+    fn synchronises_only_supplied_catalogue_data() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let database_root = temporary_directory.path().join("database");
+
+        database::initialise(&database_root)?;
+        let mut connection = database::open(&database_root)?;
+
+        let first = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": [
+                {
+                  "key": "test:player-a",
+                  "preferred_name": "Player A",
+                  "aliases": [
+                    {
+                      "name": "Alias A",
+                      "notes": "first catalogue"
+                    }
+                  ]
+                },
+                {
+                  "key": "test:player-b",
+                  "preferred_name": "Player B",
+                  "aliases": [
+                    {
+                      "name": "Shared Alias"
+                    }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        first.synchronise(&mut connection)?;
+
+        let first_version: i64 = connection.query_row(
+            "SELECT data_version FROM player_catalogue_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        let first_player_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_catalogue_players", [], |row| {
+                row.get(0)
+            })?;
+
+        let first_alias_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_catalogue_aliases", [], |row| {
+                row.get(0)
+            })?;
+
+        assert_eq!(first_version, 1);
+        assert_eq!(first_player_count, 2);
+        assert_eq!(first_alias_count, 2);
+
+        /*
+         * Materialise one supplied identity into the local/user layer and add
+         * local information to it. The next catalogue version deliberately
+         * removes test:player-a; synchronisation must not delete this row or
+         * its local alias.
+         */
+        connection.execute(
+            r#"
+            INSERT INTO players(preferred_name, catalogue_key)
+            VALUES ('User display for A', 'test:player-a')
+            "#,
+            [],
+        )?;
+
+        let local_player_id = connection.last_insert_rowid();
+
+        connection.execute(
+            r#"
+            INSERT INTO player_aliases(
+                player_id,
+                name,
+                source_id,
+                notes
+            )
+            VALUES (?1, 'User Alias A', NULL, 'local user knowledge')
+            "#,
+            [local_player_id],
+        )?;
+
+        let second = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 2,
+              "players": [
+                {
+                  "key": "test:player-b",
+                  "preferred_name": "Player B revised",
+                  "aliases": [
+                    {
+                      "name": "Shared Alias"
+                    }
+                  ]
+                },
+                {
+                  "key": "test:player-c",
+                  "preferred_name": "Player C",
+                  "aliases": [
+                    {
+                      "name": "Shared Alias"
+                    }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        second.synchronise(&mut connection)?;
+
+        let second_version: i64 = connection.query_row(
+            "SELECT data_version FROM player_catalogue_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(second_version, 2);
+
+        let catalogue_player_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_catalogue_players", [], |row| {
+                row.get(0)
+            })?;
+
+        let catalogue_alias_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_catalogue_aliases", [], |row| {
+                row.get(0)
+            })?;
+
+        assert_eq!(catalogue_player_count, 2);
+        assert_eq!(catalogue_alias_count, 2);
+
+        let removed_catalogue_player_count: i64 = connection.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM player_catalogue_players
+            WHERE catalogue_key = 'test:player-a'
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(removed_catalogue_player_count, 0);
+
+        let revised_name: String = connection.query_row(
+            r#"
+            SELECT preferred_name
+            FROM player_catalogue_players
+            WHERE catalogue_key = 'test:player-b'
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(revised_name, "Player B revised");
+
+        /*
+         * Ambiguous supplied names remain representable. The same exact
+         * alias may point at more than one catalogue identity.
+         */
+        let shared_alias_count: i64 = connection.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM player_catalogue_aliases
+            WHERE name = 'Shared Alias'
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(shared_alias_count, 2);
+
+        let (local_name, local_catalogue_key): (String, Option<String>) = connection.query_row(
+            r#"
+                SELECT preferred_name, catalogue_key
+                FROM players
+                WHERE id = ?1
+                "#,
+            [local_player_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        assert_eq!(local_name, "User display for A");
+        assert_eq!(local_catalogue_key.as_deref(), Some("test:player-a"));
+
+        let local_alias_count: i64 = connection.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM player_aliases
+            WHERE player_id = ?1
+              AND name = 'User Alias A'
+              AND notes = 'local user knowledge'
+            "#,
+            [local_player_id],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(local_alias_count, 1);
+
+        Ok(())
+    }
 
     #[test]
     fn supplied_catalogue_parses() -> Result<()> {
