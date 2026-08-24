@@ -94,6 +94,7 @@ pub struct SearchResultModelRust {
 
     pub(crate) error_message: QString,
     pub(crate) next_move_distribution_json: QString,
+    pub(crate) outcome_summary_json: QString,
     pub(crate) total_occurrences: i32,
 
     pub(crate) search_in_progress: bool,
@@ -330,6 +331,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
             )
         };
 
+        let outcome_summary_json = outcome_summary_json_for_rows(&filtered_rows);
+
         self.as_mut().begin_reset_model();
         {
             let mut rust = self.as_mut().rust_mut();
@@ -337,6 +340,10 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.selected_continuation = Some((normalised_x, normalised_y));
         }
         self.as_mut().end_reset_model();
+
+        self.as_mut()
+            .set_outcome_summary_json(outcome_summary_json);
+
         true
     }
 
@@ -518,7 +525,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
             return QString::from("{}");
         };
 
-        let mut summary = ContinuationOutcomeSummaryJson {
+        let mut summary = OutcomeSummaryJson {
             games: game_ids.len(),
             black_wins: 0,
             white_wins: 0,
@@ -569,6 +576,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
             )
         };
 
+        let outcome_summary_json = outcome_summary_json_for_rows(&rows);
+
         self.as_mut().begin_reset_model();
         {
             let mut rust = self.as_mut().rust_mut();
@@ -576,6 +585,9 @@ impl crate::game_list_model::ffi::SearchResultModel {
             rust.selected_continuation = None;
         }
         self.as_mut().end_reset_model();
+
+        self.as_mut()
+            .set_outcome_summary_json(outcome_summary_json);
     }
 
     pub(crate) fn filter_results(
@@ -632,6 +644,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
             )
         };
 
+        let outcome_summary_json = outcome_summary_json_for_rows(&rows);
+
         self.as_mut().begin_reset_model();
         {
             let mut rust = self.as_mut().rust_mut();
@@ -640,6 +654,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
         }
         self.as_mut().end_reset_model();
 
+        self.as_mut()
+            .set_outcome_summary_json(outcome_summary_json);
         self.as_mut().set_error_message(QString::default());
         true
     }
@@ -759,6 +775,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut()
             .set_next_move_distribution_json(QString::from("{}"));
+        self.as_mut()
+            .set_outcome_summary_json(QString::from("{}"));
         self.as_mut().set_total_occurrences(0);
         self.as_mut().set_games_examined(0);
         self.as_mut().set_total_games(0);
@@ -894,6 +912,8 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut()
             .set_next_move_distribution_json(QString::from("{}"));
+        self.as_mut()
+            .set_outcome_summary_json(QString::from("{}"));
         self.as_mut().set_total_occurrences(0);
         self.as_mut().set_games_examined(0);
         self.as_mut().set_total_games(0);
@@ -1407,6 +1427,12 @@ fn finish_search(
     let matching_games = count_to_i32(rows.len());
     let keep_query = error_message.is_none() && !cancelled;
 
+    let outcome_summary_json = if keep_query {
+        outcome_summary_json_for_rows(&rows)
+    } else {
+        QString::from("{}")
+    };
+
     model.as_mut().begin_reset_model();
     {
         let mut rust = model.as_mut().rust_mut();
@@ -1424,6 +1450,9 @@ fn finish_search(
     model
         .as_mut()
         .set_next_move_distribution_json(next_move_distribution_json);
+    model
+        .as_mut()
+        .set_outcome_summary_json(outcome_summary_json);
     model.as_mut().set_total_occurrences(total_occurrences);
     model.as_mut().set_matching_games(matching_games);
     model.as_mut().set_matches_found(total_occurrences);
@@ -1753,6 +1782,45 @@ fn classify_game_result(result: &str) -> GameResultClass {
     }
 }
 
+fn outcome_summary_for_rows(rows: &[SearchResultRow]) -> OutcomeSummaryJson {
+    let mut summary = OutcomeSummaryJson {
+        games: rows.len(),
+        black_wins: 0,
+        white_wins: 0,
+        draws: 0,
+        unknown: 0,
+    };
+
+    for row in rows {
+        match classify_game_result(&row.result.to_string()) {
+            GameResultClass::BlackWin => {
+                summary.black_wins = summary.black_wins.saturating_add(1);
+            }
+
+            GameResultClass::WhiteWin => {
+                summary.white_wins = summary.white_wins.saturating_add(1);
+            }
+
+            GameResultClass::Draw => {
+                summary.draws = summary.draws.saturating_add(1);
+            }
+
+            GameResultClass::Unknown => {
+                summary.unknown = summary.unknown.saturating_add(1);
+            }
+        }
+    }
+
+    summary
+}
+
+fn outcome_summary_json_for_rows(rows: &[SearchResultRow]) -> QString {
+    match serde_json::to_string(&outcome_summary_for_rows(rows)) {
+        Ok(json) => QString::from(json),
+        Err(_) => QString::from("{}"),
+    }
+}
+
 fn next_move_distribution_to_json(distribution: &NextMoveDistribution) -> QString {
     let json = NextMoveDistributionJson {
         margin: distribution.margin,
@@ -1880,7 +1948,7 @@ fn search_results_to_rows(results: Vec<SearchSummaryResult>) -> Vec<SearchResult
 }
 
 #[derive(Debug, serde::Serialize)]
-struct ContinuationOutcomeSummaryJson {
+struct OutcomeSummaryJson {
     games: usize,
 
     #[serde(rename = "blackWins")]
@@ -2602,6 +2670,38 @@ mod occurrence_continuation_tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod current_outcome_summary_tests {
+    use super::*;
+
+    fn result_row(game_id: i64, result: &str) -> SearchResultRow {
+        SearchResultRow {
+            game_id,
+            result: QString::from(result),
+            ..SearchResultRow::default()
+        }
+    }
+
+    #[test]
+    fn summarises_current_search_rows_once_per_row() {
+        let rows = vec![
+            result_row(1, "B+R"),
+            result_row(2, "W+0.5"),
+            result_row(3, "B+2.5"),
+            result_row(4, "Jigo"),
+            result_row(5, "Void"),
+        ];
+
+        let summary = outcome_summary_for_rows(&rows);
+
+        assert_eq!(summary.games, 5);
+        assert_eq!(summary.black_wins, 2);
+        assert_eq!(summary.white_wins, 1);
+        assert_eq!(summary.draws, 1);
+        assert_eq!(summary.unknown, 1);
     }
 }
 

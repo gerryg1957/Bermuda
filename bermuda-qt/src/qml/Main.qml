@@ -1273,14 +1273,17 @@ menuBar: MenuBar {
                       spacing: 4
 
                       visible: boardPane.editingPosition
+                               || boardPane.investigatingSearch
                       enabled: !boardPane.selectingPattern
                       opacity: boardPane.selectingPattern ? 0 : 1
 
                       Label {
+                          visible: boardPane.editingPosition
                           text: qsTr("Place:")
                       }
 
                       ToolButton {
+                          visible: boardPane.editingPosition
                           text: qsTr("Black")
                           checkable: true
                           checked: boardPane.editTool === "black"
@@ -1289,6 +1292,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: boardPane.editingPosition
                           text: qsTr("White")
                           checkable: true
                           checked: boardPane.editTool === "white"
@@ -1297,6 +1301,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: boardPane.editingPosition
                           text: qsTr("Erase")
                           checkable: true
                           checked: boardPane.editTool === "erase"
@@ -1309,6 +1314,18 @@ menuBar: MenuBar {
                       }
 
                       Label {
+                          visible: boardPane.investigatingSearch
+                                   && gameList.searchOutcomeText.length > 0
+                          text: gameList.searchOutcomeText
+                          font.bold: true
+                      }
+
+                      Item {
+                          Layout.fillWidth: true
+                      }
+
+                      Label {
+                          visible: boardPane.editingPosition
                           text: qsTr("Click an intersection to edit")
                           opacity: 0.75
                       }

@@ -141,6 +141,7 @@ pub mod ffi {
         #[base = QAbstractListModel]
         #[qproperty(QString, error_message)]
         #[qproperty(QString, next_move_distribution_json)]
+        #[qproperty(QString, outcome_summary_json)]
         #[qproperty(i32, total_occurrences)]
         #[qproperty(bool, search_in_progress)]
         #[qproperty(bool, occurrence_load_in_progress)]

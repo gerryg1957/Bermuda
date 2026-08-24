@@ -53,6 +53,53 @@ Kirigami.AbstractCard {
         }
     }
 
+    readonly property var searchOutcomeSummary: {
+        const json = searchModel.outcome_summary_json
+
+        if (json.length === 0 || json === "{}")
+            return null
+
+        try {
+            return JSON.parse(json)
+        } catch (error) {
+            console.warn(
+                        "Could not decode current search outcomes: "
+                        + error)
+
+            return null
+        }
+    }
+
+    readonly property string searchOutcomeText: {
+        const summary = searchOutcomeSummary
+
+        if (summary === null)
+            return ""
+
+        const games = Number(summary.games)
+
+        if (games === 0)
+            return qsTr("0 games")
+
+        const blackWins = Number(summary.blackWins)
+        const whiteWins = Number(summary.whiteWins)
+        const decisiveGames = blackWins + whiteWins
+        const gameText = games === 1
+                         ? qsTr("1 game")
+                         : qsTr("%1 games").arg(games)
+
+        if (decisiveGames === 0)
+            return qsTr("%1 · no recorded winner").arg(gameText)
+
+        const blackPercent = 100.0 * blackWins / decisiveGames
+        const whitePercent = 100.0 * whiteWins / decisiveGames
+
+        return qsTr("%1 · B %2% · W %3%")
+            .arg(gameText)
+            .arg(blackPercent.toFixed(1))
+            .arg(whitePercent.toFixed(1))
+    }
+
     readonly property int nextMoveLocalCount: {
         const distribution = nextMoveDistribution
 
