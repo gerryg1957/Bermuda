@@ -28,6 +28,12 @@ pub enum CatalogueNameResolution<'a> {
     Ambiguous(Vec<&'a CataloguePlayer>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CataloguePlayerMaterialisation {
+    pub player_id: i64,
+    pub created: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CatalogueAlias {
     pub name: String,
@@ -77,6 +83,75 @@ impl PlayerCatalogue {
             [player] => CatalogueNameResolution::Unique(player),
             _ => CatalogueNameResolution::Ambiguous(matches),
         }
+    }
+
+    pub fn materialise_player(
+        &self,
+        connection: &mut Connection,
+        catalogue_key: &str,
+    ) -> Result<CataloguePlayerMaterialisation> {
+        /*
+         * Public catalogue fields mean callers could construct or mutate a
+         * PlayerCatalogue without going through from_json(), so validate
+         * before using catalogue data to create a local identity.
+         */
+        self.validate()?;
+
+        let player = self
+            .players
+            .iter()
+            .find(|player| player.key == catalogue_key)
+            .with_context(|| {
+                format!("player catalogue contains no identity with key {catalogue_key:?}")
+            })?;
+
+        /*
+         * Materialisation is key-based, never name-based.
+         *
+         * A local player with the same preferred_name but no catalogue_key is
+         * therefore not silently merged with the supplied identity.
+         *
+         * IMMEDIATE makes the find-or-create operation atomic with respect to
+         * other SQLite writers. The unique players.catalogue_key index remains
+         * the final database-level invariant.
+         */
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .context("starting catalogue player materialisation")?;
+
+        let created = transaction
+            .execute(
+                r#"
+                INSERT INTO players(preferred_name, catalogue_key)
+                SELECT ?1, ?2
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM players
+                    WHERE catalogue_key = ?2
+                )
+                "#,
+                params![player.preferred_name.as_str(), player.key.as_str(),],
+            )
+            .with_context(|| format!("materialising supplied catalogue player {:?}", player.key))?
+            == 1;
+
+        let player_id: i64 = transaction
+            .query_row(
+                r#"
+                SELECT id
+                FROM players
+                WHERE catalogue_key = ?1
+                "#,
+                [player.key.as_str()],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("reading materialised catalogue player {:?}", player.key))?;
+
+        transaction
+            .commit()
+            .context("committing catalogue player materialisation")?;
+
+        Ok(CataloguePlayerMaterialisation { player_id, created })
     }
 
     pub fn synchronise(&self, connection: &mut Connection) -> Result<()> {
@@ -330,6 +405,165 @@ mod tests {
         assert_eq!(
             catalogue.resolve_name("Unknown Player"),
             CatalogueNameResolution::Unrecognised
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn materialises_catalogue_identity_without_guessing_or_overwriting() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let database_root = temporary_directory.path().join("database");
+
+        database::initialise(&database_root)?;
+        let mut connection = database::open(&database_root)?;
+
+        let catalogue = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 1,
+              "players": [
+                {
+                  "key": "test:player-a",
+                  "preferred_name": "Player A",
+                  "aliases": [
+                    {
+                      "name": "Alias A"
+                    }
+                  ]
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        /*
+         * Same display name, but local-only. Bermuda must not infer that this
+         * is the supplied identity.
+         */
+        connection.execute(
+            r#"
+            INSERT INTO players(preferred_name)
+            VALUES ('Player A')
+            "#,
+            [],
+        )?;
+
+        let local_only_id = connection.last_insert_rowid();
+
+        connection.execute(
+            r#"
+            INSERT INTO player_aliases(
+                player_id,
+                name,
+                source_id,
+                notes
+            )
+            VALUES (?1, 'Local Alias A', NULL, 'local-only identity')
+            "#,
+            [local_only_id],
+        )?;
+
+        let first = catalogue.materialise_player(&mut connection, "test:player-a")?;
+
+        assert!(first.created);
+        assert_ne!(first.player_id, local_only_id);
+
+        let player_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
+
+        assert_eq!(player_count, 2);
+
+        let (materialised_name, materialised_key): (String, Option<String>) = connection
+            .query_row(
+                r#"
+            SELECT preferred_name, catalogue_key
+            FROM players
+            WHERE id = ?1
+            "#,
+                [first.player_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+
+        assert_eq!(materialised_name, "Player A");
+        assert_eq!(materialised_key.as_deref(), Some("test:player-a"));
+
+        /*
+         * Supplied aliases stay in the supplied catalogue layer. Merely
+         * materialising the player must not copy them into player_aliases.
+         */
+        let alias_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_aliases", [], |row| row.get(0))?;
+
+        assert_eq!(alias_count, 1);
+
+        /*
+         * Simulate a user choosing a different local display name.
+         */
+        connection.execute(
+            r#"
+            UPDATE players
+            SET preferred_name = 'User display for A'
+            WHERE id = ?1
+            "#,
+            [first.player_id],
+        )?;
+
+        /*
+         * Even if a later supplied catalogue changes its preferred spelling,
+         * the already-materialised local row is reused and not overwritten.
+         */
+        let revised_catalogue = PlayerCatalogue::from_json(
+            r#"
+            {
+              "version": 2,
+              "players": [
+                {
+                  "key": "test:player-a",
+                  "preferred_name": "Player A revised"
+                }
+              ]
+            }
+            "#,
+        )?;
+
+        let second = revised_catalogue.materialise_player(&mut connection, "test:player-a")?;
+
+        assert!(!second.created);
+        assert_eq!(second.player_id, first.player_id);
+
+        let preserved_name: String = connection.query_row(
+            "SELECT preferred_name FROM players WHERE id = ?1",
+            [first.player_id],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(preserved_name, "User display for A");
+
+        let local_only_key: Option<String> = connection.query_row(
+            "SELECT catalogue_key FROM players WHERE id = ?1",
+            [local_only_id],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(local_only_key, None);
+
+        let final_alias_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_aliases", [], |row| row.get(0))?;
+
+        assert_eq!(final_alias_count, 1);
+
+        /*
+         * Materialisation must require an actual supplied catalogue identity.
+         */
+        let error = catalogue
+            .materialise_player(&mut connection, "test:missing")
+            .expect_err("unknown catalogue key must not materialise");
+
+        assert!(
+            error
+                .to_string()
+                .contains("player catalogue contains no identity")
         );
 
         Ok(())
