@@ -17,6 +17,7 @@ pub mod pattern_index;
 pub mod pattern_index_build;
 pub mod pattern_index_format;
 pub mod pattern_search;
+pub mod player_catalogue;
 pub mod player_directory;
 pub mod position;
 pub mod position_stream;
