@@ -41,6 +41,8 @@ pub struct SourceAliasResolutionPreview {
     pub name: String,
     pub unresolved_black_count: u64,
     pub unresolved_white_count: u64,
+    pub catalogue_black_count: u64,
+    pub catalogue_white_count: u64,
     pub already_linked_count: u64,
     pub conflicting_link_count: u64,
     pub competing_alias_count: u64,
@@ -49,6 +51,14 @@ pub struct SourceAliasResolutionPreview {
 impl SourceAliasResolutionPreview {
     pub fn unresolved_count(&self) -> u64 {
         self.unresolved_black_count + self.unresolved_white_count
+    }
+
+    pub fn catalogue_count(&self) -> u64 {
+        self.catalogue_black_count + self.catalogue_white_count
+    }
+
+    pub fn assignable_count(&self) -> u64 {
+        self.unresolved_count() + self.catalogue_count()
     }
 }
 
@@ -1020,7 +1030,10 @@ fn apply_source_alias_resolution_on(
             UPDATE game_metadata
             SET black_player_id = ?1,
                 black_player_catalogue_derived = 0
-            WHERE black_player_id IS NULL
+            WHERE (
+                    black_player_id IS NULL
+                    OR black_player_catalogue_derived = 1
+                  )
               AND black_player = ?2
               AND EXISTS (
                   SELECT 1
@@ -1039,7 +1052,10 @@ fn apply_source_alias_resolution_on(
             UPDATE game_metadata
             SET white_player_id = ?1,
                 white_player_catalogue_derived = 0
-            WHERE white_player_id IS NULL
+            WHERE (
+                    white_player_id IS NULL
+                    OR white_player_catalogue_derived = 1
+                  )
               AND white_player = ?2
               AND EXISTS (
                   SELECT 1
@@ -1062,15 +1078,16 @@ fn apply_source_alias_resolution_on(
      * The preview and updates occur under the caller's transaction. A mismatch
      * is an invariant failure and must roll the whole operation back.
      */
-    if linked_black_count != preview.unresolved_black_count
-        || linked_white_count != preview.unresolved_white_count
-    {
+    let expected_black_count = preview.unresolved_black_count + preview.catalogue_black_count;
+    let expected_white_count = preview.unresolved_white_count + preview.catalogue_white_count;
+
+    if linked_black_count != expected_black_count || linked_white_count != expected_white_count {
         bail!(
             "source alias {alias_id} changed unexpectedly during resolution: \
-             preview expected {} Black and {} White unresolved occurrence(s), \
+             preview expected {} Black and {} White assignable occurrence(s), \
              update found {} Black and {} White",
-            preview.unresolved_black_count,
-            preview.unresolved_white_count,
+            expected_black_count,
+            expected_white_count,
             linked_black_count,
             linked_white_count
         );
@@ -1118,16 +1135,24 @@ fn preview_source_alias_resolution_on(
     let (
         unresolved_black_count,
         unresolved_white_count,
+        catalogue_black_count,
+        catalogue_white_count,
         already_linked_count,
         conflicting_link_count,
-    ): (i64, i64, i64, i64) = connection
+    ): (i64, i64, i64, i64, i64, i64) = connection
         .query_row(
             r#"
-            WITH occurrences(side, raw_name, linked_player_id) AS (
+            WITH occurrences(
+                side,
+                raw_name,
+                linked_player_id,
+                catalogue_derived
+            ) AS (
                 SELECT
                     0,
                     gm.black_player,
-                    gm.black_player_id
+                    gm.black_player_id,
+                    gm.black_player_catalogue_derived
                 FROM game_metadata AS gm
                 JOIN game_sources AS gs
                     ON gs.id = gm.game_source_id
@@ -1138,7 +1163,8 @@ fn preview_source_alias_resolution_on(
                 SELECT
                     1,
                     gm.white_player,
-                    gm.white_player_id
+                    gm.white_player_id,
+                    gm.white_player_catalogue_derived
                 FROM game_metadata AS gm
                 JOIN game_sources AS gs
                     ON gs.id = gm.game_source_id
@@ -1163,7 +1189,26 @@ fn preview_source_alias_resolution_on(
                 ), 0),
                 COALESCE(SUM(
                     CASE
+                        WHEN side = 0
+                         AND linked_player_id IS NOT NULL
+                         AND catalogue_derived = 1
+                        THEN 1
+                        ELSE 0
+                    END
+                ), 0),
+                COALESCE(SUM(
+                    CASE
+                        WHEN side = 1
+                         AND linked_player_id IS NOT NULL
+                         AND catalogue_derived = 1
+                        THEN 1
+                        ELSE 0
+                    END
+                ), 0),
+                COALESCE(SUM(
+                    CASE
                         WHEN linked_player_id = ?2
+                         AND catalogue_derived = 0
                         THEN 1
                         ELSE 0
                     END
@@ -1172,6 +1217,7 @@ fn preview_source_alias_resolution_on(
                     CASE
                         WHEN linked_player_id IS NOT NULL
                          AND linked_player_id <> ?2
+                         AND catalogue_derived = 0
                         THEN 1
                         ELSE 0
                     END
@@ -1180,7 +1226,16 @@ fn preview_source_alias_resolution_on(
             WHERE raw_name = ?3
             "#,
             params![source_id, alias.player_id, &alias.name],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
         )
         .with_context(|| format!("previewing source alias {alias_id} for source {source_id}"))?;
 
@@ -1209,6 +1264,10 @@ fn preview_source_alias_resolution_on(
             .context("negative unresolved Black-player count")?,
         unresolved_white_count: u64::try_from(unresolved_white_count)
             .context("negative unresolved White-player count")?,
+        catalogue_black_count: u64::try_from(catalogue_black_count)
+            .context("negative catalogue-derived Black-player count")?,
+        catalogue_white_count: u64::try_from(catalogue_white_count)
+            .context("negative catalogue-derived White-player count")?,
         already_linked_count: u64::try_from(already_linked_count)
             .context("negative already-linked player count")?,
         conflicting_link_count: u64::try_from(conflicting_link_count)
@@ -1787,6 +1846,8 @@ mod tests {
                 name: "Cho Chikun".to_owned(),
                 unresolved_black_count: 1,
                 unresolved_white_count: 0,
+                catalogue_black_count: 0,
+                catalogue_white_count: 0,
                 already_linked_count: 0,
                 conflicting_link_count: 0,
                 competing_alias_count: 0,
@@ -2044,6 +2105,138 @@ mod tests {
         let result = directory.apply_source_alias_resolution(alias.id)?;
 
         assert_eq!(result.linked_count(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_alias_overrides_catalogue_but_not_local_assignment() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+        let local_player = directory.create_player("Local Cho")?;
+
+        let alias = directory.add_alias(
+            local_player.id,
+            "Cho Chikun",
+            Some(1),
+            Some("explicit local source knowledge"),
+        )?;
+
+        let catalogue_player_id = {
+            let connection = database::open(&project.database_root())?;
+
+            connection.execute(
+                r#"
+                INSERT INTO players(preferred_name, catalogue_key)
+                VALUES ('Catalogue Cho', 'test:catalogue-cho')
+                "#,
+                [],
+            )?;
+
+            let catalogue_player_id = connection.last_insert_rowid();
+
+            connection.execute(
+                r#"
+                UPDATE game_metadata
+                SET black_player_id = ?1,
+                    black_player_catalogue_derived = 1
+                WHERE game_source_id = 10
+                "#,
+                [catalogue_player_id],
+            )?;
+
+            catalogue_player_id
+        };
+
+        assert_ne!(catalogue_player_id, local_player.id);
+
+        /*
+         * A catalogue assignment is not a conflict with deliberate local
+         * source-specific knowledge. It is explicitly replaceable.
+         */
+        let preview = directory.preview_source_alias_resolution(alias.id)?;
+
+        assert_eq!(preview.unresolved_black_count, 0);
+        assert_eq!(preview.unresolved_white_count, 0);
+        assert_eq!(preview.catalogue_black_count, 1);
+        assert_eq!(preview.catalogue_white_count, 0);
+        assert_eq!(preview.catalogue_count(), 1);
+        assert_eq!(preview.assignable_count(), 1);
+        assert_eq!(preview.already_linked_count, 0);
+        assert_eq!(preview.conflicting_link_count, 0);
+
+        let result = directory.apply_source_alias_resolution(alias.id)?;
+
+        assert_eq!(result.linked_black_count, 1);
+        assert_eq!(result.linked_white_count, 0);
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (raw_name, linked_player_id, catalogue_derived): (String, Option<i64>, i64) =
+                connection.query_row(
+                    r#"
+                SELECT
+                    black_player,
+                    black_player_id,
+                    black_player_catalogue_derived
+                FROM game_metadata
+                WHERE game_source_id = 10
+                "#,
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+
+            assert_eq!(raw_name, "Cho Chikun");
+            assert_eq!(linked_player_id, Some(local_player.id));
+            assert_eq!(catalogue_derived, 0);
+        }
+
+        /*
+         * Once another user/local identity owns the row, the same alias must
+         * again see a genuine conflict. Local knowledge never silently
+         * overwrites other local knowledge.
+         */
+        let other_local_player = directory.create_player("Other Local Cho")?;
+
+        directory.link_source_player(10, PlayerSide::Black, other_local_player.id)?;
+
+        let preview = directory.preview_source_alias_resolution(alias.id)?;
+
+        assert_eq!(preview.catalogue_count(), 0);
+        assert_eq!(preview.assignable_count(), 0);
+        assert_eq!(preview.already_linked_count, 0);
+        assert_eq!(preview.conflicting_link_count, 1);
+
+        let error = directory
+            .apply_source_alias_resolution(alias.id)
+            .expect_err("different local assignment must remain a conflict");
+
+        assert!(error.to_string().contains("another player"));
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (linked_player_id, catalogue_derived): (Option<i64>, i64) = connection.query_row(
+                r#"
+                    SELECT
+                        black_player_id,
+                        black_player_catalogue_derived
+                    FROM game_metadata
+                    WHERE game_source_id = 10
+                    "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+
+            assert_eq!(linked_player_id, Some(other_local_player.id));
+            assert_eq!(catalogue_derived, 0);
+        }
 
         Ok(())
     }
