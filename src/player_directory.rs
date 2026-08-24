@@ -203,8 +203,9 @@ impl PlayerDirectory {
     /// Remove a curated alias.
     ///
     /// For a source-specific alias, this also restores metadata linked by
-    /// that exact source/name assertion to the unresolved state. The raw
-    /// PB/PW strings are never changed.
+    /// that exact source/name assertion to the unresolved state and suppresses
+    /// automatic supplied-catalogue reassignment. A later explicit local
+    /// assignment may resolve it again. The raw PB/PW strings are never changed.
     ///
     /// A global alias is only a search/identity assertion and therefore has
     /// no source-specific metadata links to undo.
@@ -237,7 +238,8 @@ impl PlayerDirectory {
                     r#"
                     UPDATE game_metadata
                     SET black_player_id = NULL,
-                        black_player_catalogue_derived = 0
+                        black_player_catalogue_derived = 0,
+                        black_player_catalogue_suppressed = 1
                     WHERE black_player_id = ?1
                       AND black_player = ?2
                       AND black_player_catalogue_derived = 0
@@ -257,7 +259,8 @@ impl PlayerDirectory {
                     r#"
                     UPDATE game_metadata
                     SET white_player_id = NULL,
-                        white_player_catalogue_derived = 0
+                        white_player_catalogue_derived = 0,
+                        white_player_catalogue_suppressed = 1
                     WHERE white_player_id = ?1
                       AND white_player = ?2
                       AND white_player_catalogue_derived = 0
@@ -293,8 +296,10 @@ impl PlayerDirectory {
     /// Remove an entire player identity without deleting or rewriting any
     /// imported game metadata.
     ///
-    /// All numeric identity links are cleared first. Aliases then disappear
-    /// through the player_aliases ON DELETE CASCADE relationship.
+    /// All numeric identity links are cleared first and those occurrences
+    /// suppress automatic supplied-catalogue reassignment. Aliases then disappear
+    /// through the player_aliases ON DELETE CASCADE relationship. A later explicit
+    /// local assignment may resolve an occurrence again.
     pub fn delete_player(&self, player_id: i64) -> Result<String> {
         let transaction = self
             .connection
@@ -319,7 +324,8 @@ impl PlayerDirectory {
                 r#"
                 UPDATE game_metadata
                 SET black_player_id = NULL,
-                    black_player_catalogue_derived = 0
+                    black_player_catalogue_derived = 0,
+                    black_player_catalogue_suppressed = 1
                 WHERE black_player_id = ?1
                 "#,
                 [player_id],
@@ -331,7 +337,8 @@ impl PlayerDirectory {
                 r#"
                 UPDATE game_metadata
                 SET white_player_id = NULL,
-                    white_player_catalogue_derived = 0
+                    white_player_catalogue_derived = 0,
+                    white_player_catalogue_suppressed = 1
                 WHERE white_player_id = ?1
                 "#,
                 [player_id],
@@ -733,15 +740,24 @@ impl PlayerDirectory {
 
         let source_name = self.source_player_name(game_source_id, side)?;
 
-        let (id_column, catalogue_derived_column) = match side {
-            PlayerSide::Black => ("black_player_id", "black_player_catalogue_derived"),
-            PlayerSide::White => ("white_player_id", "white_player_catalogue_derived"),
+        let (id_column, catalogue_derived_column, catalogue_suppressed_column) = match side {
+            PlayerSide::Black => (
+                "black_player_id",
+                "black_player_catalogue_derived",
+                "black_player_catalogue_suppressed",
+            ),
+            PlayerSide::White => (
+                "white_player_id",
+                "white_player_catalogue_derived",
+                "white_player_catalogue_suppressed",
+            ),
         };
 
         let sql = format!(
             "UPDATE game_metadata
              SET {id_column} = ?1,
-                 {catalogue_derived_column} = 0
+                 {catalogue_derived_column} = 0,
+                 {catalogue_suppressed_column} = 0
              WHERE game_source_id = ?2"
         );
 
@@ -765,15 +781,24 @@ impl PlayerDirectory {
     pub fn unlink_source_player(&self, game_source_id: i64, side: PlayerSide) -> Result<()> {
         self.require_game_metadata(game_source_id)?;
 
-        let (id_column, catalogue_derived_column) = match side {
-            PlayerSide::Black => ("black_player_id", "black_player_catalogue_derived"),
-            PlayerSide::White => ("white_player_id", "white_player_catalogue_derived"),
+        let (id_column, catalogue_derived_column, catalogue_suppressed_column) = match side {
+            PlayerSide::Black => (
+                "black_player_id",
+                "black_player_catalogue_derived",
+                "black_player_catalogue_suppressed",
+            ),
+            PlayerSide::White => (
+                "white_player_id",
+                "white_player_catalogue_derived",
+                "white_player_catalogue_suppressed",
+            ),
         };
 
         let sql = format!(
             "UPDATE game_metadata
              SET {id_column} = NULL,
-                 {catalogue_derived_column} = 0
+                 {catalogue_derived_column} = 0,
+                 {catalogue_suppressed_column} = 1
              WHERE game_source_id = ?1"
         );
 
@@ -1037,7 +1062,8 @@ fn apply_source_alias_resolution_on(
             r#"
             UPDATE game_metadata
             SET black_player_id = ?1,
-                black_player_catalogue_derived = 0
+                black_player_catalogue_derived = 0,
+                black_player_catalogue_suppressed = 0
             WHERE (
                     black_player_id IS NULL
                     OR black_player_catalogue_derived = 1
@@ -1059,7 +1085,8 @@ fn apply_source_alias_resolution_on(
             r#"
             UPDATE game_metadata
             SET white_player_id = ?1,
-                white_player_catalogue_derived = 0
+                white_player_catalogue_derived = 0,
+                white_player_catalogue_suppressed = 0
             WHERE (
                     white_player_id IS NULL
                     OR white_player_catalogue_derived = 1
@@ -2359,6 +2386,214 @@ mod tests {
             assert_eq!(player_id, None);
             assert_eq!(catalogue_derived, 0);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_identity_changes_control_catalogue_suppression() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+        let black_player = directory.create_player("Manual Black")?;
+        let white_player = directory.create_player("Manual White")?;
+
+        /*
+         * Simulate occurrences that a previous explicit action left
+         * catalogue-suppressed. They remain available for a later explicit
+         * local decision.
+         */
+        {
+            let connection = database::open(&project.database_root())?;
+
+            connection.execute(
+                r#"
+                UPDATE game_metadata
+                SET black_player_catalogue_suppressed = 1,
+                    white_player_catalogue_suppressed = 1
+                WHERE game_source_id = 10
+                "#,
+                [],
+            )?;
+        }
+
+        type PlayerSuppressionState =
+            (String, Option<i64>, i64, i64, String, Option<i64>, i64, i64);
+
+        let read_state = || -> Result<PlayerSuppressionState> {
+            let connection = database::open(&project.database_root())?;
+
+            connection
+                .query_row(
+                    r#"
+                    SELECT
+                        black_player,
+                        black_player_id,
+                        black_player_catalogue_derived,
+                        black_player_catalogue_suppressed,
+                        white_player,
+                        white_player_id,
+                        white_player_catalogue_derived,
+                        white_player_catalogue_suppressed
+                    FROM game_metadata
+                    WHERE game_source_id = 10
+                    "#,
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                        ))
+                    },
+                )
+                .context("reading player suppression test state")
+        };
+
+        /*
+         * A direct user assignment is local knowledge and clears suppression.
+         */
+        directory.link_source_player(10, PlayerSide::Black, black_player.id)?;
+        directory.link_source_player(10, PlayerSide::White, white_player.id)?;
+
+        assert_eq!(
+            read_state()?,
+            (
+                "Cho Chikun".to_owned(),
+                Some(black_player.id),
+                0,
+                0,
+                "Kobayashi Satoru".to_owned(),
+                Some(white_player.id),
+                0,
+                0,
+            )
+        );
+
+        /*
+         * Explicit unlink keeps the source text but prevents an automatic
+         * catalogue interpretation from silently returning.
+         */
+        directory.unlink_source_player(10, PlayerSide::Black)?;
+        directory.unlink_source_player(10, PlayerSide::White)?;
+
+        assert_eq!(
+            read_state()?,
+            (
+                "Cho Chikun".to_owned(),
+                None,
+                0,
+                1,
+                "Kobayashi Satoru".to_owned(),
+                None,
+                0,
+                1,
+            )
+        );
+
+        /*
+         * A later explicit source-name assignment is allowed to override the
+         * suppression and becomes local provenance.
+         */
+        let black_alias =
+            directory.assign_source_name_to_player(black_player.id, 1, "Cho Chikun")?;
+        let white_alias =
+            directory.assign_source_name_to_player(white_player.id, 1, "Kobayashi Satoru")?;
+
+        assert_eq!(black_alias.linked_count(), 1);
+        assert_eq!(white_alias.linked_count(), 1);
+
+        assert_eq!(
+            read_state()?,
+            (
+                "Cho Chikun".to_owned(),
+                Some(black_player.id),
+                0,
+                0,
+                "Kobayashi Satoru".to_owned(),
+                Some(white_player.id),
+                0,
+                0,
+            )
+        );
+
+        /*
+         * Removing those explicit source assertions suppresses catalogue
+         * reassignment of the occurrences they had interpreted.
+         */
+        directory.remove_alias(black_alias.alias_id)?;
+        directory.remove_alias(white_alias.alias_id)?;
+
+        assert_eq!(
+            read_state()?,
+            (
+                "Cho Chikun".to_owned(),
+                None,
+                0,
+                1,
+                "Kobayashi Satoru".to_owned(),
+                None,
+                0,
+                1,
+            )
+        );
+
+        /*
+         * Creating replacement identities and assigning the same exact source
+         * names is another explicit local decision, so suppression clears.
+         */
+        let (replacement_black, replacement_black_result) =
+            directory.create_player_and_assign_source_name("Replacement Black", 1, "Cho Chikun")?;
+
+        let (replacement_white, replacement_white_result) = directory
+            .create_player_and_assign_source_name("Replacement White", 1, "Kobayashi Satoru")?;
+
+        assert_eq!(replacement_black_result.linked_count(), 1);
+        assert_eq!(replacement_white_result.linked_count(), 1);
+
+        assert_eq!(
+            read_state()?,
+            (
+                "Cho Chikun".to_owned(),
+                Some(replacement_black.id),
+                0,
+                0,
+                "Kobayashi Satoru".to_owned(),
+                Some(replacement_white.id),
+                0,
+                0,
+            )
+        );
+
+        /*
+         * Deleting an identity is explicit removal too. It preserves PB/PW,
+         * clears the numeric interpretation, and suppresses catalogue return.
+         */
+        directory.delete_player(replacement_black.id)?;
+        directory.delete_player(replacement_white.id)?;
+
+        assert_eq!(
+            read_state()?,
+            (
+                "Cho Chikun".to_owned(),
+                None,
+                0,
+                1,
+                "Kobayashi Satoru".to_owned(),
+                None,
+                0,
+                1,
+            )
+        );
 
         Ok(())
     }
