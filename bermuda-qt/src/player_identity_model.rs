@@ -61,6 +61,14 @@ mod ffi {
             source_id: i64,
             source_name: &QString,
         ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "removeAlias"]
+        fn remove_alias(self: Pin<&mut PlayerIdentityModel>, alias_id: i64) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "deletePlayer"]
+        fn delete_player(self: Pin<&mut PlayerIdentityModel>, player_id: i64) -> bool;
     }
 }
 
@@ -260,6 +268,61 @@ impl ffi::PlayerIdentityModel {
                 result.name,
                 result.source_name,
                 result.source_version
+            )),
+        )
+    }
+
+    fn remove_alias(self: Pin<&mut Self>, alias_id: i64) -> bool {
+        let project_path = self.as_ref().rust().project_path.clone();
+        let player_id = self.as_ref().rust().selected_player_id;
+
+        if project_path.is_empty() {
+            return set_failure(self, "no Bermuda database is currently open".to_owned());
+        }
+
+        if player_id < 0 {
+            return set_failure(self, "no player identity is currently selected".to_owned());
+        }
+
+        let result = ProjectManager::new()
+            .open(Path::new(&project_path))
+            .and_then(|project| project.player_directory())
+            .and_then(|directory| directory.remove_alias(alias_id));
+
+        if let Err(error) = result {
+            return set_failure(self, error.to_string());
+        }
+
+        refresh_model(
+            self,
+            &project_path,
+            Some(player_id),
+            Some("Unlinked alias; matching source names are unresolved again".to_owned()),
+        )
+    }
+
+    fn delete_player(self: Pin<&mut Self>, player_id: i64) -> bool {
+        let project_path = self.as_ref().rust().project_path.clone();
+
+        if project_path.is_empty() {
+            return set_failure(self, "no Bermuda database is currently open".to_owned());
+        }
+
+        let preferred_name = match ProjectManager::new()
+            .open(Path::new(&project_path))
+            .and_then(|project| project.player_directory())
+            .and_then(|directory| directory.delete_player(player_id))
+        {
+            Ok(preferred_name) => preferred_name,
+            Err(error) => return set_failure(self, error.to_string()),
+        };
+
+        refresh_model(
+            self,
+            &project_path,
+            None,
+            Some(format!(
+                "Removed identity {preferred_name}; source names and games were preserved"
             )),
         )
     }

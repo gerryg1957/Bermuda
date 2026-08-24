@@ -271,10 +271,12 @@ fn player_metadata_matches(
         Some(player_id) => resolved_player_ids.contains(&player_id),
 
         /*
-         * Unidentified metadata remains searchable by its exact PB/PW text,
-         * preserving the behaviour that existed before player identities.
+         * Unidentified metadata remains searchable by its PB/PW text.
+         * Player-name search is case-insensitive, matching Catalogue SQL.
          */
-        None => metadata.source_name == Some(expected_source_name),
+        None => metadata
+            .source_name
+            .is_some_and(|name| name.eq_ignore_ascii_case(expected_source_name)),
     }
 }
 
@@ -308,20 +310,20 @@ fn result_matches(filter: GameResultFilter, result: Option<&str>) -> bool {
 
 fn player_side_condition(name_column: &str, player_id_column: &str, parameter: &str) -> String {
     format!(
-        "(({player_id_column} IS NULL AND {name_column} = {parameter}) \
+        "(({player_id_column} IS NULL AND {name_column} COLLATE NOCASE = {parameter}) \
          OR \
          ({player_id_column} IS NOT NULL AND (\
              EXISTS (\
                  SELECT 1 \
                  FROM players AS filter_player \
                  WHERE filter_player.id = {player_id_column} \
-                   AND filter_player.preferred_name = {parameter}\
+                   AND filter_player.preferred_name COLLATE NOCASE = {parameter}\
              ) \
              OR EXISTS (\
                  SELECT 1 \
                  FROM player_aliases AS filter_alias \
                  WHERE filter_alias.player_id = {player_id_column} \
-                   AND filter_alias.name = {parameter}\
+                   AND filter_alias.name COLLATE NOCASE = {parameter}\
              )\
          )))"
     )
@@ -1290,7 +1292,7 @@ VALUES (
     fn filters_identified_players_by_preferred_name_alias_and_ambiguity() -> Result<()> {
         let connection = populated_test_connection()?;
 
-        for name in ["Preferred Alpha", "A. Alpha"] {
+        for name in ["Preferred Alpha", "preferred alpha", "A. Alpha", "a. alpha"] {
             let query = GameListQuery {
                 player: Some(name.to_owned()),
                 colour: PlayerColour::Black,
@@ -1306,6 +1308,21 @@ VALUES (
                 "search name was {name:?}"
             );
         }
+
+        let unresolved_query = GameListQuery {
+            player: Some("gamma".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        assert_eq!(
+            list_games(&connection, &unresolved_query)?
+                .iter()
+                .map(|game| game.game_id)
+                .collect::<Vec<_>>(),
+            vec![2],
+            "unlinked source-name search should ignore ASCII case"
+        );
 
         /*
          * Shared Name is deliberately attached to both identities. Search

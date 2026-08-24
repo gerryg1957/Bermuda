@@ -341,8 +341,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
         }
         self.as_mut().end_reset_model();
 
-        self.as_mut()
-            .set_outcome_summary_json(outcome_summary_json);
+        self.as_mut().set_outcome_summary_json(outcome_summary_json);
 
         true
     }
@@ -586,8 +585,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
         }
         self.as_mut().end_reset_model();
 
-        self.as_mut()
-            .set_outcome_summary_json(outcome_summary_json);
+        self.as_mut().set_outcome_summary_json(outcome_summary_json);
     }
 
     pub(crate) fn filter_results(
@@ -654,8 +652,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
         }
         self.as_mut().end_reset_model();
 
-        self.as_mut()
-            .set_outcome_summary_json(outcome_summary_json);
+        self.as_mut().set_outcome_summary_json(outcome_summary_json);
         self.as_mut().set_error_message(QString::default());
         true
     }
@@ -775,8 +772,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut()
             .set_next_move_distribution_json(QString::from("{}"));
-        self.as_mut()
-            .set_outcome_summary_json(QString::from("{}"));
+        self.as_mut().set_outcome_summary_json(QString::from("{}"));
         self.as_mut().set_total_occurrences(0);
         self.as_mut().set_games_examined(0);
         self.as_mut().set_total_games(0);
@@ -912,8 +908,7 @@ impl crate::game_list_model::ffi::SearchResultModel {
 
         self.as_mut()
             .set_next_move_distribution_json(QString::from("{}"));
-        self.as_mut()
-            .set_outcome_summary_json(QString::from("{}"));
+        self.as_mut().set_outcome_summary_json(QString::from("{}"));
         self.as_mut().set_total_occurrences(0);
         self.as_mut().set_games_examined(0);
         self.as_mut().set_total_games(0);
@@ -2233,7 +2228,7 @@ mod search_result_sort_tests {
         };
 
         let raw_unresolved = GameListQuery {
-            player: Some("Unresolved Name".to_owned()),
+            player: Some("unresolved name".to_owned()),
             colour: PlayerColour::Black,
             ..GameListQuery::default()
         };

@@ -190,17 +190,153 @@ impl PlayerDirectory {
         self.get_alias(alias_id)
     }
 
+    /// Remove a curated alias.
+    ///
+    /// For a source-specific alias, this also restores metadata linked by
+    /// that exact source/name assertion to the unresolved state. The raw
+    /// PB/PW strings are never changed.
+    ///
+    /// A global alias is only a search/identity assertion and therefore has
+    /// no source-specific metadata links to undo.
     pub fn remove_alias(&self, alias_id: i64) -> Result<()> {
-        let changed = self
+        let transaction = self
             .connection
+            .unchecked_transaction()
+            .context("starting player-alias removal transaction")?;
+
+        let alias: Option<(i64, String, Option<i64>)> = transaction
+            .query_row(
+                r#"
+                SELECT player_id, name, source_id
+                FROM player_aliases
+                WHERE id = ?1
+                "#,
+                [alias_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .with_context(|| format!("reading player alias {alias_id}"))?;
+
+        let Some((player_id, name, source_id)) = alias else {
+            bail!("player alias {alias_id} does not exist");
+        };
+
+        if let Some(source_id) = source_id {
+            transaction
+                .execute(
+                    r#"
+                    UPDATE game_metadata
+                    SET black_player_id = NULL
+                    WHERE black_player_id = ?1
+                      AND black_player = ?2
+                      AND EXISTS (
+                          SELECT 1
+                          FROM game_sources AS gs
+                          WHERE gs.id = game_metadata.game_source_id
+                            AND gs.source_id = ?3
+                      )
+                    "#,
+                    params![player_id, &name, source_id],
+                )
+                .with_context(|| format!("unlinking Black-player metadata for alias {alias_id}"))?;
+
+            transaction
+                .execute(
+                    r#"
+                    UPDATE game_metadata
+                    SET white_player_id = NULL
+                    WHERE white_player_id = ?1
+                      AND white_player = ?2
+                      AND EXISTS (
+                          SELECT 1
+                          FROM game_sources AS gs
+                          WHERE gs.id = game_metadata.game_source_id
+                            AND gs.source_id = ?3
+                      )
+                    "#,
+                    params![player_id, &name, source_id],
+                )
+                .with_context(|| format!("unlinking White-player metadata for alias {alias_id}"))?;
+        }
+
+        let changed = transaction
             .execute("DELETE FROM player_aliases WHERE id = ?1", [alias_id])
             .with_context(|| format!("removing player alias {alias_id}"))?;
 
-        if changed == 0 {
-            bail!("player alias {alias_id} does not exist");
+        if changed != 1 {
+            bail!(
+                "expected to remove player alias {alias_id}, but the row disappeared during the transaction"
+            );
         }
 
+        transaction
+            .commit()
+            .context("committing player-alias removal")?;
+
         Ok(())
+    }
+
+    /// Remove an entire player identity without deleting or rewriting any
+    /// imported game metadata.
+    ///
+    /// All numeric identity links are cleared first. Aliases then disappear
+    /// through the player_aliases ON DELETE CASCADE relationship.
+    pub fn delete_player(&self, player_id: i64) -> Result<String> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .context("starting player-identity removal transaction")?;
+
+        let preferred_name: Option<String> = transaction
+            .query_row(
+                "SELECT preferred_name FROM players WHERE id = ?1",
+                [player_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .with_context(|| format!("reading player identity {player_id}"))?;
+
+        let Some(preferred_name) = preferred_name else {
+            bail!("player identity {player_id} does not exist");
+        };
+
+        transaction
+            .execute(
+                r#"
+                UPDATE game_metadata
+                SET black_player_id = NULL
+                WHERE black_player_id = ?1
+                "#,
+                [player_id],
+            )
+            .with_context(|| format!("unlinking Black-player metadata for player {player_id}"))?;
+
+        transaction
+            .execute(
+                r#"
+                UPDATE game_metadata
+                SET white_player_id = NULL
+                WHERE white_player_id = ?1
+                "#,
+                [player_id],
+            )
+            .with_context(|| format!("unlinking White-player metadata for player {player_id}"))?;
+
+        let changed = transaction
+            .execute("DELETE FROM players WHERE id = ?1", [player_id])
+            .with_context(|| format!("removing player identity {player_id}"))?;
+
+        if changed != 1 {
+            bail!(
+                "expected to remove player identity {player_id}, but the row disappeared during the transaction"
+            );
+        }
+
+        transaction
+            .commit()
+            .context("committing player-identity removal")?;
+
+        Ok(preferred_name)
     }
 
     pub fn aliases_for_player(&self, player_id: i64) -> Result<Vec<PlayerAlias>> {
@@ -728,25 +864,25 @@ pub(crate) fn player_ids_for_search_name_on(
             r#"
             SELECT id AS player_id
             FROM players
-            WHERE preferred_name = ?1
+            WHERE preferred_name COLLATE NOCASE = ?1
 
             UNION
 
             SELECT player_id
             FROM player_aliases
-            WHERE name = ?1
+            WHERE name COLLATE NOCASE = ?1
 
             ORDER BY player_id
             "#,
         )
-        .context("preparing exact player search-name lookup")?;
+        .context("preparing case-insensitive player search-name lookup")?;
 
     let rows = statement
         .query_map([name], |row| row.get::<_, i64>(0))
-        .with_context(|| format!("resolving exact player search name {name:?}"))?;
+        .with_context(|| format!("resolving case-insensitive player search name {name:?}"))?;
 
     rows.collect::<rusqlite::Result<Vec<_>>>()
-        .context("collecting player IDs for exact search name")
+        .context("collecting player IDs for case-insensitive search name")
 }
 
 pub(crate) fn resolve_player_alias_for_source(
@@ -1180,6 +1316,36 @@ mod tests {
     }
 
     #[test]
+    fn search_names_are_case_insensitive() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+        let directory = project.player_directory()?;
+
+        let player = directory.create_player("Lee Sedol")?;
+
+        directory.add_alias(
+            player.id,
+            "Yi Se-tol",
+            None,
+            Some("case-insensitive search regression test"),
+        )?;
+
+        assert_eq!(
+            directory.player_ids_for_search_name("lee sedol")?,
+            vec![player.id]
+        );
+
+        assert_eq!(
+            directory.player_ids_for_search_name("yi se-TOL")?,
+            vec![player.id]
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn aliases_are_explicit_and_can_represent_ambiguous_names() -> Result<()> {
         let temporary_directory = tempdir()?;
         let project_root = temporary_directory.path().join("test-project");
@@ -1444,6 +1610,128 @@ mod tests {
         )?;
 
         assert_eq!(linked_id, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn removing_source_alias_restores_metadata_without_changing_source_name() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+        let player = directory.create_player("Cho Chikun")?;
+
+        let result = directory.assign_source_name_to_player(player.id, 1, "Cho Chikun")?;
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (raw_name, linked_id): (String, Option<i64>) = connection.query_row(
+                r#"
+                    SELECT black_player, black_player_id
+                    FROM game_metadata
+                    WHERE game_source_id = 10
+                    "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+
+            assert_eq!(raw_name, "Cho Chikun");
+            assert_eq!(linked_id, Some(player.id));
+        }
+
+        directory.remove_alias(result.alias_id)?;
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (raw_name, linked_id): (String, Option<i64>) = connection.query_row(
+                r#"
+                    SELECT black_player, black_player_id
+                    FROM game_metadata
+                    WHERE game_source_id = 10
+                    "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+
+            /*
+             * Removing the alias removes Bermuda's interpretation only.
+             * The source spelling imported from the SGF survives unchanged.
+             */
+            assert_eq!(raw_name, "Cho Chikun");
+            assert_eq!(linked_id, None);
+        }
+
+        assert!(directory.aliases_for_player(player.id)?.is_empty());
+
+        assert!(
+            directory
+                .unresolved_names()?
+                .iter()
+                .any(|name| name.source_id == 1 && name.name == "Cho Chikun")
+        );
+
+        assert!(directory.remove_alias(result.alias_id).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn deleting_player_identity_restores_metadata_without_changing_source_name() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+
+        let (player, _) =
+            directory.create_player_and_assign_source_name("Cho Chikun", 1, "Cho Chikun")?;
+
+        let removed_name = directory.delete_player(player.id)?;
+
+        assert_eq!(removed_name, "Cho Chikun");
+        assert!(directory.list_players()?.is_empty());
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (raw_name, linked_id): (String, Option<i64>) = connection.query_row(
+                r#"
+                    SELECT black_player, black_player_id
+                    FROM game_metadata
+                    WHERE game_source_id = 10
+                    "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+
+            assert_eq!(raw_name, "Cho Chikun");
+            assert_eq!(linked_id, None);
+
+            let alias_count: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM player_aliases WHERE player_id = ?1",
+                [player.id],
+                |row| row.get(0),
+            )?;
+
+            assert_eq!(alias_count, 0);
+        }
+
+        assert!(
+            directory
+                .unresolved_names()?
+                .iter()
+                .any(|name| name.source_id == 1 && name.name == "Cho Chikun")
+        );
+
+        assert!(directory.delete_player(player.id).is_err());
 
         Ok(())
     }
