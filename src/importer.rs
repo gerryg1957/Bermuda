@@ -36,8 +36,8 @@ pub struct Importer {
 
 impl Importer {
     pub fn open(database_root: &Path) -> Result<Self> {
-        let connection = database::open(database_root)?;
-        let player_catalogue = PlayerCatalogue::supplied()?;
+        let mut connection = database::open(database_root)?;
+        let player_catalogue = PlayerCatalogue::prepare_supplied(&mut connection)?;
 
         Ok(Self {
             database_root: database_root.to_path_buf(),

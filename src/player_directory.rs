@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::{database, project::Project};
+use crate::{database, player_catalogue::PlayerCatalogue, project::Project};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlayerIdentity {
@@ -92,7 +92,9 @@ pub struct PlayerDirectory {
 
 impl PlayerDirectory {
     pub fn open(database_root: &Path) -> Result<Self> {
-        let connection = database::open(database_root)?;
+        let mut connection = database::open(database_root)?;
+
+        PlayerCatalogue::prepare_supplied(&mut connection)?;
 
         Ok(Self { connection })
     }

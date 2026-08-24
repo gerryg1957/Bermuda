@@ -78,6 +78,23 @@ impl PlayerCatalogue {
             .context("parsing Bermuda supplied player catalogue")
     }
 
+    /// Prepare the bundled Bermuda player catalogue for an opened database.
+    ///
+    /// This is the normal production entry point for identity-aware services.
+    /// It parses the bundled catalogue once, synchronises and reconciles the
+    /// database when its catalogue data version is older, then returns the
+    /// parsed catalogue for callers such as the importer that need it for
+    /// subsequent source-name resolution.
+    pub fn prepare_supplied(connection: &mut Connection) -> Result<Self> {
+        let catalogue = Self::supplied()?;
+
+        catalogue
+            .synchronise(connection)
+            .context("preparing Bermuda supplied player catalogue")?;
+
+        Ok(catalogue)
+    }
+
     pub fn from_json(json: &str) -> Result<Self> {
         let catalogue: Self =
             serde_json::from_str(json).context("parsing player catalogue JSON")?;

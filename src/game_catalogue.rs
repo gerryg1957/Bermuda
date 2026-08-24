@@ -6,6 +6,7 @@ use rusqlite::Connection;
 use crate::{
     database,
     game_list::{self, GameListQuery, GameListRow},
+    player_catalogue::PlayerCatalogue,
     project::Project,
 };
 
@@ -15,7 +16,9 @@ pub struct GameCatalogue {
 
 impl GameCatalogue {
     pub fn open(database_root: &Path) -> Result<Self> {
-        let connection = database::open(database_root)?;
+        let mut connection = database::open(database_root)?;
+
+        PlayerCatalogue::prepare_supplied(&mut connection)?;
 
         Ok(Self { connection })
     }
