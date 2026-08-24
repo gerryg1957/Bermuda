@@ -226,9 +226,11 @@ impl PlayerDirectory {
                 .execute(
                     r#"
                     UPDATE game_metadata
-                    SET black_player_id = NULL
+                    SET black_player_id = NULL,
+                        black_player_catalogue_derived = 0
                     WHERE black_player_id = ?1
                       AND black_player = ?2
+                      AND black_player_catalogue_derived = 0
                       AND EXISTS (
                           SELECT 1
                           FROM game_sources AS gs
@@ -244,9 +246,11 @@ impl PlayerDirectory {
                 .execute(
                     r#"
                     UPDATE game_metadata
-                    SET white_player_id = NULL
+                    SET white_player_id = NULL,
+                        white_player_catalogue_derived = 0
                     WHERE white_player_id = ?1
                       AND white_player = ?2
+                      AND white_player_catalogue_derived = 0
                       AND EXISTS (
                           SELECT 1
                           FROM game_sources AS gs
@@ -304,7 +308,8 @@ impl PlayerDirectory {
             .execute(
                 r#"
                 UPDATE game_metadata
-                SET black_player_id = NULL
+                SET black_player_id = NULL,
+                    black_player_catalogue_derived = 0
                 WHERE black_player_id = ?1
                 "#,
                 [player_id],
@@ -315,7 +320,8 @@ impl PlayerDirectory {
             .execute(
                 r#"
                 UPDATE game_metadata
-                SET white_player_id = NULL
+                SET white_player_id = NULL,
+                    white_player_catalogue_derived = 0
                 WHERE white_player_id = ?1
                 "#,
                 [player_id],
@@ -717,12 +723,17 @@ impl PlayerDirectory {
 
         let source_name = self.source_player_name(game_source_id, side)?;
 
-        let id_column = match side {
-            PlayerSide::Black => "black_player_id",
-            PlayerSide::White => "white_player_id",
+        let (id_column, catalogue_derived_column) = match side {
+            PlayerSide::Black => ("black_player_id", "black_player_catalogue_derived"),
+            PlayerSide::White => ("white_player_id", "white_player_catalogue_derived"),
         };
 
-        let sql = format!("UPDATE game_metadata SET {id_column} = ?1 WHERE game_source_id = ?2");
+        let sql = format!(
+            "UPDATE game_metadata
+             SET {id_column} = ?1,
+                 {catalogue_derived_column} = 0
+             WHERE game_source_id = ?2"
+        );
 
         let changed = self
             .connection
@@ -744,12 +755,17 @@ impl PlayerDirectory {
     pub fn unlink_source_player(&self, game_source_id: i64, side: PlayerSide) -> Result<()> {
         self.require_game_metadata(game_source_id)?;
 
-        let id_column = match side {
-            PlayerSide::Black => "black_player_id",
-            PlayerSide::White => "white_player_id",
+        let (id_column, catalogue_derived_column) = match side {
+            PlayerSide::Black => ("black_player_id", "black_player_catalogue_derived"),
+            PlayerSide::White => ("white_player_id", "white_player_catalogue_derived"),
         };
 
-        let sql = format!("UPDATE game_metadata SET {id_column} = NULL WHERE game_source_id = ?1");
+        let sql = format!(
+            "UPDATE game_metadata
+             SET {id_column} = NULL,
+                 {catalogue_derived_column} = 0
+             WHERE game_source_id = ?1"
+        );
 
         self.connection
             .execute(&sql, [game_source_id])
@@ -1002,7 +1018,8 @@ fn apply_source_alias_resolution_on(
         .execute(
             r#"
             UPDATE game_metadata
-            SET black_player_id = ?1
+            SET black_player_id = ?1,
+                black_player_catalogue_derived = 0
             WHERE black_player_id IS NULL
               AND black_player = ?2
               AND EXISTS (
@@ -1020,7 +1037,8 @@ fn apply_source_alias_resolution_on(
         .execute(
             r#"
             UPDATE game_metadata
-            SET white_player_id = ?1
+            SET white_player_id = ?1,
+                white_player_catalogue_derived = 0
             WHERE white_player_id IS NULL
               AND white_player = ?2
               AND EXISTS (
@@ -2026,6 +2044,120 @@ mod tests {
         let result = directory.apply_source_alias_resolution(alias.id)?;
 
         assert_eq!(result.linked_count(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_player_assignment_becomes_local_provenance() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+
+        add_source_metadata(&project)?;
+
+        let supplied_player_id = {
+            let connection = database::open(&project.database_root())?;
+
+            connection.execute(
+                r#"
+                INSERT INTO players(preferred_name, catalogue_key)
+                VALUES ('Supplied Cho', 'test:cho')
+                "#,
+                [],
+            )?;
+
+            let supplied_player_id = connection.last_insert_rowid();
+
+            connection.execute(
+                r#"
+                UPDATE game_metadata
+                SET black_player_id = ?1,
+                    black_player_catalogue_derived = 1
+                WHERE game_source_id = 10
+                "#,
+                [supplied_player_id],
+            )?;
+
+            supplied_player_id
+        };
+
+        let directory = project.player_directory()?;
+        let local_player = directory.create_player("Local Cho")?;
+
+        assert_ne!(supplied_player_id, local_player.id);
+
+        /*
+         * An explicit user assignment overrides the catalogue interpretation
+         * and therefore becomes local provenance.
+         */
+        let source_name = directory.link_source_player(10, PlayerSide::Black, local_player.id)?;
+
+        assert_eq!(source_name, "Cho Chikun");
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (raw_name, player_id, catalogue_derived): (String, Option<i64>, i64) = connection
+                .query_row(
+                r#"
+                SELECT
+                    black_player,
+                    black_player_id,
+                    black_player_catalogue_derived
+                FROM game_metadata
+                WHERE game_source_id = 10
+                "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+
+            assert_eq!(raw_name, "Cho Chikun");
+            assert_eq!(player_id, Some(local_player.id));
+            assert_eq!(catalogue_derived, 0);
+        }
+
+        /*
+         * Seed catalogue provenance again so unlink proves that it clears
+         * both the identity and its provenance flag.
+         */
+        {
+            let connection = database::open(&project.database_root())?;
+
+            connection.execute(
+                r#"
+                UPDATE game_metadata
+                SET black_player_catalogue_derived = 1
+                WHERE game_source_id = 10
+                "#,
+                [],
+            )?;
+        }
+
+        directory.unlink_source_player(10, PlayerSide::Black)?;
+
+        {
+            let connection = database::open(&project.database_root())?;
+
+            let (raw_name, player_id, catalogue_derived): (String, Option<i64>, i64) = connection
+                .query_row(
+                r#"
+                SELECT
+                    black_player,
+                    black_player_id,
+                    black_player_catalogue_derived
+                FROM game_metadata
+                WHERE game_source_id = 10
+                "#,
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+
+            assert_eq!(raw_name, "Cho Chikun");
+            assert_eq!(player_id, None);
+            assert_eq!(catalogue_derived, 0);
+        }
 
         Ok(())
     }
