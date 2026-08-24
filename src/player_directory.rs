@@ -911,11 +911,18 @@ pub(crate) fn player_ids_for_search_name_on(
         .context("collecting player IDs for case-insensitive search name")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlayerAliasResolution {
+    Unrecognised,
+    Unique(i64),
+    Ambiguous,
+}
+
 pub(crate) fn resolve_player_alias_for_source(
     connection: &Connection,
     source_id: i64,
     name: &str,
-) -> Result<Option<i64>> {
+) -> Result<PlayerAliasResolution> {
     /*
      * Exact source-specific aliases take precedence over global aliases.
      *
@@ -972,8 +979,9 @@ pub(crate) fn resolve_player_alias_for_source(
         .context("collecting exact player-alias candidates")?;
 
     match player_ids.as_slice() {
-        [player_id] => Ok(Some(*player_id)),
-        [] | [_, _] => Ok(None),
+        [] => Ok(PlayerAliasResolution::Unrecognised),
+        [player_id] => Ok(PlayerAliasResolution::Unique(*player_id)),
+        [_, _] => Ok(PlayerAliasResolution::Ambiguous),
         _ => unreachable!("alias query is limited to two rows"),
     }
 }

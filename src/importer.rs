@@ -4,7 +4,7 @@ use crate::{
     GameRecord, canonical_hash, canonical_hash_hex, database, extract_main_variation, game,
     game_date::{normalise_played_date, played_date_sort_key},
     parse_collection,
-    player_directory::resolve_player_alias_for_source,
+    player_directory::{PlayerAliasResolution, resolve_player_alias_for_source},
     project::Project,
     write_move_file,
 };
@@ -270,21 +270,33 @@ fn insert_metadata(
      * Bermuda's separate interpretation, populated only by an unambiguous
      * previously confirmed exact alias.
      */
-    let black_player_id = record
+    let black_player_resolution = record
         .metadata
         .black_player
         .as_deref()
         .map(|name| resolve_player_alias_for_source(transaction, source_id, name))
-        .transpose()?
-        .flatten();
+        .transpose()?;
 
-    let white_player_id = record
+    let black_player_id = match black_player_resolution {
+        Some(PlayerAliasResolution::Unique(player_id)) => Some(player_id),
+        Some(PlayerAliasResolution::Unrecognised)
+        | Some(PlayerAliasResolution::Ambiguous)
+        | None => None,
+    };
+
+    let white_player_resolution = record
         .metadata
         .white_player
         .as_deref()
         .map(|name| resolve_player_alias_for_source(transaction, source_id, name))
-        .transpose()?
-        .flatten();
+        .transpose()?;
+
+    let white_player_id = match white_player_resolution {
+        Some(PlayerAliasResolution::Unique(player_id)) => Some(player_id),
+        Some(PlayerAliasResolution::Unrecognised)
+        | Some(PlayerAliasResolution::Ambiguous)
+        | None => None,
+    };
 
     let played_date = record.metadata.date.as_deref().map(normalise_played_date);
 
@@ -473,17 +485,17 @@ mod tests {
 
         assert_eq!(
             resolve_player_alias_for_source(&connection, 7, "Cho Chikun")?,
-            Some(101)
+            PlayerAliasResolution::Unique(101)
         );
 
         assert_eq!(
             resolve_player_alias_for_source(&connection, 7, "Kobayashi Satoru")?,
-            Some(201)
+            PlayerAliasResolution::Unique(201)
         );
 
         assert_eq!(
             resolve_player_alias_for_source(&connection, 7, "Unknown Player")?,
-            None
+            PlayerAliasResolution::Unrecognised
         );
 
         /*
@@ -505,7 +517,7 @@ mod tests {
 
         assert_eq!(
             resolve_player_alias_for_source(&connection, 7, "Cho Chikun")?,
-            None
+            PlayerAliasResolution::Ambiguous
         );
 
         /*
@@ -526,7 +538,7 @@ mod tests {
 
         assert_eq!(
             resolve_player_alias_for_source(&connection, 7, "Kobayashi Satoru")?,
-            None
+            PlayerAliasResolution::Ambiguous
         );
 
         Ok(())
