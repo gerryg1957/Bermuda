@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
-use rusqlite::{Connection, TransactionBehavior, params};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use serde::Deserialize;
 
 const SUPPLIED_CATALOGUE_JSON: &str = include_str!("../data/player_catalogue.json");
@@ -106,52 +106,22 @@ impl PlayerCatalogue {
             })?;
 
         /*
-         * Materialisation is key-based, never name-based.
-         *
-         * A local player with the same preferred_name but no catalogue_key is
-         * therefore not silently merged with the supplied identity.
-         *
          * IMMEDIATE makes the find-or-create operation atomic with respect to
-         * other SQLite writers. The unique players.catalogue_key index remains
-         * the final database-level invariant.
+         * other SQLite writers. The private helper deliberately accepts an
+         * existing transaction so later catalogue-derived metadata linking can
+         * materialise and assign an identity in one atomic operation.
          */
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("starting catalogue player materialisation")?;
 
-        let created = transaction
-            .execute(
-                r#"
-                INSERT INTO players(preferred_name, catalogue_key)
-                SELECT ?1, ?2
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM players
-                    WHERE catalogue_key = ?2
-                )
-                "#,
-                params![player.preferred_name.as_str(), player.key.as_str(),],
-            )
-            .with_context(|| format!("materialising supplied catalogue player {:?}", player.key))?
-            == 1;
-
-        let player_id: i64 = transaction
-            .query_row(
-                r#"
-                SELECT id
-                FROM players
-                WHERE catalogue_key = ?1
-                "#,
-                [player.key.as_str()],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("reading materialised catalogue player {:?}", player.key))?;
+        let result = materialise_player_in_transaction(&transaction, player)?;
 
         transaction
             .commit()
             .context("committing catalogue player materialisation")?;
 
-        Ok(CataloguePlayerMaterialisation { player_id, created })
+        Ok(result)
     }
 
     pub fn synchronise(&self, connection: &mut Connection) -> Result<()> {
@@ -304,6 +274,48 @@ impl PlayerCatalogue {
 
         Ok(())
     }
+}
+
+fn materialise_player_in_transaction(
+    transaction: &Transaction<'_>,
+    player: &CataloguePlayer,
+) -> Result<CataloguePlayerMaterialisation> {
+    /*
+     * Materialisation is key-based, never name-based.
+     *
+     * A local player with the same preferred_name but no catalogue_key is
+     * therefore not silently merged with the supplied identity. The unique
+     * players.catalogue_key index remains the database-level invariant.
+     */
+    let created = transaction
+        .execute(
+            r#"
+            INSERT INTO players(preferred_name, catalogue_key)
+            SELECT ?1, ?2
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM players
+                WHERE catalogue_key = ?2
+            )
+            "#,
+            params![player.preferred_name.as_str(), player.key.as_str(),],
+        )
+        .with_context(|| format!("materialising supplied catalogue player {:?}", player.key))?
+        == 1;
+
+    let player_id: i64 = transaction
+        .query_row(
+            r#"
+            SELECT id
+            FROM players
+            WHERE catalogue_key = ?1
+            "#,
+            [player.key.as_str()],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("reading materialised catalogue player {:?}", player.key))?;
+
+    Ok(CataloguePlayerMaterialisation { player_id, created })
 }
 
 #[cfg(test)]
