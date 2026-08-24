@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const SCHEMA_MIGRATION_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn initialise(root: &Path) -> Result<()> {
@@ -62,7 +62,8 @@ pub fn initialise(root: &Path) -> Result<()> {
 
             CREATE TABLE IF NOT EXISTS players (
                 id              INTEGER PRIMARY KEY,
-                preferred_name  TEXT NOT NULL
+                preferred_name  TEXT NOT NULL,
+                catalogue_key   TEXT
             );
 
             CREATE TABLE IF NOT EXISTS player_aliases (
@@ -79,6 +80,40 @@ pub fn initialise(root: &Path) -> Result<()> {
                     REFERENCES sources(id)
                     ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS player_catalogue_state (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                data_version    INTEGER NOT NULL CHECK (data_version >= 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS player_catalogue_players (
+                catalogue_key   TEXT PRIMARY KEY,
+                preferred_name  TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS player_catalogue_aliases (
+                id              INTEGER PRIMARY KEY,
+                catalogue_key   TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                notes           TEXT,
+
+                FOREIGN KEY(catalogue_key)
+                    REFERENCES player_catalogue_players(catalogue_key)
+                    ON DELETE CASCADE
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS players_catalogue_key
+                ON players(catalogue_key)
+                WHERE catalogue_key IS NOT NULL;
+
+            CREATE INDEX IF NOT EXISTS player_catalogue_players_preferred_name
+                ON player_catalogue_players(preferred_name COLLATE NOCASE);
+
+            CREATE INDEX IF NOT EXISTS player_catalogue_aliases_name
+                ON player_catalogue_aliases(name COLLATE NOCASE);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS player_catalogue_alias_assignment
+                ON player_catalogue_aliases(catalogue_key, name);
 
             CREATE TABLE IF NOT EXISTS game_sources (
                 id              INTEGER PRIMARY KEY,
@@ -105,6 +140,10 @@ pub fn initialise(root: &Path) -> Result<()> {
                 handicap        INTEGER,
                 black_player_id INTEGER,
                 white_player_id INTEGER,
+                black_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_derived IN (0, 1)),
+                white_player_catalogue_derived INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_derived IN (0, 1)),
 
                 FOREIGN KEY(game_source_id)
                     REFERENCES game_sources(id)
@@ -209,6 +248,7 @@ fn migrate_locked(connection: &Connection, from_version: i64) -> Result<()> {
             3 => migrate_3_to_4(connection)?,
             4 => migrate_4_to_5(connection)?,
             5 => migrate_5_to_6(connection)?,
+            6 => migrate_6_to_7(connection)?,
             _ => bail!("no migration available from schema version {version}"),
         }
 
@@ -433,6 +473,63 @@ fn migrate_5_to_6(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_6_to_7(connection: &Connection) -> Result<()> {
+    connection
+        .execute_batch(
+            r#"
+            ALTER TABLE players
+                ADD COLUMN catalogue_key TEXT;
+
+            ALTER TABLE game_metadata
+                ADD COLUMN black_player_catalogue_derived
+                    INTEGER NOT NULL DEFAULT 0
+                    CHECK (black_player_catalogue_derived IN (0, 1));
+
+            ALTER TABLE game_metadata
+                ADD COLUMN white_player_catalogue_derived
+                    INTEGER NOT NULL DEFAULT 0
+                    CHECK (white_player_catalogue_derived IN (0, 1));
+
+            CREATE TABLE player_catalogue_state (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                data_version    INTEGER NOT NULL CHECK (data_version >= 0)
+            );
+
+            CREATE TABLE player_catalogue_players (
+                catalogue_key   TEXT PRIMARY KEY,
+                preferred_name  TEXT NOT NULL
+            );
+
+            CREATE TABLE player_catalogue_aliases (
+                id              INTEGER PRIMARY KEY,
+                catalogue_key   TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                notes           TEXT,
+
+                FOREIGN KEY(catalogue_key)
+                    REFERENCES player_catalogue_players(catalogue_key)
+                    ON DELETE CASCADE
+            );
+
+            CREATE UNIQUE INDEX players_catalogue_key
+                ON players(catalogue_key)
+                WHERE catalogue_key IS NOT NULL;
+
+            CREATE INDEX player_catalogue_players_preferred_name
+                ON player_catalogue_players(preferred_name COLLATE NOCASE);
+
+            CREATE INDEX player_catalogue_aliases_name
+                ON player_catalogue_aliases(name COLLATE NOCASE);
+
+            CREATE UNIQUE INDEX player_catalogue_alias_assignment
+                ON player_catalogue_aliases(catalogue_key, name);
+            "#,
+        )
+        .context("adding supplied player catalogue foundation")?;
+
+    Ok(())
+}
+
 fn read_schema_version(connection: &Connection) -> Result<Option<i64>> {
     connection
         .query_row(
@@ -585,7 +682,7 @@ mod tests {
                 row.get(0)
             })?;
 
-        assert_eq!(schema_version, 6);
+        assert_eq!(schema_version, 7);
 
         let stored_dates = {
             let mut statement = connection.prepare(
@@ -700,7 +797,7 @@ mod tests {
                 row.get(0)
             })?;
 
-        assert_eq!(schema_version, 6);
+        assert_eq!(schema_version, 7);
 
         let player_count: i64 =
             connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
@@ -789,6 +886,188 @@ mod tests {
     }
 
     #[test]
+    fn migrates_version_6_to_player_catalogue_foundation() -> Result<()> {
+        let mut connection = Connection::open_in_memory()?;
+
+        connection.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE schema_info (
+                schema_version INTEGER NOT NULL
+            );
+
+            INSERT INTO schema_info(schema_version)
+            VALUES (6);
+
+            CREATE TABLE players (
+                id              INTEGER PRIMARY KEY,
+                preferred_name  TEXT NOT NULL
+            );
+
+            CREATE TABLE game_metadata (
+                game_source_id  INTEGER PRIMARY KEY,
+                black_player    TEXT,
+                white_player    TEXT,
+                black_player_id INTEGER REFERENCES players(id),
+                white_player_id INTEGER REFERENCES players(id)
+            );
+
+            INSERT INTO players(id, preferred_name)
+            VALUES (1, 'Cho Chikun');
+
+            INSERT INTO game_metadata(
+                game_source_id,
+                black_player,
+                white_player,
+                black_player_id,
+                white_player_id
+            )
+            VALUES (
+                10,
+                'Cho Chikun',
+                'Kobayashi Satoru',
+                1,
+                NULL
+            );
+            "#,
+        )?;
+
+        check_or_record_schema_version(&mut connection)?;
+
+        assert_eq!(read_schema_version(&connection)?, Some(7));
+
+        let (
+            black_player,
+            black_player_id,
+            black_catalogue_derived,
+            white_player_id,
+            white_catalogue_derived,
+        ): (Option<String>, Option<i64>, i64, Option<i64>, i64) = connection.query_row(
+            r#"
+                SELECT
+                    black_player,
+                    black_player_id,
+                    black_player_catalogue_derived,
+                    white_player_id,
+                    white_player_catalogue_derived
+                FROM game_metadata
+                WHERE game_source_id = 10
+                "#,
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )?;
+
+        /*
+         * A pre-schema-7 identity link is local knowledge. The migration
+         * therefore preserves both the numeric identity and the original PB
+         * text while the new catalogue-derived flag defaults to false.
+         */
+        assert_eq!(black_player.as_deref(), Some("Cho Chikun"));
+        assert_eq!(black_player_id, Some(1));
+        assert_eq!(black_catalogue_derived, 0);
+
+        assert_eq!(white_player_id, None);
+        assert_eq!(white_catalogue_derived, 0);
+
+        let catalogue_key: Option<String> = connection.query_row(
+            "SELECT catalogue_key FROM players WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        assert_eq!(catalogue_key, None);
+
+        let catalogue_player_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_catalogue_players", [], |row| {
+                row.get(0)
+            })?;
+
+        let catalogue_alias_count: i64 =
+            connection.query_row("SELECT COUNT(*) FROM player_catalogue_aliases", [], |row| {
+                row.get(0)
+            })?;
+
+        assert_eq!(catalogue_player_count, 0);
+        assert_eq!(catalogue_alias_count, 0);
+
+        /*
+         * Prove that the new catalogue structures can represent one supplied
+         * identity and alias without changing the existing local player.
+         */
+        connection.execute(
+            "INSERT INTO player_catalogue_state(id, data_version) VALUES (1, 1)",
+            [],
+        )?;
+
+        connection.execute(
+            r#"
+            INSERT INTO player_catalogue_players(catalogue_key, preferred_name)
+            VALUES ('kr:lee-sedol', 'Lee Sedol')
+            "#,
+            [],
+        )?;
+
+        connection.execute(
+            r#"
+            INSERT INTO player_catalogue_aliases(catalogue_key, name)
+            VALUES ('kr:lee-sedol', 'Yi Se-tol')
+            "#,
+            [],
+        )?;
+
+        connection.execute(
+            r#"
+            INSERT INTO players(preferred_name, catalogue_key)
+            VALUES ('Lee Sedol', 'kr:lee-sedol')
+            "#,
+            [],
+        )?;
+
+        /*
+         * One supplied catalogue identity may be materialised only once in a
+         * project database.
+         */
+        assert!(
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO players(preferred_name, catalogue_key)
+                    VALUES ('Duplicate Lee Sedol', 'kr:lee-sedol')
+                    "#,
+                    [],
+                )
+                .is_err()
+        );
+
+        /*
+         * The provenance flag is deliberately boolean.
+         */
+        assert!(
+            connection
+                .execute(
+                    r#"
+                    UPDATE game_metadata
+                    SET black_player_catalogue_derived = 2
+                    WHERE game_source_id = 10
+                    "#,
+                    [],
+                )
+                .is_err()
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn stale_schema_observation_does_not_repeat_completed_migration() -> Result<()> {
         let temporary_directory = tempdir()?;
         let sqlite_path = temporary_directory.path().join("metadata.sqlite3");
@@ -866,11 +1145,11 @@ mod tests {
         check_or_record_schema_version(&mut first_connection)?;
 
         let migrated_version = read_schema_version(&first_connection)?;
-        assert_eq!(migrated_version, Some(6));
+        assert_eq!(migrated_version, Some(7));
 
         /*
          * B must now take the IMMEDIATE transaction, re-read schema_info,
-         * discover schema 6, and refrain from trying 5 -> 6 a second time.
+         * discover schema 7, and refrain from migrating schema 5 a second time.
          */
         continue_sender
             .send(())
@@ -880,7 +1159,7 @@ mod tests {
             .join()
             .expect("second schema opener thread panicked")?;
 
-        assert_eq!(read_schema_version(&first_connection)?, Some(6));
+        assert_eq!(read_schema_version(&first_connection)?, Some(7));
 
         let player_count: i64 =
             first_connection.query_row("SELECT COUNT(*) FROM players", [], |row| row.get(0))?;
