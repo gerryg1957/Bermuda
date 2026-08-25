@@ -1,0 +1,3533 @@
+{
+  "version": 1,
+  "source_manifest_version": 1,
+  "players": [
+    {
+      "key": "bermuda:p000001",
+      "preferred_name": "Lee Chang-ho",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          139
+        ],
+        "wikidata": "Q484704"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Yi Ch'ang-ho"
+      },
+      "names": [
+        {
+          "name": "이창호",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "I Changho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "I Chanho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee changho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "tr",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Chang-ho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "de",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "es",
+              "preferred": true
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            },
+            {
+              "language": "tr",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Changho",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "vi",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Chang-Ho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yi Ch'ang-ho",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "tr",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yi Chang-ho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "de",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yi Changho",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ли Чангхо",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ли Чханхо",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ли Чхан Хо",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李昌鍋",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李昌鎬",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            },
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李昌镐",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "石佛",
+          "databases": [],
+          "languages": [
+            {
+              "language": "yue",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000002",
+      "preferred_name": "Cho Hun-hyun",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          222
+        ],
+        "wikidata": "Q484698"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Cho Hun-hyeon"
+      },
+      "names": [
+        {
+          "name": "조훈현",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hoon-hyun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hoonhyun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hun-hyeon",
+          "databases": [
+            "AEB",
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "fr",
+              "preferred": false
+            },
+            {
+              "language": "tr",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": true
+            },
+            {
+              "language": "de",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hunhyeon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "de",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hun Hyeon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "de",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho HunHyeon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "tr",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hun-hyun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hunhyun",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "vi",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": false
+            },
+            {
+              "language": "tr",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Jo Hunhyeon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "vi",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чо Хунхен",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чо Хунхён",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чхо Хунхён",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "チョ薫鉉",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "曹薫鉉",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "曹薰鉉",
+          "databases": [],
+          "languages": [],
+          "incorrect": false
+        },
+        {
+          "name": "曹薰铉",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "曺薫鉉",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "曺薰鉉",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000003",
+      "preferred_name": "Lee Sedol",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          76
+        ],
+        "wikidata": "Q486559"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Yi Se-tol"
+      },
+      "names": [
+        {
+          "name": "이세돌",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "I Sedol",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "I Szedol",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "hu",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Saedol",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Se-dol",
+          "databases": [],
+          "languages": [
+            {
+              "language": "hu",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "cs",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Sedol",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "cs",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "hu",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            },
+            {
+              "language": "de",
+              "preferred": false
+            },
+            {
+              "language": "pl",
+              "preferred": true
+            },
+            {
+              "language": "sv",
+              "preferred": true
+            },
+            {
+              "language": "vi",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Se-Dol",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ri Sedol",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yi Se-tol",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "de",
+              "preferred": false
+            },
+            {
+              "language": "hu",
+              "preferred": false
+            },
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ли Седол",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ли Седоль",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ли Се Доль",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "ली सीडोल",
+          "databases": [],
+          "languages": [
+            {
+              "language": "hi",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "อี เซดอล",
+          "databases": [],
+          "languages": [
+            {
+              "language": "th",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "イ・セドル",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李世ドル",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李世乭",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            },
+            {
+              "language": "zh-hk",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李世石",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000004",
+      "preferred_name": "Park Junghwan",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          70
+        ],
+        "wikidata": "Q492828"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Pak Cheong-hwan"
+      },
+      "names": [
+        {
+          "name": "박정환",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Pak Cheong-hwan",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Pak Jeong-hwan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Jeong-hwan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Jeong Hwan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Junghwan",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Jung Hwan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Пак Чжон Хван",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "พัก จ็อง-ฮวัน",
+          "databases": [],
+          "languages": [
+            {
+              "language": "th",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "朴廷桓",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Jungwhan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": true
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000005",
+      "preferred_name": "Seo Bong-soo",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          295
+        ],
+        "wikidata": "Q489081"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Seo Pong-su"
+      },
+      "names": [
+        {
+          "name": "서봉수",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Bong-soo",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Bongsoo",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Bongsu",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Pong-su",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "So Bungsoo",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "So Bungsu",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Suh Bongsoo",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Suh Bongsu",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Со Бонсу",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "徐奉洙",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000006",
+      "preferred_name": "Yoo Changhyuk",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          256
+        ],
+        "wikidata": "Q489305"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Yu Ch'ang-hyeok"
+      },
+      "names": [
+        {
+          "name": "유창혁",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yoo Changhyeok",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yoo Changhyock",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yoo Chang-hyuk",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yoo Changhyuk",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yu Ch'ang-hyeok",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yu Changhyuk",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ю Чханхек",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ю Чханхёк",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "刘昌赫",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "劉昌赫",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            },
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000007",
+      "preferred_name": "Choi Cheol-han",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          81
+        ],
+        "wikidata": "Q488742"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Ch'oe Ch'eol-han"
+      },
+      "names": [
+        {
+          "name": "최철한",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Čchoi Čchol-han",
+          "databases": [],
+          "languages": [
+            {
+              "language": "cs",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ch'oe Ch'eol-han",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Choi Cheol-han",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Choi Cheolhan",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чхве Чхолхан",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чхве Чхольхан",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чхве Чхоль Хан",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "ชเว ชอลฮัน",
+          "databases": [],
+          "languages": [
+            {
+              "language": "th",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "崔哲瀚",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "崔哲翰",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000008",
+      "preferred_name": "Park Yeong-hun",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          87
+        ],
+        "wikidata": "Q488939"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Pak Yeong-hun"
+      },
+      "names": [
+        {
+          "name": "박영훈",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Pak Yeong-hun",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Pak Yeonghun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Yeong-hun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Yeonghun",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Young-hoon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Park Younghun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Пак Ёнхун",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Пак Ён Хун",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "パク・ヨンフン",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "朴永訓",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            },
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "朴永训",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000009",
+      "preferred_name": "Kang Dongyun",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          94
+        ],
+        "wikidata": "Q492821"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Kang Tongyun"
+      },
+      "names": [
+        {
+          "name": "강동윤",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kang Dong Yoon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kang Dong-yun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kang Dongyun",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kang Tong-yun",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kang Tongyun",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Кан Дон Юн",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "姜东润",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "姜東潤",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            },
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000010",
+      "preferred_name": "Kim Jiseok",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          79
+        ],
+        "wikidata": "Q486589"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Kim Jiseok"
+      },
+      "names": [
+        {
+          "name": "김지석",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kim Chi-seok",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kim Ji-seok",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kim Jiseok",
+          "databases": [
+            "Go4go",
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "金志錫",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "金志锡",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000011",
+      "preferred_name": "Shin Jin-seo",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          77
+        ],
+        "wikidata": "Q16161993"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Sin Chin-seo"
+      },
+      "names": [
+        {
+          "name": "신진서",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Shin Jin-seo",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Shin Jinseo",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Shin Jin Seo",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Sin Chin-seo",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "申眞諝",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "申真谞",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh-cn",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000012",
+      "preferred_name": "Cho Hanseung",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          113
+        ],
+        "wikidata": "Q488544"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Cho Han-seung"
+      },
+      "names": [
+        {
+          "name": "조한승",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Han-seung",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hanseung",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Han-Seung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Cho Hansung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Čo Hansung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "cs",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Чо Хансын",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ru",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "赵汉乘",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "趙漢乗",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "趙漢乘",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000013",
+      "preferred_name": "Won Seong-jin",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          91
+        ],
+        "wikidata": "Q486652"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Weon Seong-chin"
+      },
+      "names": [
+        {
+          "name": "원성진",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Weon Seong-chin",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Weon Seong-jin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Weon Seongjin",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Won Seong-jin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Won Seongjin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Won Sungjin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "元晟ジン",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "元晟湊",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "元晟溱",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000014",
+      "preferred_name": "Choi Jeong",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          179
+        ],
+        "wikidata": "Q11477181"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Ch'oe Cheong"
+      },
+      "names": [
+        {
+          "name": "최정",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ch'oe Cheong",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Choi Jeong",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Choi Jung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "崔精",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000015",
+      "preferred_name": "Byun Sang-il",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          102
+        ],
+        "wikidata": "Q16181030"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Hye San-kil"
+      },
+      "names": [
+        {
+          "name": "변상일",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Byun Sangil",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Hye San-kil",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Pyeon Sang-il",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "卞相一",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "卞相壹",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000016",
+      "preferred_name": "Shin Min-jun",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          114
+        ],
+        "wikidata": "Q16160030"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Sin Min-chun"
+      },
+      "names": [
+        {
+          "name": "신민준",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Shin Min-jun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Shin Minjun",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Shin Min Jun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Sin Min-chun",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "申旻ジュン",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "申旻埈",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000017",
+      "preferred_name": "Mok Jin-seok",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          123
+        ],
+        "wikidata": "Q492303"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Mok Chin-seok"
+      },
+      "names": [
+        {
+          "name": "목진석",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Mok Chin-seok",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Mok Jin-seok",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Mok Jinseok",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Mok Jinseuk",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Mok Jinsuk",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "睦鎮碩",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            },
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "睦镇硕",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000018",
+      "preferred_name": "Lee Young-gu",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          92
+        ],
+        "wikidata": "Q493322"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Yi Yeong-ku"
+      },
+      "names": [
+        {
+          "name": "이영구",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Yeong-kyu",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Yeongkyu",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Young-gu",
+          "databases": [],
+          "languages": [
+            {
+              "language": "nl",
+              "preferred": true
+            },
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Younggu",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yi Yeong-ku",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李映九",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": [
+        "Bermuda corpus analysis strongly associates the source spelling 'Lee Yeonggu' with this identity, but that exact spelling is not present in the adopted u-go snapshot and is therefore not yet approved for the distributed catalogue."
+      ]
+    },
+    {
+      "key": "bermuda:p000019",
+      "preferred_name": "Wang Lei",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          199
+        ],
+        "wikidata": null
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Wang Lei"
+      },
+      "names": [
+        {
+          "name": "Wang Lei",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Wang Lei (b)",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Wang Lei Sr.",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "왕레이(大)",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "王磊",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": [
+        "The preferred display name is 'Wang Lei'. Source spellings include 'Wang Lei Sr.' and 'Wang Lei (b)' to distinguish this player from another player with the same romanised name. Bermuda should revisit user-facing disambiguation when that second identity is catalogued."
+      ]
+    },
+    {
+      "key": "bermuda:p000020",
+      "preferred_name": "Kyo Kagen",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          1025
+        ],
+        "wikidata": "Q20039688"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Kyo Kagen"
+      },
+      "names": [
+        {
+          "name": "쉬자위안",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Hsu Chia-yuan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Hsu Chiayuan",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Hsu Chia Yuan",
+          "databases": [
+            "AEB"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Kyo Kagen",
+          "databases": [
+            "AEB",
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Xu Jiayuan",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "許家元",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "许家元",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000021",
+      "preferred_name": "Oh Yujin",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          276
+        ],
+        "wikidata": "Q19657369"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "O Yujin"
+      },
+      "names": [
+        {
+          "name": "오유진",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Oh Yoo-jin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Oh Yu-jin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Oh Yujin",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Oh Yu Jin",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "O Yu-chin",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "O Yujin",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "吳侑珍",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "吴侑珍",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "呉侑珍",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000022",
+      "preferred_name": "An Joyeong",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          210
+        ],
+        "wikidata": "Q484299"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "An Cho-yeong"
+      },
+      "names": [
+        {
+          "name": "안조영",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ahn Choyoung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ahn Choyung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Ahn Joyoung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "An Cho-yeong",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "An Choyeong",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "An Cho-young",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "An Choyoung",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "An Jo-yeong",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "An Joyeong",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "安祚永",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000023",
+      "preferred_name": "Seo Neung-uk",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          489
+        ],
+        "wikidata": "Q11488697"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Seo Neung-uk"
+      },
+      "names": [
+        {
+          "name": "서능욱",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Neung-uk",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Neungwook",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Nunguk",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Nungwook",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Nungwuk",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Seo Nyungwook",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "So Nungwook",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Suh Neungwook",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Suh Nungwook",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "徐能旭",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": true
+            },
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000024",
+      "preferred_name": "Yun Junsang",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          141
+        ],
+        "wikidata": "Q492542"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Yun Chun-sang"
+      },
+      "names": [
+        {
+          "name": "윤준상",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yun Chun-sang",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yun Jun-sang",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yun Junsang",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            },
+            {
+              "language": "fr",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "尹ジュン相",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "尹峻相",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "尹畯相",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ja",
+              "preferred": false
+            },
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    },
+    {
+      "key": "bermuda:p000025",
+      "preferred_name": "Lee Donghoon",
+      "review_status": "approved",
+      "external_ids": {
+        "u_go": [
+          88
+        ],
+        "wikidata": "Q16176342"
+      },
+      "source_record": {
+        "source": "u-go-player-list",
+        "snapshot_date": "2026-08-10",
+        "key_name": "Yi Tong-hun"
+      },
+      "names": [
+        {
+          "name": "이동훈",
+          "databases": [],
+          "languages": [
+            {
+              "language": "ko",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Dong-hoon",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Donghoon",
+          "databases": [
+            "Go4go"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Lee Donghun",
+          "databases": [],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "Yi Tong-hun",
+          "databases": [
+            "GoGoD"
+          ],
+          "languages": [
+            {
+              "language": "en",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李东勋",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李東勛",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李東勲",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            },
+            {
+              "language": "ja",
+              "preferred": true
+            }
+          ],
+          "incorrect": false
+        },
+        {
+          "name": "李東勳",
+          "databases": [],
+          "languages": [
+            {
+              "language": "zh",
+              "preferred": false
+            }
+          ],
+          "incorrect": false
+        }
+      ],
+      "notes": []
+    }
+  ]
+}
