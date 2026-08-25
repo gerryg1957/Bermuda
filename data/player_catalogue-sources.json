@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "key": "u-go-player-list",
+      "name": "u-go.net Go Player List",
+      "maintainer": "Ulrich Görtz",
+      "homepage": "https://db.u-go.net/",
+      "license": "CC0-1.0",
+      "snapshot_date": "2026-08-10",
+      "archive_url": "https://dldb.u-go.net/media/playerdb/archive/playerdb-2026-08-10.json.gz",
+      "sha256": "0acd04c9ba0eaa461d2a725ca66a0fa954dbca1e9958428fcead9e37fb52c53d",
+      "adopted_by_bermuda": "2026-08-25"
+    }
+  ]
+}
