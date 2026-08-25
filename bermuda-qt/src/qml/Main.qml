@@ -151,6 +151,10 @@ ApplicationWindow {
         }
     }
 
+    AboutDialog {
+        id: aboutDialog
+    }
+
   FolderDialog {
       id: openDatabaseDialog
 
@@ -292,7 +296,7 @@ menuBar: MenuBar {
         }
 
         Action {
-            text: qsTr("Player &Identities…")
+            text: qsTr("Player &Names…")
 
             enabled: root.projectPath.length > 0
                      && !databaseOperation.in_progress
@@ -376,6 +380,16 @@ menuBar: MenuBar {
 
             onToggled:
                 root.includeHandicapGames = checked
+        }
+    }
+
+    Menu {
+        title: qsTr("&Help")
+
+        Action {
+            text: qsTr("&About Bermuda")
+
+            onTriggered: aboutDialog.open()
         }
     }
 

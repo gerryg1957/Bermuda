@@ -14,6 +14,10 @@ fn main() {
 
     let mut app = QApplication::new();
 
+    if let Some(app) = app.as_mut() {
+        app.set_application_version(&QString::from(env!("CARGO_PKG_VERSION")));
+    }
+
     QGuiApplication::set_desktop_file_name(&QString::from("org.bermuda.app"));
 
     if env::var("QT_QUICK_CONTROLS_STYLE").is_err() {
