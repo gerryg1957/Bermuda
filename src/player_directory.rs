@@ -22,6 +22,24 @@ pub struct PlayerAlias {
     pub notes: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerKnownNameKind {
+    Preferred,
+    Supplied,
+    Local,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerKnownName {
+    pub name: String,
+    pub kind: PlayerKnownNameKind,
+    pub local_alias_id: Option<i64>,
+    pub source_id: Option<i64>,
+    pub source_name: Option<String>,
+    pub source_version: Option<String>,
+    pub notes: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnresolvedPlayerName {
     pub source_id: i64,
@@ -164,6 +182,130 @@ impl PlayerDirectory {
 
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("collecting player list")
+    }
+
+    /// Return every name assertion Bermuda currently knows for one player.
+    ///
+    /// The current preferred display name, supplied catalogue names, and
+    /// locally curated aliases are kept as distinct rows. Equal spellings
+    /// are deliberately not deduplicated because their ownership and
+    /// reversibility differ.
+    pub fn known_names_for_player(&self, player_id: i64) -> Result<Vec<PlayerKnownName>> {
+        let player: Option<(String, Option<String>)> = self
+            .connection
+            .query_row(
+                r#"
+                SELECT preferred_name, catalogue_key
+                FROM players
+                WHERE id = ?1
+                "#,
+                [player_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .with_context(|| format!("reading player {player_id} for known names"))?;
+
+        let Some((preferred_name, catalogue_key)) = player else {
+            bail!("player {player_id} does not exist");
+        };
+
+        let mut names = vec![PlayerKnownName {
+            name: preferred_name,
+            kind: PlayerKnownNameKind::Preferred,
+            local_alias_id: None,
+            source_id: None,
+            source_name: None,
+            source_version: None,
+            notes: None,
+        }];
+
+        if let Some(catalogue_key) = catalogue_key {
+            /*
+             * A materialised player may outlive a supplied catalogue entry
+             * after a later catalogue update, so absence here is valid rather
+             * than an integrity error.
+             */
+            let supplied_preferred_name: Option<String> = self
+                .connection
+                .query_row(
+                    r#"
+                    SELECT preferred_name
+                    FROM player_catalogue_players
+                    WHERE catalogue_key = ?1
+                    "#,
+                    [&catalogue_key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .with_context(|| {
+                    format!("reading supplied preferred name for player {player_id}")
+                })?;
+
+            if let Some(name) = supplied_preferred_name {
+                names.push(PlayerKnownName {
+                    name,
+                    kind: PlayerKnownNameKind::Supplied,
+                    local_alias_id: None,
+                    source_id: None,
+                    source_name: None,
+                    source_version: None,
+                    notes: None,
+                });
+            }
+
+            let supplied_aliases = {
+                let mut statement = self
+                    .connection
+                    .prepare(
+                        r#"
+                        SELECT name, notes
+                        FROM player_catalogue_aliases
+                        WHERE catalogue_key = ?1
+                        ORDER BY name COLLATE NOCASE, id
+                        "#,
+                    )
+                    .with_context(|| {
+                        format!("preparing supplied known names for player {player_id}")
+                    })?;
+
+                let rows = statement
+                    .query_map([&catalogue_key], |row| {
+                        Ok(PlayerKnownName {
+                            name: row.get(0)?,
+                            kind: PlayerKnownNameKind::Supplied,
+                            local_alias_id: None,
+                            source_id: None,
+                            source_name: None,
+                            source_version: None,
+                            notes: row.get(1)?,
+                        })
+                    })
+                    .with_context(|| {
+                        format!("reading supplied known names for player {player_id}")
+                    })?;
+
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .with_context(|| {
+                        format!("collecting supplied known names for player {player_id}")
+                    })?
+            };
+
+            names.extend(supplied_aliases);
+        }
+
+        for alias in self.aliases_for_player(player_id)? {
+            names.push(PlayerKnownName {
+                name: alias.name,
+                kind: PlayerKnownNameKind::Local,
+                local_alias_id: Some(alias.id),
+                source_id: alias.source_id,
+                source_name: alias.source_name,
+                source_version: alias.source_version,
+                notes: alias.notes,
+            });
+        }
+
+        Ok(names)
     }
 
     pub fn add_alias(
@@ -1425,6 +1567,116 @@ mod tests {
         assert!(directory.create_player("   ").is_err());
         assert!(directory.rename_player(player.id, "").is_err());
         assert!(directory.rename_player(999_999, "Nobody").is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn known_names_keep_preferred_supplied_and_local_assertions_distinct() -> Result<()> {
+        let temporary_directory = tempdir()?;
+        let project_root = temporary_directory.path().join("test-project");
+
+        let project = ProjectManager::new().create("Test Project", &project_root)?;
+        add_source_metadata(&project)?;
+
+        let directory = project.player_directory()?;
+        let player = directory.create_player("User display name")?;
+
+        /*
+         * Add one artificial supplied identity after PlayerDirectory has
+         * prepared the compiled catalogue. The arbitrary test key cannot
+         * collide with a Bermuda supplied key.
+         */
+        {
+            let connection = database::open(&project.database_root())?;
+
+            connection.execute(
+                r#"
+                INSERT INTO player_catalogue_players(
+                    catalogue_key,
+                    preferred_name
+                )
+                VALUES ('test:known-names', 'Catalogue display name')
+                "#,
+                [],
+            )?;
+
+            connection.execute(
+                r#"
+                INSERT INTO player_catalogue_aliases(
+                    catalogue_key,
+                    name,
+                    notes
+                )
+                VALUES (
+                    'test:known-names',
+                    'Shared spelling',
+                    'supplied test assertion'
+                )
+                "#,
+                [],
+            )?;
+
+            connection.execute(
+                r#"
+                UPDATE players
+                SET catalogue_key = 'test:known-names'
+                WHERE id = ?1
+                "#,
+                [player.id],
+            )?;
+        }
+
+        let local_alias = directory.add_alias(
+            player.id,
+            "Shared spelling",
+            Some(1),
+            Some("local test assertion"),
+        )?;
+
+        assert_eq!(
+            directory.known_names_for_player(player.id)?,
+            vec![
+                PlayerKnownName {
+                    name: "User display name".to_owned(),
+                    kind: PlayerKnownNameKind::Preferred,
+                    local_alias_id: None,
+                    source_id: None,
+                    source_name: None,
+                    source_version: None,
+                    notes: None,
+                },
+                PlayerKnownName {
+                    name: "Catalogue display name".to_owned(),
+                    kind: PlayerKnownNameKind::Supplied,
+                    local_alias_id: None,
+                    source_id: None,
+                    source_name: None,
+                    source_version: None,
+                    notes: None,
+                },
+                PlayerKnownName {
+                    name: "Shared spelling".to_owned(),
+                    kind: PlayerKnownNameKind::Supplied,
+                    local_alias_id: None,
+                    source_id: None,
+                    source_name: None,
+                    source_version: None,
+                    notes: Some("supplied test assertion".to_owned()),
+                },
+                PlayerKnownName {
+                    name: "Shared spelling".to_owned(),
+                    kind: PlayerKnownNameKind::Local,
+                    local_alias_id: Some(local_alias.id),
+                    source_id: Some(1),
+                    source_name: Some("GoGoD".to_owned()),
+                    source_version: Some("2026".to_owned()),
+                    notes: Some("local test assertion".to_owned()),
+                },
+            ]
+        );
+
+        assert!(directory.known_names_for_player(999_999).is_err());
 
         Ok(())
     }

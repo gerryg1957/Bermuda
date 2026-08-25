@@ -1,6 +1,9 @@
 use std::{path::Path, pin::Pin};
 
-use bermuda::project_manager::ProjectManager;
+use bermuda::{
+    player_directory::{PlayerDirectory, PlayerKnownNameKind},
+    project_manager::ProjectManager,
+};
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 use serde_json::json;
@@ -19,6 +22,7 @@ mod ffi {
         #[qproperty(QString, players_json)]
         #[qproperty(QString, unresolved_json)]
         #[qproperty(QString, aliases_json)]
+        #[qproperty(QString, known_names_json)]
         #[qproperty(QString, error_message)]
         #[qproperty(QString, status_message)]
         #[qproperty(i64, selected_player_id)]
@@ -76,6 +80,7 @@ pub struct PlayerIdentityModelRust {
     pub(crate) players_json: QString,
     pub(crate) unresolved_json: QString,
     pub(crate) aliases_json: QString,
+    pub(crate) known_names_json: QString,
     pub(crate) error_message: QString,
     pub(crate) status_message: QString,
     pub(crate) selected_player_id: i64,
@@ -89,6 +94,7 @@ impl Default for PlayerIdentityModelRust {
             players_json: QString::from("[]"),
             unresolved_json: QString::from("[]"),
             aliases_json: QString::from("[]"),
+            known_names_json: QString::from("[]"),
             error_message: QString::default(),
             status_message: QString::default(),
             selected_player_id: -1,
@@ -101,6 +107,7 @@ struct IdentitySnapshot {
     players_json: QString,
     unresolved_json: QString,
     aliases_json: QString,
+    known_names_json: QString,
 }
 
 impl ffi::PlayerIdentityModel {
@@ -126,12 +133,14 @@ impl ffi::PlayerIdentityModel {
             return set_failure(self, "no Bermuda database is currently open".to_owned());
         }
 
-        let aliases_json = match aliases_json_for_player(&project_path, player_id) {
-            Ok(aliases_json) => aliases_json,
-            Err(error) => return set_failure(self, error),
-        };
+        let (aliases_json, known_names_json) =
+            match player_name_json_for_player(&project_path, player_id) {
+                Ok(values) => values,
+                Err(error) => return set_failure(self, error),
+            };
 
         self.as_mut().set_aliases_json(aliases_json);
+        self.as_mut().set_known_names_json(known_names_json);
         self.as_mut().set_selected_player_id(player_id);
         self.as_mut().set_error_message(QString::default());
 
@@ -351,6 +360,9 @@ fn refresh_model(
     model.as_mut().set_aliases_json(snapshot.aliases_json);
     model
         .as_mut()
+        .set_known_names_json(snapshot.known_names_json);
+    model
+        .as_mut()
         .set_selected_player_id(selected_player_id.unwrap_or(-1));
     model.as_mut().set_error_message(QString::default());
     model
@@ -399,42 +411,23 @@ fn load_snapshot(
         })
         .collect::<Vec<_>>();
 
-    let aliases = match selected_player_id {
-        Some(player_id) => directory
-            .aliases_for_player(player_id)
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .map(|alias| {
-                json!({
-                    "id": alias.id,
-                    "name": alias.name,
-                    "sourceId": alias.source_id,
-                    "sourceName": alias.source_name,
-                    "sourceVersion": alias.source_version,
-                    "notes": alias.notes,
-                })
-            })
-            .collect::<Vec<_>>(),
-
-        None => Vec::new(),
+    let (aliases, known_names) = match selected_player_id {
+        Some(player_id) => player_name_values(&directory, player_id)?,
+        None => (Vec::new(), Vec::new()),
     };
 
     Ok(IdentitySnapshot {
         players_json: serialise_json(&players)?,
         unresolved_json: serialise_json(&unresolved)?,
         aliases_json: serialise_json(&aliases)?,
+        known_names_json: serialise_json(&known_names)?,
     })
 }
 
-fn aliases_json_for_player(project_path: &str, player_id: i64) -> Result<QString, String> {
-    let project = ProjectManager::new()
-        .open(Path::new(project_path))
-        .map_err(|error| error.to_string())?;
-
-    let directory = project
-        .player_directory()
-        .map_err(|error| error.to_string())?;
-
+fn player_name_values(
+    directory: &PlayerDirectory,
+    player_id: i64,
+) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), String> {
     let aliases = directory
         .aliases_for_player(player_id)
         .map_err(|error| error.to_string())?
@@ -451,7 +444,47 @@ fn aliases_json_for_player(project_path: &str, player_id: i64) -> Result<QString
         })
         .collect::<Vec<_>>();
 
-    serialise_json(&aliases)
+    let known_names = directory
+        .known_names_for_player(player_id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|known_name| {
+            let kind = match known_name.kind {
+                PlayerKnownNameKind::Preferred => "preferred",
+                PlayerKnownNameKind::Supplied => "supplied",
+                PlayerKnownNameKind::Local => "local",
+            };
+
+            json!({
+                "name": known_name.name,
+                "kind": kind,
+                "localAliasId": known_name.local_alias_id,
+                "sourceId": known_name.source_id,
+                "sourceName": known_name.source_name,
+                "sourceVersion": known_name.source_version,
+                "notes": known_name.notes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok((aliases, known_names))
+}
+
+fn player_name_json_for_player(
+    project_path: &str,
+    player_id: i64,
+) -> Result<(QString, QString), String> {
+    let project = ProjectManager::new()
+        .open(Path::new(project_path))
+        .map_err(|error| error.to_string())?;
+
+    let directory = project
+        .player_directory()
+        .map_err(|error| error.to_string())?;
+
+    let (aliases, known_names) = player_name_values(&directory, player_id)?;
+
+    Ok((serialise_json(&aliases)?, serialise_json(&known_names)?))
 }
 
 fn serialise_json(values: &[serde_json::Value]) -> Result<QString, String> {

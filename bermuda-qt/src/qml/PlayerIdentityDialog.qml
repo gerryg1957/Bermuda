@@ -14,10 +14,10 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     standardButtons: Dialog.Close
 
-    title: qsTr("Player Identities")
+    title: qsTr("Player Names")
 
-    width: Math.min(parent.width - 80, 1120)
-    height: Math.min(parent.height - 80, 760)
+    width: Math.min(parent.width - 80, 1180)
+    height: Math.min(parent.height - 80, 840)
 
     signal identitiesChanged()
 
@@ -58,8 +58,8 @@ Dialog {
     readonly property var unresolvedNames:
         parseArray(identityModel.unresolved_json)
 
-    readonly property var aliases:
-        parseArray(identityModel.aliases_json)
+    readonly property var knownNames:
+        parseArray(identityModel.known_names_json)
 
     function filterItems(items, filterText, fieldName) {
         const needle = filterText.trim().toLowerCase()
@@ -148,16 +148,16 @@ Dialog {
         anchors.centerIn: parent
         modal: true
 
-        title: qsTr("Unlink alias?")
+        title: qsTr("Remove this name link?")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         contentItem: Label {
             width: 460
 
             text: qsTr(
-                "Unlink alias “%1”? Matching source-name records will "
-                + "return to the unlinked list. No games or original "
-                + "source names will be deleted.")
+                "Remove your link for “%1”? Matching source-name records "
+                + "will return to the unrecognised list. No games or "
+                + "original source names will be deleted.")
                 .arg(root.selectedAliasName)
 
             wrapMode: Text.WordWrap
@@ -179,17 +179,16 @@ Dialog {
         anchors.centerIn: parent
         modal: true
 
-        title: qsTr("Remove player identity?")
+        title: qsTr("Remove player?")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         contentItem: Label {
             width: 500
 
             text: qsTr(
-                "Remove player identity “%1”? Its aliases will be removed "
-                + "and linked games will return to their original unlinked "
-                + "source names. No games or original source names will "
-                + "be deleted.")
+                "Remove player “%1”? Names you linked to this player will "
+                + "return to the source-name list. No games or original "
+                + "source names will be deleted.")
                 .arg(root.selectedPlayerName())
 
             wrapMode: Text.WordWrap
@@ -212,10 +211,12 @@ Dialog {
             Layout.fillWidth: true
 
             text: qsTr(
-                "Player identities are optional. Use them only when "
-                + "different source names or spellings refer to the same "
-                + "person. You do not need to create an identity for every "
-                + "player; unlinked names continue to work normally.")
+                "Bermuda recognises different spellings of the same "
+                + "player's name and groups their games together. When "
+                + "Bermuda knows that two names belong to the same player, "
+                + "searching either name finds all of that player's games. "
+                + "You only need to make changes here if you spot a source "
+                + "name that should be linked to a player.")
             wrapMode: Text.WordWrap
         }
 
@@ -228,9 +229,10 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
+                spacing: 6
 
                 Label {
-                    text: qsTr("Unlinked source names (optional)")
+                    text: qsTr("Source names")
                     font.bold: true
                 }
 
@@ -238,12 +240,14 @@ Dialog {
                     Layout.fillWidth: true
 
                     text: root.sourceNameFilter.trim().length === 0
-                          ? qsTr("%1 unlinked source spelling(s)")
-                                .arg(root.unresolvedNames.length)
-                          : qsTr("%1 of %2 unlinked source spelling(s)")
+                          ? qsTr(
+                                "Names as they appear in game sources that "
+                                + "Bermuda has not grouped with a player. "
+                                + "Most can simply be left alone.")
+                          : qsTr("%1 matching source-name entries")
                                 .arg(root.filteredUnresolvedNames.length)
-                                .arg(root.unresolvedNames.length)
 
+                    wrapMode: Text.WordWrap
                     opacity: 0.7
                 }
 
@@ -258,7 +262,7 @@ Dialog {
 
                         /*
                          * A filtered-out selection must not remain as a
-                         * hidden link candidate.
+                         * hidden recognition candidate.
                          */
                         root.clearUnresolvedSelection()
                     }
@@ -267,6 +271,7 @@ Dialog {
                 Frame {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Layout.minimumHeight: 180
                     padding: 0
 
                     ListView {
@@ -274,7 +279,6 @@ Dialog {
 
                         anchors.fill: parent
                         clip: true
-
                         model: root.filteredUnresolvedNames
 
                         delegate: ItemDelegate {
@@ -311,24 +315,15 @@ Dialog {
 
                             onClicked: {
                                 root.identityChosenForSource = false
-
                                 root.selectedSourceId =
                                     Number(modelData.sourceId)
-
                                 root.selectedSourceName =
                                     modelData.sourceName
-
                                 root.selectedSourceVersion =
                                     modelData.sourceVersion
-
                                 root.selectedRawName =
                                     modelData.name
 
-                                /*
-                                 * A new identity will usually use the source
-                                 * spelling as its preferred name, so make that
-                                 * the default rather than requiring retyping.
-                                 */
                                 newPlayerNameField.text =
                                     modelData.name
                             }
@@ -343,26 +338,41 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredWidth: 1
-                spacing: 8
+                spacing: 6
 
                 Label {
-                    text: qsTr("Player identities")
+                    text: qsTr("Players with grouped names")
                     font.bold: true
+                }
+
+                Label {
+                    Layout.fillWidth: true
+
+                    text: root.identityNameFilter.trim().length === 0
+                          ? qsTr(
+                                "Each entry represents one player. Different "
+                                + "source names can be grouped with that "
+                                + "player.")
+                          : qsTr("%1 matching players")
+                                .arg(root.filteredPlayers.length)
+
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
                 }
 
                 TextField {
                     Layout.fillWidth: true
 
                     text: root.identityNameFilter
-                    placeholderText: qsTr("Search player identities")
+                    placeholderText: qsTr("Search players")
 
                     onTextEdited: {
                         root.identityNameFilter = text
 
                         /*
-                         * Searching may hide the identity that was previously
-                         * selected. Require an explicit click on the intended
-                         * identity before allowing a link.
+                         * Searching may hide the player previously selected.
+                         * Require an explicit click before using a player as
+                         * the target for an unrecognised name.
                          */
                         root.identityChosenForSource = false
                     }
@@ -371,13 +381,12 @@ Dialog {
                 Frame {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.preferredHeight: 250
+                    Layout.minimumHeight: 180
                     padding: 0
 
                     ListView {
                         anchors.fill: parent
                         clip: true
-
                         model: root.filteredPlayers
 
                         delegate: ItemDelegate {
@@ -396,12 +405,6 @@ Dialog {
                                     renamePlayerField.text =
                                         modelData.preferredName
 
-                                    /*
-                                     * This click, rather than a stale
-                                     * selection from an earlier operation,
-                                     * authorises this identity as the current
-                                     * source name's proposed link target.
-                                     */
                                     root.identityChosenForSource =
                                         root.selectedSourceId >= 0
                                 }
@@ -411,251 +414,314 @@ Dialog {
                         ScrollBar.vertical: ScrollBar {}
                     }
                 }
-
-                Label {
-                    Layout.fillWidth: true
-
-                    text: root.selectedPlayerId < 0
-                          ? qsTr("No player identity selected")
-                          : qsTr("Selected identity: %1")
-                                .arg(root.selectedPlayerName())
-
-                    font.bold: root.selectedPlayerId >= 0
-                    elide: Text.ElideRight
-                }
-
-                Label {
-                    text: qsTr("Known aliases")
-                    font.bold: true
-                }
-
-                Frame {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 130
-                    padding: 0
-
-                    ListView {
-                        anchors.fill: parent
-                        clip: true
-
-                        model: root.aliases
-
-                        delegate: ItemDelegate {
-                            width: ListView.view.width
-
-                            highlighted:
-                                root.selectedAliasId === Number(modelData.id)
-
-                            contentItem: Column {
-                                spacing: 2
-
-                                Label {
-                                    width: parent.width
-                                    text: modelData.name
-                                    elide: Text.ElideRight
-                                }
-
-                                Label {
-                                    width: parent.width
-
-                                    text: modelData.sourceId === null
-                                          ? qsTr("Global alias")
-                                          : qsTr("%1 %2")
-                                                .arg(modelData.sourceName)
-                                                .arg(modelData.sourceVersion)
-
-                                    opacity: 0.7
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            onClicked: {
-                                root.selectedAliasId =
-                                    Number(modelData.id)
-                                root.selectedAliasName =
-                                    modelData.name
-                            }
-                        }
-
-                        ScrollBar.vertical: ScrollBar {}
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Item {
-                        Layout.fillWidth: true
-                    }
-
-                    Button {
-                        text: root.selectedAliasId < 0
-                              ? qsTr("Select an alias to unlink")
-                              : qsTr("Unlink alias “%1”")
-                                    .arg(root.selectedAliasName)
-
-                        enabled: root.selectedAliasId >= 0
-
-                        onClicked: unlinkAliasConfirmation.open()
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Label {
-                        text: qsTr("Rename selected player:")
-                    }
-
-                    TextField {
-                        id: renamePlayerField
-
-                        Layout.fillWidth: true
-
-                        enabled: root.selectedPlayerId >= 0
-                        placeholderText: qsTr("Preferred name")
-                    }
-
-                    Button {
-                        text: qsTr("Rename")
-
-                        enabled: root.selectedPlayerId >= 0
-                                 && renamePlayerField.text.trim().length > 0
-                                 && renamePlayerField.text
-                                    !== root.selectedPlayerName()
-
-                        onClicked: {
-                            if (identityModel.renamePlayer(
-                                        root.selectedPlayerId,
-                                        renamePlayerField.text)) {
-                                root.identitiesChanged()
-                            }
-                        }
-                    }
-
-                    Button {
-                        text: qsTr("Remove identity")
-                        enabled: root.selectedPlayerId >= 0
-
-                        onClicked: removeIdentityConfirmation.open()
-                    }
-                }
             }
         }
 
         Frame {
             Layout.fillWidth: true
+            Layout.minimumHeight: 330
+            Layout.preferredHeight: 330
 
-            contentItem: ColumnLayout {
-                spacing: 8
+            contentItem: RowLayout {
+                spacing: 16
 
-                Label {
-                    text: qsTr("Link selected source name")
-                    font.bold: true
-                }
-
-                Label {
+                ColumnLayout {
                     Layout.fillWidth: true
-
-                    text: root.selectedSourceId < 0
-                          ? qsTr(
-                                "Select an unlinked source name above.")
-                          : qsTr(
-                                "“%1” from %2 %3")
-                                .arg(root.selectedRawName)
-                                .arg(root.selectedSourceName)
-                                .arg(root.selectedSourceVersion)
-
-                    wrapMode: Text.WordWrap
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                    spacing: 7
 
                     Label {
-                        text: qsTr("Create new identity:")
+                        text: qsTr("Selected source name")
+                        font.bold: true
                     }
 
-                    TextField {
-                        id: newPlayerNameField
-
+                    Label {
                         Layout.fillWidth: true
 
-                        enabled: root.selectedSourceId >= 0
-                        placeholderText: qsTr("Preferred player name")
+                        text: root.selectedSourceId < 0
+                              ? qsTr(
+                                    "Select a source name above to see "
+                                    + "what you can do with it.")
+                              : qsTr(
+                                    "“%1” — %2 %3")
+                                    .arg(root.selectedRawName)
+                                    .arg(root.selectedSourceName)
+                                    .arg(root.selectedSourceVersion)
+
+                        wrapMode: Text.WordWrap
                     }
 
-                    Button {
-                        text: qsTr("Create and link")
+                    Label {
+                        Layout.fillWidth: true
+                        visible: root.selectedSourceId >= 0
 
-                        enabled: root.selectedSourceId >= 0
-                                 && newPlayerNameField.text.trim().length > 0
+                        text: qsTr(
+                            "Bermuda has not grouped this source name with "
+                            + "a player. If you know who it refers to, "
+                            + "select that player above. If the player is "
+                            + "not listed, you can create one. Otherwise, "
+                            + "leave the name alone.")
 
-                        onClicked: {
-                            const previousContentY =
-                                unresolvedList.contentY
+                        wrapMode: Text.WordWrap
+                        opacity: 0.75
+                    }
 
-                            if (identityModel.createPlayerAndAssign(
-                                        newPlayerNameField.text,
-                                        root.selectedSourceId,
-                                        root.selectedRawName)) {
-                                root.clearUnresolvedSelection()
-                                root.identitiesChanged()
-                                root.restoreSourceListPosition(
-                                            previousContentY)
+                    Label {
+                        text: qsTr("Create a new player:")
+                        opacity: root.selectedSourceId >= 0 ? 1.0 : 0.55
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        TextField {
+                            id: newPlayerNameField
+                            Layout.fillWidth: true
+
+                            enabled: root.selectedSourceId >= 0
+                            placeholderText: qsTr(
+                                "Preferred player name")
+                        }
+
+                        Button {
+                            text: qsTr("Create player and link")
+
+                            enabled: root.selectedSourceId >= 0
+                                     && newPlayerNameField.text
+                                            .trim().length > 0
+
+                            onClicked: {
+                                const previousContentY =
+                                    unresolvedList.contentY
+
+                                if (identityModel.createPlayerAndAssign(
+                                            newPlayerNameField.text,
+                                            root.selectedSourceId,
+                                            root.selectedRawName)) {
+                                    root.clearUnresolvedSelection()
+                                    root.identitiesChanged()
+                                    root.restoreSourceListPosition(
+                                                previousContentY)
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("Link to an existing player:")
+                        opacity: root.selectedSourceId >= 0 ? 1.0 : 0.55
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Label {
+                            Layout.fillWidth: true
+
+                            text: root.selectedPlayerId < 0
+                                  ? qsTr(
+                                        "Select a player above")
+                                  : !root.identityChosenForSource
+                                    ? qsTr(
+                                        "Select the intended player above "
+                                        + "for this name")
+                                    : root.selectedPlayerName()
+
+                            font.bold: root.identityChosenForSource
+                            elide: Text.ElideRight
+                        }
+
+                        Button {
+                            text: !root.identityChosenForSource
+                                  ? qsTr("Select player above")
+                                  : qsTr("Link to “%1”")
+                                        .arg(root.selectedPlayerName())
+
+                            enabled: root.selectedSourceId >= 0
+                                     && root.selectedPlayerId >= 0
+                                     && root.identityChosenForSource
+
+                            onClicked: {
+                                const previousContentY =
+                                    unresolvedList.contentY
+
+                                if (identityModel.assignSourceName(
+                                            root.selectedPlayerId,
+                                            root.selectedSourceId,
+                                            root.selectedRawName)) {
+                                    root.clearUnresolvedSelection()
+                                    root.identitiesChanged()
+                                    root.restoreSourceListPosition(
+                                                previousContentY)
+                                }
                             }
                         }
                     }
                 }
 
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.preferredWidth: 1
+                    spacing: 7
 
                     Label {
-                        text: qsTr("Or use existing identity:")
+                        Layout.fillWidth: true
+
+                        text: root.selectedPlayerId < 0
+                              ? qsTr("Names for this player")
+                              : qsTr("Names for %1")
+                                    .arg(root.selectedPlayerName())
+
+                        font.bold: true
+                        elide: Text.ElideRight
                     }
 
                     Label {
                         Layout.fillWidth: true
 
                         text: root.selectedPlayerId < 0
-                              ? qsTr("Select a player identity above")
-                              : !root.identityChosenForSource
-                                ? qsTr(
-                                    "Choose the intended identity above "
-                                    + "for this source name")
-                                : root.selectedPlayerName()
+                              ? qsTr(
+                                    "Select a player above to see the "
+                                    + "names Bermuda knows for them.")
+                              : qsTr(
+                                    "These names are treated as the same "
+                                    + "player when searching games.")
 
-                        font.bold: root.identityChosenForSource
-                        elide: Text.ElideRight
+                        wrapMode: Text.WordWrap
+                        opacity: 0.75
                     }
 
-                    Button {
-                        text: !root.identityChosenForSource
-                              ? qsTr("Choose identity above")
-                              : qsTr("Link “%1” to “%2”")
-                                    .arg(root.selectedRawName)
-                                    .arg(root.selectedPlayerName())
+                    Frame {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 105
+                        padding: 0
 
-                        enabled: root.selectedSourceId >= 0
-                                 && root.selectedPlayerId >= 0
-                                 && root.identityChosenForSource
+                        ListView {
+                            anchors.fill: parent
+                            clip: true
+                            model: root.knownNames
 
-                        onClicked: {
-                            const previousContentY =
-                                unresolvedList.contentY
+                            delegate: ItemDelegate {
+                                width: ListView.view.width
 
-                            if (identityModel.assignSourceName(
-                                        root.selectedPlayerId,
-                                        root.selectedSourceId,
-                                        root.selectedRawName)) {
-                                root.clearUnresolvedSelection()
-                                root.identitiesChanged()
-                                root.restoreSourceListPosition(
-                                            previousContentY)
+                                highlighted:
+                                    modelData.kind === "local"
+                                    && modelData.localAliasId !== null
+                                    && root.selectedAliasId
+                                        === Number(modelData.localAliasId)
+
+                                contentItem: Column {
+                                    spacing: 1
+
+                                    Label {
+                                        width: parent.width
+                                        text: modelData.name
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Label {
+                                        width: parent.width
+
+                                        text:
+                                            modelData.kind === "preferred"
+                                            ? qsTr("Preferred name")
+                                            : modelData.kind === "supplied"
+                                              ? qsTr("Bermuda catalogue")
+                                              : modelData.sourceId === null
+                                                ? qsTr("Your name")
+                                                : qsTr(
+                                                    "Your link · %1 %2")
+                                                    .arg(
+                                                        modelData.sourceName)
+                                                    .arg(
+                                                        modelData
+                                                            .sourceVersion)
+
+                                        opacity: 0.7
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                onClicked: {
+                                    if (modelData.kind === "local"
+                                            && modelData.localAliasId
+                                                !== null
+                                            && modelData.localAliasId
+                                                !== undefined) {
+                                        root.selectedAliasId =
+                                            Number(modelData.localAliasId)
+                                        root.selectedAliasName =
+                                            modelData.name
+                                    } else {
+                                        root.clearAliasSelection()
+                                    }
+                                }
+                            }
+
+                            ScrollBar.vertical: ScrollBar {}
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Button {
+                            text: root.selectedAliasId < 0
+                                  ? qsTr(
+                                        "Select one of your links to remove")
+                                  : qsTr("Remove link “%1”")
+                                        .arg(root.selectedAliasName)
+
+                            enabled: root.selectedAliasId >= 0
+                            onClicked: unlinkAliasConfirmation.open()
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                        }
+
+                        Button {
+                            text: qsTr("Remove player")
+                            enabled: root.selectedPlayerId >= 0
+                            onClicked: removeIdentityConfirmation.open()
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        TextField {
+                            id: renamePlayerField
+
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 240
+
+                            enabled: root.selectedPlayerId >= 0
+                            placeholderText: qsTr(
+                                "Preferred player name")
+                        }
+
+                        Button {
+                            text: qsTr("Rename")
+
+                            enabled: root.selectedPlayerId >= 0
+                                     && renamePlayerField.text
+                                            .trim().length > 0
+                                     && renamePlayerField.text
+                                        !== root.selectedPlayerName()
+
+                            onClicked: {
+                                if (identityModel.renamePlayer(
+                                            root.selectedPlayerId,
+                                            renamePlayerField.text)) {
+                                    root.identitiesChanged()
+                                }
                             }
                         }
                     }
+
                 }
             }
         }
