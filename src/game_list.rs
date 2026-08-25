@@ -324,6 +324,22 @@ fn player_side_condition(name_column: &str, player_id_column: &str, parameter: &
                  FROM player_aliases AS filter_alias \
                  WHERE filter_alias.player_id = {player_id_column} \
                    AND filter_alias.name COLLATE NOCASE = {parameter}\
+             ) \
+             OR EXISTS (\
+                 SELECT 1 \
+                 FROM players AS filter_player \
+                 JOIN player_catalogue_players AS filter_catalogue_player \
+                   ON filter_catalogue_player.catalogue_key = filter_player.catalogue_key \
+                 WHERE filter_player.id = {player_id_column} \
+                   AND filter_catalogue_player.preferred_name COLLATE NOCASE = {parameter}\
+             ) \
+             OR EXISTS (\
+                 SELECT 1 \
+                 FROM players AS filter_player \
+                 JOIN player_catalogue_aliases AS filter_catalogue_alias \
+                   ON filter_catalogue_alias.catalogue_key = filter_player.catalogue_key \
+                 WHERE filter_player.id = {player_id_column} \
+                   AND filter_catalogue_alias.name COLLATE NOCASE = {parameter}\
              )\
          )))"
     )
@@ -944,7 +960,8 @@ mod tests {
 
         CREATE TABLE players (
             id              INTEGER PRIMARY KEY,
-            preferred_name  TEXT NOT NULL
+            preferred_name  TEXT NOT NULL,
+            catalogue_key   TEXT
         );
 
         CREATE TABLE player_aliases (
@@ -954,6 +971,20 @@ mod tests {
             source_id       INTEGER,
             notes           TEXT,
             FOREIGN KEY(player_id) REFERENCES players(id)
+        );
+
+        CREATE TABLE player_catalogue_players (
+            catalogue_key   TEXT PRIMARY KEY,
+            preferred_name  TEXT NOT NULL
+        );
+
+        CREATE TABLE player_catalogue_aliases (
+            id              INTEGER PRIMARY KEY,
+            catalogue_key   TEXT NOT NULL,
+            name            TEXT NOT NULL,
+            notes           TEXT,
+            FOREIGN KEY(catalogue_key)
+                REFERENCES player_catalogue_players(catalogue_key)
         );
 
         CREATE TABLE game_sources (
@@ -1065,10 +1096,10 @@ VALUES (
     'W+2.5'
 );
 
-        INSERT INTO players (id, preferred_name)
+        INSERT INTO players (id, preferred_name, catalogue_key)
         VALUES
-            (10, 'Preferred Alpha'),
-            (20, 'Preferred Beta');
+            (10, 'Preferred Alpha', 'test:alpha'),
+            (20, 'Preferred Beta', 'test:beta');
 
         /*
          * Alpha/Beta preserve the existing source-spelling tests while now
@@ -1088,6 +1119,29 @@ VALUES (
             (3, 10, 'A. Alpha', 1),
             (4, 10, 'Shared Name', NULL),
             (5, 20, 'Shared Name', NULL);
+
+        /*
+         * Supplied catalogue names exercise the same identity-aware
+         * search path as the production catalogue.
+         */
+        INSERT INTO player_catalogue_players(
+            catalogue_key,
+            preferred_name
+        )
+        VALUES
+            ('test:alpha', 'Catalogue Alpha'),
+            ('test:beta', 'Catalogue Beta');
+
+        INSERT INTO player_catalogue_aliases(
+            id,
+            catalogue_key,
+            name
+        )
+        VALUES
+            (1, 'test:alpha', 'Supplied Alpha'),
+            (2, 'test:beta', 'Supplied Beta'),
+            (3, 'test:alpha', 'Shared Supplied'),
+            (4, 'test:beta', 'Shared Supplied');
 
         /*
          * Only the preferred metadata row for canonical game 1 is linked.
@@ -1292,7 +1346,16 @@ VALUES (
     fn filters_identified_players_by_preferred_name_alias_and_ambiguity() -> Result<()> {
         let connection = populated_test_connection()?;
 
-        for name in ["Preferred Alpha", "preferred alpha", "A. Alpha", "a. alpha"] {
+        for name in [
+            "Preferred Alpha",
+            "preferred alpha",
+            "A. Alpha",
+            "a. alpha",
+            "Catalogue Alpha",
+            "catalogue alpha",
+            "Supplied Alpha",
+            "supplied alpha",
+        ] {
             let query = GameListQuery {
                 player: Some(name.to_owned()),
                 colour: PlayerColour::Black,
@@ -1329,20 +1392,23 @@ VALUES (
          * therefore finds either identity rather than arbitrarily choosing
          * one of them.
          */
-        for colour in [PlayerColour::Black, PlayerColour::White] {
-            let query = GameListQuery {
-                player: Some("Shared Name".to_owned()),
-                colour,
-                ..GameListQuery::default()
-            };
+        for name in ["Shared Name", "Shared Supplied"] {
+            for colour in [PlayerColour::Black, PlayerColour::White] {
+                let query = GameListQuery {
+                    player: Some(name.to_owned()),
+                    colour,
+                    ..GameListQuery::default()
+                };
 
-            assert_eq!(
-                list_games(&connection, &query)?
-                    .iter()
-                    .map(|game| game.game_id)
-                    .collect::<Vec<_>>(),
-                vec![1]
-            );
+                assert_eq!(
+                    list_games(&connection, &query)?
+                        .iter()
+                        .map(|game| game.game_id)
+                        .collect::<Vec<_>>(),
+                    vec![1],
+                    "ambiguous search name was {name:?}"
+                );
+            }
         }
 
         /*
