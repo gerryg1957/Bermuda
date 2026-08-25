@@ -94,6 +94,9 @@ At minimum consider:
 **About Bermuda** should provide useful support information as well as
 credits, including:
 
+- acknowledgement of the u-go.net Go Player List, maintained by Ulrich Görtz,
+  when its player identity data is included in Bermuda;
+
 - application version;
 - a concise description of Bermuda;
 - licence information;

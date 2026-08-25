@@ -147,13 +147,133 @@ When a newer supplied catalogue is loaded:
 4. clear and recompute only links recorded as catalogue-derived;
 5. leave ambiguous or no-longer-recognised names unresolved.
 
-## Initial implementation boundary
+## Production catalogue source and provenance
 
-The first implementation should prove the architecture with a very small,
-explicitly curated fixture catalogue before attempting broad population.
+The initial production catalogue uses the u-go.net Go Player List, maintained
+by Ulrich Görtz, as its principal external player-identity source.
 
-Only after import, reconciliation, search, update and local-override behaviour
-are covered by tests should the project ingest a large real catalogue.
+The u-go player list is published under CC0 1.0. Bermuda should nevertheless
+record and acknowledge its use explicitly.
 
-The source and licensing of the production catalogue are a separate data
-curation decision and must be established before bulk population.
+Every catalogue build must identify the exact archived u-go snapshot from
+which it was produced. Build provenance should include at least:
+
+- the source name;
+- the archive URL;
+- the snapshot date;
+- a SHA-256 digest of the downloaded snapshot;
+- the applicable licence;
+- the date on which Bermuda adopted the snapshot.
+
+This build provenance is separate from the runtime player catalogue.
+
+The project's own GoGoD/go4go corpus may be used as evidence to validate
+identity correspondences, detect missing aliases and expose conflicts in
+external identity data. A spelling found only through the local game corpus
+must not automatically be added to Bermuda's distributed catalogue unless its
+redistribution provenance has also been established.
+
+## Runtime catalogue and curation data
+
+The runtime catalogue remains:
+
+    data/player_catalogue.json
+
+It should contain only the data needed by Bermuda at runtime:
+
+- catalogue version;
+- Bermuda player key;
+- preferred display name;
+- exact aliases used for catalogue resolution.
+
+It should be generated rather than manually maintained once production
+population begins.
+
+Build provenance belongs in a separate checked-in manifest:
+
+    data/player_catalogue-sources.json
+
+Human curation decisions and external identity references belong in a
+separate checked-in curation file:
+
+    data/player_catalogue-curation.json
+
+The curation data may record information such as:
+
+- Bermuda catalogue key;
+- u-go player ID or IDs;
+- Wikidata Q-ID when available;
+- Bermuda's chosen preferred display name;
+- explicit exceptions or review notes.
+
+Neither u-go IDs nor Wikidata IDs are Bermuda identity keys.
+
+## Bermuda catalogue keys
+
+Production identities use Bermuda-owned opaque keys.
+
+The initial allocation format is:
+
+    bermuda:p000001
+
+Keys are allocated once. They are never renumbered, reused or derived from a
+player's name, u-go ID or Wikidata ID.
+
+External identifiers may later be corrected, merged or withdrawn without
+changing the Bermuda identity.
+
+## Preferred display names
+
+Identity resolution and display-name choice are separate decisions.
+
+Bermuda should use a conventional contemporary English spelling as the
+preferred display name. It must not mechanically adopt an external source's
+key name or preferred flag.
+
+Historical romanisations, source-specific spellings and other established
+forms remain exact aliases where their provenance supports distribution.
+
+Changing a preferred display spelling does not change the Bermuda catalogue
+key and does not alter imported PB/PW source text.
+
+## Corpus-derived identity evidence
+
+Canonical duplicate games provide strong independent evidence for identifying
+different source spellings of the same player.
+
+For catalogue-building analysis, the current conservative candidate rule is:
+
+- at least 10 shared canonical games;
+- the same player colour in the compared source records;
+- at least 95 percent correspondence in each direction.
+
+Such a candidate is evidence, not automatic authority. Conflicts must be
+reviewed rather than silently merged.
+
+The GoGoD/go4go analysis that motivated the production catalogue found that
+this rule can expose both useful romanisation correspondences and source-data
+or external-identity anomalies.
+
+## Acknowledgement
+
+Bermuda should acknowledge the u-go.net Go Player List and its maintainer,
+Ulrich Görtz, in the future About Bermuda facility and in appropriate project
+documentation.
+
+A suitable basis for the eventual About text is:
+
+    Player identity data in Bermuda's supplied catalogue is derived in part
+    from the u-go.net Go Player List, maintained by Ulrich Görtz and published
+    under CC0 1.0.
+
+The final wording should reflect the sources actually used by the release.
+
+## Production population boundary
+
+The catalogue architecture has now been exercised through import resolution,
+materialisation, version-aware reconciliation, explicit local overrides,
+suppression and production service preparation.
+
+Broad catalogue population should therefore proceed through the documented
+source, provenance and curation pipeline rather than through hand-edited
+runtime catalogue entries.
