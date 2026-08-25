@@ -1699,8 +1699,21 @@ mod tests {
     fn supplied_catalogue_parses() -> Result<()> {
         let catalogue = PlayerCatalogue::supplied()?;
 
-        assert_eq!(catalogue.version, 1);
-        assert!(catalogue.players.is_empty());
+        assert_eq!(catalogue.version, 2);
+        assert_eq!(catalogue.players.len(), 25);
+
+        let shin = match catalogue.resolve_name("Shin Jinseo") {
+            CatalogueNameResolution::Unique(player) => player,
+            resolution => panic!("expected unique Shin Jinseo, got {resolution:?}"),
+        };
+
+        assert_eq!(shin.key, "bermuda:p000011");
+        assert_eq!(shin.preferred_name, "Shin Jin-seo");
+
+        assert!(matches!(
+            catalogue.resolve_name("Lee Yeonggu"),
+            CatalogueNameResolution::Unrecognised
+        ));
 
         Ok(())
     }

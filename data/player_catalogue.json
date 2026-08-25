@@ -1,4 +1,818 @@
 {
-  "version": 1,
-  "players": []
+  "version": 2,
+  "players": [
+    {
+      "key": "bermuda:p000001",
+      "preferred_name": "Lee Chang-ho",
+      "aliases": [
+        {
+          "name": "I Changho"
+        },
+        {
+          "name": "I Chanho"
+        },
+        {
+          "name": "Lee Chang-Ho"
+        },
+        {
+          "name": "Lee Changho"
+        },
+        {
+          "name": "Lee changho"
+        },
+        {
+          "name": "Yi Ch'ang-ho"
+        },
+        {
+          "name": "Yi Chang-ho"
+        },
+        {
+          "name": "Yi Changho"
+        },
+        {
+          "name": "Ли Чангхо"
+        },
+        {
+          "name": "Ли Чхан Хо"
+        },
+        {
+          "name": "Ли Чханхо"
+        },
+        {
+          "name": "李昌鍋"
+        },
+        {
+          "name": "李昌鎬"
+        },
+        {
+          "name": "李昌镐"
+        },
+        {
+          "name": "石佛"
+        },
+        {
+          "name": "이창호"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000002",
+      "preferred_name": "Cho Hun-hyun",
+      "aliases": [
+        {
+          "name": "Cho Hoon-hyun"
+        },
+        {
+          "name": "Cho Hoonhyun"
+        },
+        {
+          "name": "Cho Hun Hyeon"
+        },
+        {
+          "name": "Cho Hun-hyeon"
+        },
+        {
+          "name": "Cho HunHyeon"
+        },
+        {
+          "name": "Cho Hunhyeon"
+        },
+        {
+          "name": "Cho Hunhyun"
+        },
+        {
+          "name": "Jo Hunhyeon"
+        },
+        {
+          "name": "Чо Хунхен"
+        },
+        {
+          "name": "Чо Хунхён"
+        },
+        {
+          "name": "Чхо Хунхён"
+        },
+        {
+          "name": "チョ薫鉉"
+        },
+        {
+          "name": "曹薫鉉"
+        },
+        {
+          "name": "曹薰鉉"
+        },
+        {
+          "name": "曹薰铉"
+        },
+        {
+          "name": "曺薫鉉"
+        },
+        {
+          "name": "曺薰鉉"
+        },
+        {
+          "name": "조훈현"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000003",
+      "preferred_name": "Lee Sedol",
+      "aliases": [
+        {
+          "name": "I Sedol"
+        },
+        {
+          "name": "I Szedol"
+        },
+        {
+          "name": "Lee Saedol"
+        },
+        {
+          "name": "Lee Se-Dol"
+        },
+        {
+          "name": "Lee Se-dol"
+        },
+        {
+          "name": "Ri Sedol"
+        },
+        {
+          "name": "Yi Se-tol"
+        },
+        {
+          "name": "Ли Се Доль"
+        },
+        {
+          "name": "Ли Седол"
+        },
+        {
+          "name": "Ли Седоль"
+        },
+        {
+          "name": "ली सीडोल"
+        },
+        {
+          "name": "อี เซดอล"
+        },
+        {
+          "name": "イ・セドル"
+        },
+        {
+          "name": "李世ドル"
+        },
+        {
+          "name": "李世乭"
+        },
+        {
+          "name": "李世石"
+        },
+        {
+          "name": "이세돌"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000004",
+      "preferred_name": "Park Junghwan",
+      "aliases": [
+        {
+          "name": "Pak Cheong-hwan"
+        },
+        {
+          "name": "Pak Jeong-hwan"
+        },
+        {
+          "name": "Park Jeong Hwan"
+        },
+        {
+          "name": "Park Jeong-hwan"
+        },
+        {
+          "name": "Park Jung Hwan"
+        },
+        {
+          "name": "Пак Чжон Хван"
+        },
+        {
+          "name": "พัก จ็อง-ฮวัน"
+        },
+        {
+          "name": "朴廷桓"
+        },
+        {
+          "name": "박정환"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000005",
+      "preferred_name": "Seo Bong-soo",
+      "aliases": [
+        {
+          "name": "Seo Bongsoo"
+        },
+        {
+          "name": "Seo Bongsu"
+        },
+        {
+          "name": "Seo Pong-su"
+        },
+        {
+          "name": "So Bungsoo"
+        },
+        {
+          "name": "So Bungsu"
+        },
+        {
+          "name": "Suh Bongsoo"
+        },
+        {
+          "name": "Suh Bongsu"
+        },
+        {
+          "name": "Со Бонсу"
+        },
+        {
+          "name": "徐奉洙"
+        },
+        {
+          "name": "서봉수"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000006",
+      "preferred_name": "Yoo Changhyuk",
+      "aliases": [
+        {
+          "name": "Yoo Chang-hyuk"
+        },
+        {
+          "name": "Yoo Changhyeok"
+        },
+        {
+          "name": "Yoo Changhyock"
+        },
+        {
+          "name": "Yu Ch'ang-hyeok"
+        },
+        {
+          "name": "Yu Changhyuk"
+        },
+        {
+          "name": "Ю Чханхек"
+        },
+        {
+          "name": "Ю Чханхёк"
+        },
+        {
+          "name": "刘昌赫"
+        },
+        {
+          "name": "劉昌赫"
+        },
+        {
+          "name": "유창혁"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000007",
+      "preferred_name": "Choi Cheol-han",
+      "aliases": [
+        {
+          "name": "Ch'oe Ch'eol-han"
+        },
+        {
+          "name": "Choi Cheolhan"
+        },
+        {
+          "name": "Čchoi Čchol-han"
+        },
+        {
+          "name": "Чхве Чхолхан"
+        },
+        {
+          "name": "Чхве Чхоль Хан"
+        },
+        {
+          "name": "Чхве Чхольхан"
+        },
+        {
+          "name": "ชเว ชอลฮัน"
+        },
+        {
+          "name": "崔哲瀚"
+        },
+        {
+          "name": "崔哲翰"
+        },
+        {
+          "name": "최철한"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000008",
+      "preferred_name": "Park Yeong-hun",
+      "aliases": [
+        {
+          "name": "Pak Yeong-hun"
+        },
+        {
+          "name": "Pak Yeonghun"
+        },
+        {
+          "name": "Park Yeonghun"
+        },
+        {
+          "name": "Park Young-hoon"
+        },
+        {
+          "name": "Park Younghun"
+        },
+        {
+          "name": "Пак Ён Хун"
+        },
+        {
+          "name": "Пак Ёнхун"
+        },
+        {
+          "name": "パク・ヨンフン"
+        },
+        {
+          "name": "朴永訓"
+        },
+        {
+          "name": "朴永训"
+        },
+        {
+          "name": "박영훈"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000009",
+      "preferred_name": "Kang Dongyun",
+      "aliases": [
+        {
+          "name": "Kang Dong Yoon"
+        },
+        {
+          "name": "Kang Dong-yun"
+        },
+        {
+          "name": "Kang Tong-yun"
+        },
+        {
+          "name": "Kang Tongyun"
+        },
+        {
+          "name": "Кан Дон Юн"
+        },
+        {
+          "name": "姜东润"
+        },
+        {
+          "name": "姜東潤"
+        },
+        {
+          "name": "강동윤"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000010",
+      "preferred_name": "Kim Jiseok",
+      "aliases": [
+        {
+          "name": "Kim Chi-seok"
+        },
+        {
+          "name": "Kim Ji-seok"
+        },
+        {
+          "name": "金志錫"
+        },
+        {
+          "name": "金志锡"
+        },
+        {
+          "name": "김지석"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000011",
+      "preferred_name": "Shin Jin-seo",
+      "aliases": [
+        {
+          "name": "Shin Jin Seo"
+        },
+        {
+          "name": "Shin Jinseo"
+        },
+        {
+          "name": "Sin Chin-seo"
+        },
+        {
+          "name": "申眞諝"
+        },
+        {
+          "name": "申真谞"
+        },
+        {
+          "name": "신진서"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000012",
+      "preferred_name": "Cho Hanseung",
+      "aliases": [
+        {
+          "name": "Cho Han-Seung"
+        },
+        {
+          "name": "Cho Han-seung"
+        },
+        {
+          "name": "Cho Hansung"
+        },
+        {
+          "name": "Čo Hansung"
+        },
+        {
+          "name": "Чо Хансын"
+        },
+        {
+          "name": "赵汉乘"
+        },
+        {
+          "name": "趙漢乗"
+        },
+        {
+          "name": "趙漢乘"
+        },
+        {
+          "name": "조한승"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000013",
+      "preferred_name": "Won Seong-jin",
+      "aliases": [
+        {
+          "name": "Weon Seong-chin"
+        },
+        {
+          "name": "Weon Seong-jin"
+        },
+        {
+          "name": "Weon Seongjin"
+        },
+        {
+          "name": "Won Seongjin"
+        },
+        {
+          "name": "Won Sungjin"
+        },
+        {
+          "name": "元晟ジン"
+        },
+        {
+          "name": "元晟湊"
+        },
+        {
+          "name": "元晟溱"
+        },
+        {
+          "name": "원성진"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000014",
+      "preferred_name": "Choi Jeong",
+      "aliases": [
+        {
+          "name": "Ch'oe Cheong"
+        },
+        {
+          "name": "Choi Jung"
+        },
+        {
+          "name": "崔精"
+        },
+        {
+          "name": "최정"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000015",
+      "preferred_name": "Byun Sang-il",
+      "aliases": [
+        {
+          "name": "Byun Sangil"
+        },
+        {
+          "name": "Hye San-kil"
+        },
+        {
+          "name": "Pyeon Sang-il"
+        },
+        {
+          "name": "卞相一"
+        },
+        {
+          "name": "卞相壹"
+        },
+        {
+          "name": "변상일"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000016",
+      "preferred_name": "Shin Min-jun",
+      "aliases": [
+        {
+          "name": "Shin Min Jun"
+        },
+        {
+          "name": "Shin Minjun"
+        },
+        {
+          "name": "Sin Min-chun"
+        },
+        {
+          "name": "申旻ジュン"
+        },
+        {
+          "name": "申旻埈"
+        },
+        {
+          "name": "신민준"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000017",
+      "preferred_name": "Mok Jin-seok",
+      "aliases": [
+        {
+          "name": "Mok Chin-seok"
+        },
+        {
+          "name": "Mok Jinseok"
+        },
+        {
+          "name": "Mok Jinseuk"
+        },
+        {
+          "name": "Mok Jinsuk"
+        },
+        {
+          "name": "睦鎮碩"
+        },
+        {
+          "name": "睦镇硕"
+        },
+        {
+          "name": "목진석"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000018",
+      "preferred_name": "Lee Young-gu",
+      "aliases": [
+        {
+          "name": "Lee Yeong-kyu"
+        },
+        {
+          "name": "Lee Yeongkyu"
+        },
+        {
+          "name": "Lee Younggu"
+        },
+        {
+          "name": "Yi Yeong-ku"
+        },
+        {
+          "name": "李映九"
+        },
+        {
+          "name": "이영구"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000019",
+      "preferred_name": "Wang Lei",
+      "aliases": [
+        {
+          "name": "Wang Lei (b)"
+        },
+        {
+          "name": "Wang Lei Sr."
+        },
+        {
+          "name": "王磊"
+        },
+        {
+          "name": "왕레이(大)"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000020",
+      "preferred_name": "Kyo Kagen",
+      "aliases": [
+        {
+          "name": "Hsu Chia Yuan"
+        },
+        {
+          "name": "Hsu Chia-yuan"
+        },
+        {
+          "name": "Hsu Chiayuan"
+        },
+        {
+          "name": "Xu Jiayuan"
+        },
+        {
+          "name": "許家元"
+        },
+        {
+          "name": "许家元"
+        },
+        {
+          "name": "쉬자위안"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000021",
+      "preferred_name": "Oh Yujin",
+      "aliases": [
+        {
+          "name": "O Yu-chin"
+        },
+        {
+          "name": "O Yujin"
+        },
+        {
+          "name": "Oh Yoo-jin"
+        },
+        {
+          "name": "Oh Yu Jin"
+        },
+        {
+          "name": "Oh Yu-jin"
+        },
+        {
+          "name": "吳侑珍"
+        },
+        {
+          "name": "吴侑珍"
+        },
+        {
+          "name": "呉侑珍"
+        },
+        {
+          "name": "오유진"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000022",
+      "preferred_name": "An Joyeong",
+      "aliases": [
+        {
+          "name": "Ahn Choyoung"
+        },
+        {
+          "name": "Ahn Choyung"
+        },
+        {
+          "name": "Ahn Joyoung"
+        },
+        {
+          "name": "An Cho-yeong"
+        },
+        {
+          "name": "An Cho-young"
+        },
+        {
+          "name": "An Choyeong"
+        },
+        {
+          "name": "An Choyoung"
+        },
+        {
+          "name": "An Jo-yeong"
+        },
+        {
+          "name": "安祚永"
+        },
+        {
+          "name": "안조영"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000023",
+      "preferred_name": "Seo Neung-uk",
+      "aliases": [
+        {
+          "name": "Seo Neungwook"
+        },
+        {
+          "name": "Seo Nunguk"
+        },
+        {
+          "name": "Seo Nungwook"
+        },
+        {
+          "name": "Seo Nungwuk"
+        },
+        {
+          "name": "Seo Nyungwook"
+        },
+        {
+          "name": "So Nungwook"
+        },
+        {
+          "name": "Suh Neungwook"
+        },
+        {
+          "name": "Suh Nungwook"
+        },
+        {
+          "name": "徐能旭"
+        },
+        {
+          "name": "서능욱"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000024",
+      "preferred_name": "Yun Junsang",
+      "aliases": [
+        {
+          "name": "Yun Chun-sang"
+        },
+        {
+          "name": "Yun Jun-sang"
+        },
+        {
+          "name": "尹ジュン相"
+        },
+        {
+          "name": "尹峻相"
+        },
+        {
+          "name": "尹畯相"
+        },
+        {
+          "name": "윤준상"
+        }
+      ]
+    },
+    {
+      "key": "bermuda:p000025",
+      "preferred_name": "Lee Donghoon",
+      "aliases": [
+        {
+          "name": "Lee Dong-hoon"
+        },
+        {
+          "name": "Lee Donghun"
+        },
+        {
+          "name": "Yi Tong-hun"
+        },
+        {
+          "name": "李东勋"
+        },
+        {
+          "name": "李東勛"
+        },
+        {
+          "name": "李東勲"
+        },
+        {
+          "name": "李東勳"
+        },
+        {
+          "name": "이동훈"
+        }
+      ]
+    }
+  ]
 }
