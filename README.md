@@ -87,47 +87,23 @@ A demonstration of the graphical application is available here:
 
 ## Building from source
 
-Until packaged releases are available, the development version of Bermuda can
-be built and run from the source tree.
+Packaged releases are not available yet, so the current development version must still be built from source.
 
-Bermuda is written in Rust. The graphical application uses Qt 6, QML, CXX-Qt
-and KDE Kirigami.
+Bermuda is written in Rust and uses Qt 6, QML, CXX-Qt and KDE Kirigami.
 
-### Requirements
+For step-by-step instructions for openSUSE Tumbleweed, Fedora, Debian and Ubuntu, see:
 
-You will need:
+**[Building and Running Bermuda on Linux](docs/building-on-linux.md)**
 
-- a current Rust toolchain;
-- a working C/C++ development toolchain;
-- Qt 6 development files;
-- Qt Quick, Qt Quick Controls, Qt Quick Layouts and Qt Quick Dialogs;
-- the KDE Kirigami QML module.
+The same Bermuda build runs under KDE Plasma, GNOME, Cinnamon, XFCE and other Linux desktop environments. KDE Plasma itself is not required.
 
-Package names vary between Linux distributions.
-
-### Build the graphical application
-
-From the repository root:
-
-```bash
-cargo build --release -p bermuda-qt
-```
-
-For development, run it directly from the source tree with:
+Once the dependencies are installed, Bermuda can be built and run from the repository root with:
 
 ```bash
 cargo run --release -p bermuda-qt
 ```
 
-or, for a non-release build:
-
-```bash
-cargo run -p bermuda-qt
-```
-
-These commands are for building and developing Bermuda. Once packaged releases
-are available, ordinary users will install Bermuda and launch it normally from
-their desktop environment.
+These are development/build instructions. Once packaged releases are available, ordinary users will install Bermuda and launch it normally from their desktop environment.
 
 ## Game collections
 
