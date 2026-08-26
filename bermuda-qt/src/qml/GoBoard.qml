@@ -130,6 +130,7 @@ Item {
     property bool hoverValid: false
 
     property bool patternSelectionEnabled: false
+    property bool patternSelectionAdjustable: false
     property bool patternSelectionDragging: false
     property int patternStartX: -1
     property int patternStartY: -1
@@ -1408,6 +1409,39 @@ Item {
 
             ctx.fillRect(x, y, width, height)
             ctx.strokeRect(x, y, width, height)
+
+            /*
+             * Show resize handles while the selected pattern can still
+             * be edited.  They disappear once a database search is being
+             * investigated.
+             */
+            if (root.patternSelectionAdjustable) {
+                const handleSize = Math.max(6, spacing * 0.22)
+                const halfHandle = handleSize / 2
+                const middleX = x + width / 2
+                const middleY = y + height / 2
+
+                const handles = [
+                    { "x": x,             "y": y },
+                    { "x": middleX,       "y": y },
+                    { "x": x + width,     "y": y },
+                    { "x": x,             "y": middleY },
+                    { "x": x + width,     "y": middleY },
+                    { "x": x,             "y": y + height },
+                    { "x": middleX,       "y": y + height },
+                    { "x": x + width,     "y": y + height }
+                ]
+
+                ctx.fillStyle = "rgba(25, 75, 180, 0.95)"
+
+                for (const handle of handles) {
+                    ctx.fillRect(
+                        handle.x - halfHandle,
+                        handle.y - halfHandle,
+                        handleSize,
+                        handleSize)
+                }
+            }
         }
 
         function drawHoverMarker(ctx, left, top, spacing) {
@@ -1443,6 +1477,19 @@ Item {
         hoverEnabled: true
 
         property bool suppressSelectionClick: false
+
+        /*
+         * Resizing is deliberately separate from creating a new
+         * selection.  This allows an existing rectangle to be adjusted
+         * after Select Pattern has switched itself off, without stealing
+         * ordinary clicks used to edit stones on the Go board.
+         */
+        property bool resizingPatternSelection: false
+        property string patternResizeHandle: ""
+        property int resizeViewLeft: -1
+        property int resizeViewTop: -1
+        property int resizeViewRight: -1
+        property int resizeViewBottom: -1
 
         function boardGeometry() {
             const side = Math.min(width, height)
@@ -1521,11 +1568,240 @@ Item {
             return root.viewToBoardPoint(viewX, viewY)
         }
 
-        cursorShape: root.patternSelectionEnabled
-            ? Qt.CrossCursor
-            : Qt.ArrowCursor
+        function currentSelectionViewBounds() {
+            if (!root.patternSelectionValid)
+                return null
+
+            const first = root.boardToViewPoint(
+                root.patternStartX,
+                root.patternStartY)
+
+            const last = root.boardToViewPoint(
+                root.patternEndX,
+                root.patternEndY)
+
+            return {
+                "left": Math.min(first.x, last.x),
+                "top": Math.min(first.y, last.y),
+                "right": Math.max(first.x, last.x),
+                "bottom": Math.max(first.y, last.y)
+            }
+        }
+
+        function selectionHandleAt(mouseX, mouseY) {
+            if (!root.patternSelectionAdjustable
+                    || !root.patternSelectionValid) {
+                return ""
+            }
+
+            const geometry = boardGeometry()
+            const bounds = currentSelectionViewBounds()
+
+            const left =
+                geometry.left
+                + bounds.left * geometry.spacing
+                - geometry.spacing * 0.5
+
+            const right =
+                geometry.left
+                + bounds.right * geometry.spacing
+                + geometry.spacing * 0.5
+
+            const top =
+                geometry.top
+                + bounds.top * geometry.spacing
+                - geometry.spacing * 0.5
+
+            const bottom =
+                geometry.top
+                + bounds.bottom * geometry.spacing
+                + geometry.spacing * 0.5
+
+            const threshold =
+                Math.max(6, geometry.spacing * 0.28)
+
+            const withinHorizontal =
+                mouseX >= left - threshold
+                && mouseX <= right + threshold
+
+            const withinVertical =
+                mouseY >= top - threshold
+                && mouseY <= bottom + threshold
+
+            const nearLeft =
+                withinVertical
+                && Math.abs(mouseX - left) <= threshold
+
+            const nearRight =
+                withinVertical
+                && Math.abs(mouseX - right) <= threshold
+
+            const nearTop =
+                withinHorizontal
+                && Math.abs(mouseY - top) <= threshold
+
+            const nearBottom =
+                withinHorizontal
+                && Math.abs(mouseY - bottom) <= threshold
+
+            if (nearTop && nearLeft)
+                return "nw"
+
+            if (nearTop && nearRight)
+                return "ne"
+
+            if (nearBottom && nearLeft)
+                return "sw"
+
+            if (nearBottom && nearRight)
+                return "se"
+
+            if (nearTop)
+                return "n"
+
+            if (nearBottom)
+                return "s"
+
+            if (nearLeft)
+                return "w"
+
+            if (nearRight)
+                return "e"
+
+            return ""
+        }
+
+        function nearestViewPointForResize(mouseX, mouseY) {
+            const geometry = boardGeometry()
+
+            const viewX = Math.round(
+                (mouseX - geometry.left) / geometry.spacing)
+
+            const viewY = Math.round(
+                (mouseY - geometry.top) / geometry.spacing)
+
+            if (viewX < 0
+                    || viewY < 0
+                    || viewX >= root.boardSize
+                    || viewY >= root.boardSize) {
+                return null
+            }
+
+            return {
+                "x": viewX,
+                "y": viewY
+            }
+        }
+
+        function beginPatternResize(handle) {
+            const bounds = currentSelectionViewBounds()
+
+            if (bounds === null)
+                return
+
+            resizingPatternSelection = true
+            patternResizeHandle = handle
+
+            resizeViewLeft = bounds.left
+            resizeViewTop = bounds.top
+            resizeViewRight = bounds.right
+            resizeViewBottom = bounds.bottom
+
+            root.hoverValid = false
+        }
+
+        function emitCurrentPatternSelection() {
+            if (!root.patternSelectionValid)
+                return
+
+            const left = Math.min(
+                root.patternStartX,
+                root.patternEndX)
+
+            const top = Math.min(
+                root.patternStartY,
+                root.patternEndY)
+
+            const right = Math.max(
+                root.patternStartX,
+                root.patternEndX)
+
+            const bottom = Math.max(
+                root.patternStartY,
+                root.patternEndY)
+
+            root.patternSelected(left, top, right, bottom)
+        }
+
+        function resizePatternTo(viewX, viewY) {
+            if (patternResizeHandle.indexOf("w") >= 0)
+                resizeViewLeft = Math.min(viewX, resizeViewRight)
+
+            if (patternResizeHandle.indexOf("e") >= 0)
+                resizeViewRight = Math.max(viewX, resizeViewLeft)
+
+            if (patternResizeHandle.indexOf("n") >= 0)
+                resizeViewTop = Math.min(viewY, resizeViewBottom)
+
+            if (patternResizeHandle.indexOf("s") >= 0)
+                resizeViewBottom = Math.max(viewY, resizeViewTop)
+
+            /*
+             * Convert the resized view rectangle back into Go-board
+             * coordinates.  Doing the resize in view coordinates keeps
+             * the handles correct even when the board has been rotated
+             * or reflected.
+             */
+            const first = root.viewToBoardPoint(
+                resizeViewLeft,
+                resizeViewTop)
+
+            const last = root.viewToBoardPoint(
+                resizeViewRight,
+                resizeViewBottom)
+
+            root.patternStartX = first.x
+            root.patternStartY = first.y
+            root.patternEndX = last.x
+            root.patternEndY = last.y
+
+            /*
+             * Main.qml keeps the textual dimensions from this signal,
+             * so emit while dragging as well as when the drag finishes.
+             */
+            emitCurrentPatternSelection()
+        }
+
+        cursorShape: {
+            const handle = selectionHandleAt(mouseX, mouseY)
+
+            if (handle === "n" || handle === "s")
+                return Qt.SizeVerCursor
+
+            if (handle === "e" || handle === "w")
+                return Qt.SizeHorCursor
+
+            if (handle === "nw" || handle === "se")
+                return Qt.SizeFDiagCursor
+
+            if (handle === "ne" || handle === "sw")
+                return Qt.SizeBDiagCursor
+
+            return root.patternSelectionEnabled
+                ? Qt.CrossCursor
+                : Qt.ArrowCursor
+        }
 
         onPressed: mouse => {
+            const resizeHandle =
+                selectionHandleAt(mouse.x, mouse.y)
+
+            if (resizeHandle !== "") {
+                beginPatternResize(resizeHandle)
+                boardCanvas.requestPaint()
+                return
+            }
+
             if (!root.patternSelectionEnabled)
                 return
 
@@ -1545,6 +1821,17 @@ Item {
         }
 
         onPositionChanged: mouse => {
+            if (resizingPatternSelection) {
+                const point =
+                    nearestViewPointForResize(mouse.x, mouse.y)
+
+                if (point !== null)
+                    resizePatternTo(point.x, point.y)
+
+                boardCanvas.requestPaint()
+                return
+            }
+
             if (root.patternSelectionDragging) {
                 const point = nearestPointAt(mouse.x, mouse.y)
 
@@ -1571,6 +1858,30 @@ Item {
         }
 
         onReleased: mouse => {
+            if (resizingPatternSelection) {
+                const point =
+                    nearestViewPointForResize(mouse.x, mouse.y)
+
+                if (point !== null)
+                    resizePatternTo(point.x, point.y)
+
+                resizingPatternSelection = false
+                patternResizeHandle = ""
+
+                /*
+                 * The release will also generate onClicked.  Do not let
+                 * that resize release become a stone-editing click.
+                 */
+                suppressSelectionClick = true
+
+                Qt.callLater(function() {
+                    suppressSelectionClick = false
+                })
+
+                boardCanvas.requestPaint()
+                return
+            }
+
             if (!root.patternSelectionDragging)
                 return
 
@@ -1619,6 +1930,8 @@ Item {
         }
 
         onCanceled: {
+            resizingPatternSelection = false
+            patternResizeHandle = ""
             root.patternSelectionDragging = false
             boardCanvas.requestPaint()
         }

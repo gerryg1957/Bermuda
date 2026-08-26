@@ -1026,6 +1026,9 @@ menuBar: MenuBar {
                         height: width
 
                           patternSelectionEnabled: boardPane.selectingPattern
+                          patternSelectionAdjustable:
+                              !gameList.searchHasRun
+                              && !gameList.searchInProgress
 
                           onContinuationPointClicked: function(x, y, count) {
                               boardPane.filterContinuationPoint(
@@ -1284,10 +1287,15 @@ menuBar: MenuBar {
                       Layout.fillWidth: true
                       Layout.leftMargin: 8
                       Layout.rightMargin: 8
+                      Layout.minimumHeight: editBlackButton.implicitHeight
                       spacing: 4
 
-                      visible: boardPane.editingPosition
-                               || boardPane.investigatingSearch
+                      /*
+                       * Keep this row's height reserved even when its
+                       * contents are not needed. Otherwise opening a
+                       * matching game removes the row and makes the Go
+                       * board change size.
+                       */
                       enabled: !boardPane.selectingPattern
                       opacity: boardPane.selectingPattern ? 0 : 1
 
@@ -1297,6 +1305,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          id: editBlackButton
                           visible: boardPane.editingPosition
                           text: qsTr("Black")
                           checkable: true
@@ -1437,8 +1446,15 @@ menuBar: MenuBar {
                             Layout.fillWidth: true
                             spacing: 4
 
-                            visible:
+                            /*
+                             * Keep this row in the layout even when there is
+                             * no match. Removing it with visible:false changes
+                             * the game-details height and makes the Go board
+                             * shrink when a search-result game is selected.
+                             */
+                            enabled:
                                 boardPane.matchOccurrences.length > 0
+                            opacity: enabled ? 1 : 0
 
                             ToolButton {
                                 text: qsTr("Previous Match")
