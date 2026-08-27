@@ -1161,12 +1161,11 @@ menuBar: MenuBar {
                               }
 
                               if (gameList.continuationFilterActive) {
-                                  return qsTr("● %1 · %2 games")
+                                  return qsTr("● %1")
                                       .arg(
                                           gameList.goCoordinate(
                                               gameList.selectedContinuationX,
                                               gameList.selectedContinuationCoreY))
-                                      .arg(gameList.searchResultCount)
                               }
 
                               return qsTr("● Choose continuation")
