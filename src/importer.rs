@@ -65,23 +65,55 @@ impl Importer {
         let record = extract_main_variation(&collection)
             .with_context(|| format!("extracting main variation from {}", sgf_path.display()))?;
 
-        game::replay(&record).with_context(|| format!("validating {}", sgf_path.display()))?;
+        let original_path = sgf_path
+            .canonicalize()
+            .unwrap_or_else(|_| sgf_path.to_path_buf())
+            .to_string_lossy()
+            .into_owned();
 
+        self.import_record(source_name, source_version, &original_path, &record)
+            .with_context(|| format!("importing {}", sgf_path.display()))
+    }
+
+    /// Imports an already constructed game record into this Bermuda database.
+    ///
+    /// This is the source-independent ingestion path. SGF files, games played
+    /// inside Bermuda, and future import sources should all converge here once
+    /// they have produced a GameRecord.
+    ///
+    /// `source_locator` identifies this particular source occurrence. For an
+    /// SGF import it is the original file path. Other callers may use another
+    /// stable provenance identifier.
+    pub fn import_record(
+        &mut self,
+        source_name: &str,
+        source_version: &str,
+        source_locator: &str,
+        record: &GameRecord,
+    ) -> Result<ImportOutcome> {
+        if source_locator.trim().is_empty() {
+            bail!("source locator must not be empty");
+        }
+
+        game::replay(record).context("validating game record")?;
+
+        /*
+         * Bermuda's stored searchable game corpus currently supports the
+         * 19x19 games for which the indexing and professional-study workflow
+         * has been designed.
+         *
+         * Keeping this restriction here means every ingestion path has the
+         * same database invariant. It can be generalised deliberately later.
+         */
         if record.board_size != PROFESSIONAL_BOARD_SIZE {
             return Ok(ImportOutcome::SkippedBoardSize {
                 board_size: record.board_size,
             });
         }
 
-        let canonical_hash = canonical_hash(&record).context("computing canonical game hash")?;
-        let canonical_hex =
-            canonical_hash_hex(&record).context("formatting canonical game hash")?;
+        let canonical_hash = canonical_hash(record).context("computing canonical game hash")?;
 
-        let original_path = sgf_path
-            .canonicalize()
-            .unwrap_or_else(|_| sgf_path.to_path_buf())
-            .to_string_lossy()
-            .into_owned();
+        let canonical_hex = canonical_hash_hex(record).context("formatting canonical game hash")?;
 
         let relative_move_file = move_file_path(&canonical_hex);
         let absolute_move_file = self.database_root.join(&relative_move_file);
@@ -93,7 +125,7 @@ impl Importer {
 
         let source_id = find_or_create_source(&transaction, source_name, source_version)?;
 
-        if let Some(game_id) = find_existing_source_path(&transaction, source_id, &original_path)? {
+        if let Some(game_id) = find_existing_source_path(&transaction, source_id, source_locator)? {
             transaction
                 .commit()
                 .context("committing duplicate-source transaction")?;
@@ -105,29 +137,37 @@ impl Importer {
 
         let (game_id, is_new_game) = match existing_game_id {
             Some(game_id) => (game_id, false),
+
             None => {
                 if let Some(parent) = absolute_move_file.parent() {
                     fs::create_dir_all(parent)
                         .with_context(|| format!("creating game directory {}", parent.display()))?;
                 }
-                write_move_file(&absolute_move_file, &record)
+
+                write_move_file(&absolute_move_file, record)
                     .with_context(|| format!("writing {}", absolute_move_file.display()))?;
 
                 let game_id =
-                    insert_game(&transaction, &canonical_hash, &record, &relative_move_file)?;
+                    insert_game(&transaction, &canonical_hash, record, &relative_move_file)?;
 
                 (game_id, true)
             }
         };
 
-        let game_source_id = insert_game_source(&transaction, game_id, source_id, &original_path)?;
+        /*
+         * The schema column is currently named original_path because SGF
+         * files were Bermuda's first import source. Semantically it is the
+         * locator of this source occurrence; non-file sources can therefore
+         * use an opaque provenance identifier here without inventing a file.
+         */
+        let game_source_id = insert_game_source(&transaction, game_id, source_id, source_locator)?;
 
         insert_metadata(
             &transaction,
             game_source_id,
             source_id,
             &self.player_catalogue,
-            &record,
+            record,
         )?;
 
         transaction
