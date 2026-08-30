@@ -567,6 +567,26 @@ menuBar: MenuBar {
 
             onTriggered: saveSgfDialog.open()
         }
+
+        Action {
+            text: qsTr("Add to &My Games")
+
+            /*
+             * For now, only completed live games are added.
+             */
+            enabled: root.playingGame
+                     && root.localGameFinished
+
+            onTriggered: {
+                if (gameController.addPlayedGameToMyGames()) {
+                    console.log(
+                        qsTr("Game added to My Games"))
+                } else {
+                    console.warn(
+                        gameController.error_message)
+                }
+            }
+        }
     }
 
     Menu {

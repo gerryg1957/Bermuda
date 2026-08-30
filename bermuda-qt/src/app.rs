@@ -1,14 +1,31 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::{fmt::Write as _, fs, path::Path, pin::Pin};
+use std::{
+    fmt::Write as _,
+    fs,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use bermuda::{
     Board, Colour, GameRecord, Metadata, Move, PositionOccurrence, PositionState,
-    extract_main_variation, parse_collection, position_fingerprint,
-    project_manager::ProjectManager, replay_positions, write_game_record_sgf,
+    extract_main_variation, importer::ImportOutcome, indexer::POSITION_INDEX_VERSION,
+    parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
+    replay_positions, write_game_record_sgf,
 };
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
+use directories::ProjectDirs;
+
+const PERSONAL_PROJECT_NAME: &str = "My Games";
+const PERSONAL_PROJECT_DIRECTORY: &str = "personal-corpus";
+
+const PLAYED_GAME_SOURCE_NAME: &str = "Bermuda";
+const PLAYED_GAME_SOURCE_VERSION: &str = "play-v1";
+
+static PLAYED_GAME_LOCATOR_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cxx_qt::bridge]
 mod ffi {
@@ -48,6 +65,10 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "savePlayedGameSgf"]
         fn save_played_game_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "addPlayedGameToMyGames"]
+        fn add_played_game_to_my_games(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "newPosition"]
@@ -135,6 +156,7 @@ struct LoadedDocument {
     black_player: Option<String>,
     white_player: Option<String>,
     komi: Option<f32>,
+    played_source_locator: Option<String>,
 }
 
 #[derive(Debug)]
@@ -270,6 +292,31 @@ impl ffi::BermudaApp {
 
         match result {
             Ok(()) => true,
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+
+                false
+            }
+        }
+    }
+
+    fn add_played_game_to_my_games(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            match rust.loaded_document.as_ref() {
+                Some(document) => add_played_document_to_my_games(document),
+
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(_) => true,
 
             Err(error) => {
                 self.as_mut().set_error_message(QString::from(error));
@@ -862,6 +909,7 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         black_player: None,
         white_player: None,
         komi: None,
+        played_source_locator: None,
     })
 }
 
@@ -893,6 +941,7 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
         black_player: record.metadata.black_player.clone(),
         white_player: record.metadata.white_player.clone(),
         komi: record.metadata.komi,
+        played_source_locator: None,
     })
 }
 
@@ -912,6 +961,7 @@ fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
         black_player: None,
         white_player: None,
         komi: None,
+        played_source_locator: None,
     })
 }
 
@@ -936,6 +986,7 @@ fn new_game_document(
         black_player,
         white_player,
         komi: Some(komi),
+        played_source_locator: Some(new_played_source_locator()),
     })
 }
 
@@ -964,6 +1015,117 @@ fn editable_position_state(board: Board) -> PositionState {
         occurrence,
         last_move: None,
     }
+}
+
+fn new_played_source_locator() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+
+    let sequence = PLAYED_GAME_LOCATOR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+
+    format!("played:{nanos}:{}:{sequence}", std::process::id())
+}
+
+fn personal_project_root() -> Result<PathBuf, String> {
+    let project_dirs = ProjectDirs::from("org", "Bermuda", "Bermuda")
+        .ok_or_else(|| "could not determine the per-user Bermuda data directory".to_owned())?;
+
+    Ok(project_dirs
+        .data_local_dir()
+        .join(PERSONAL_PROJECT_DIRECTORY))
+}
+
+fn open_or_create_personal_project() -> Result<Project, String> {
+    let root = personal_project_root()?;
+    let manager = ProjectManager::new();
+
+    if root.exists() {
+        manager
+            .open(&root)
+            .map_err(|error| format!("opening My Games at {}: {error}", root.display()))
+    } else {
+        manager
+            .create(PERSONAL_PROJECT_NAME, &root)
+            .map_err(|error| format!("creating My Games at {}: {error}", root.display()))
+    }
+}
+
+fn add_played_document_to_project(
+    document: &LoadedDocument,
+    project: &Project,
+) -> Result<i64, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    /*
+     * The first implementation deliberately adds only completed games.
+     * Correct support for an unfinished game requires update semantics.
+     */
+    if !document.finished {
+        return Err("finish the game before adding it to My Games".to_owned());
+    }
+
+    let source_locator = document
+        .played_source_locator
+        .as_deref()
+        .ok_or_else(|| "the played game has no provenance identifier".to_owned())?;
+
+    let record = played_game_record(document)?;
+
+    let mut importer = project
+        .importer()
+        .map_err(|error| format!("opening My Games importer: {error}"))?;
+
+    let outcome = importer
+        .import_record(
+            PLAYED_GAME_SOURCE_NAME,
+            PLAYED_GAME_SOURCE_VERSION,
+            source_locator,
+            &record,
+        )
+        .map_err(|error| format!("adding game to My Games: {error}"))?;
+
+    let game_id = match outcome {
+        ImportOutcome::Imported { game_id, .. } => game_id,
+
+        ImportOutcome::AddedSource { game_id } => game_id,
+
+        ImportOutcome::AlreadyImported { game_id } => game_id,
+
+        ImportOutcome::SkippedBoardSize { board_size } => {
+            return Err(format!(
+                "My Games does not yet support {board_size}x{board_size} games"
+            ));
+        }
+    };
+
+    /*
+     * Release the importer's database connection before opening the
+     * position indexer.
+     */
+    drop(importer);
+
+    /*
+     * A newly added personal game should be searchable immediately.
+     */
+    let mut indexer = project
+        .position_indexer()
+        .map_err(|error| format!("opening My Games position index: {error}"))?;
+
+    indexer
+        .index_game_by_id(game_id, POSITION_INDEX_VERSION)
+        .map_err(|error| format!("indexing My Games game {game_id}: {error}"))?;
+
+    Ok(game_id)
+}
+
+fn add_played_document_to_my_games(document: &LoadedDocument) -> Result<i64, String> {
+    let project = open_or_create_personal_project()?;
+
+    add_played_document_to_project(document, &project)
 }
 
 fn played_game_record(document: &LoadedDocument) -> Result<GameRecord, String> {
@@ -1461,5 +1623,127 @@ mod played_game_record_tests {
         let error = played_game_record(&document).expect_err("position is not a played game");
 
         assert_eq!(error, "the loaded document is not a game being played",);
+    }
+
+    #[test]
+    fn played_game_source_locators_are_unique() {
+        let first = new_game_document(19, Some("Black".to_owned()), Some("White".to_owned()), 6.5)
+            .expect("create first game");
+
+        let second = new_game_document(19, Some("Black".to_owned()), Some("White".to_owned()), 6.5)
+            .expect("create second game");
+
+        assert_ne!(first.played_source_locator, second.played_source_locator,);
+    }
+
+    #[test]
+    fn adds_finished_game_once_and_indexes_it() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        let root =
+            std::env::temp_dir().join(format!("bermuda-my-games-{unique}-{}", std::process::id()));
+
+        let manager = ProjectManager::new();
+
+        let project = manager
+            .create("My Games Test", &root)
+            .expect("create personal project");
+
+        let mut document =
+            new_game_document(19, Some("Black".to_owned()), Some("White".to_owned()), 6.5)
+                .expect("create live game");
+
+        let point = document.positions[0]
+            .board
+            .point(3, 3)
+            .expect("board point");
+
+        append_game_move(
+            &mut document,
+            Move {
+                colour: Colour::Black,
+                point: Some(point),
+            },
+        )
+        .expect("play move");
+
+        document.finished = true;
+        document.result = Some("B+R".to_owned());
+
+        let first_game_id =
+            add_played_document_to_project(&document, &project).expect("first Add to My Games");
+
+        /*
+         * Same session, same source locator: this must be idempotent.
+         */
+        let second_game_id =
+            add_played_document_to_project(&document, &project).expect("second Add to My Games");
+
+        assert_eq!(first_game_id, second_game_id,);
+
+        let connection =
+            bermuda::database::open(&project.database_root()).expect("open personal database");
+
+        let game_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM games", [], |row| row.get(0))
+            .expect("count games");
+
+        let source_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM game_sources", [], |row| row.get(0))
+            .expect("count sources");
+
+        let indexed_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM indexed_games", [], |row| row.get(0))
+            .expect("count indexed games");
+
+        let position_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM exact_positions", [], |row| row.get(0))
+            .expect("count indexed positions");
+
+        assert_eq!(game_count, 1);
+        assert_eq!(source_count, 1);
+        assert_eq!(indexed_count, 1);
+
+        /*
+         * Initial position + one move.
+         */
+        assert_eq!(position_count, 2);
+
+        drop(connection);
+
+        fs::remove_dir_all(&root).expect("remove personal test project");
+    }
+
+    #[test]
+    fn refuses_to_add_unfinished_live_game() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        let root = std::env::temp_dir().join(format!(
+            "bermuda-my-games-unfinished-{unique}-{}",
+            std::process::id()
+        ));
+
+        let manager = ProjectManager::new();
+
+        let project = manager
+            .create("My Games Test", &root)
+            .expect("create personal project");
+
+        let document =
+            new_game_document(19, Some("Black".to_owned()), Some("White".to_owned()), 6.5)
+                .expect("create live game");
+
+        let error = add_played_document_to_project(&document, &project)
+            .expect_err("unfinished game must not be added");
+
+        assert_eq!(error, "finish the game before adding it to My Games");
+
+        fs::remove_dir_all(&root).expect("remove personal test project");
     }
 }
