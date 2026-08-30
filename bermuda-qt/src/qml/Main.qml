@@ -85,6 +85,7 @@ ApplicationWindow {
         boardPane.resetPatternSelection()
 
         boardPane.editingPosition = false
+        root.playingGame = false
         boardPane.selectedGame = null
 
         goBoard.stones = []
@@ -186,6 +187,8 @@ ApplicationWindow {
         const fileName = filePath.substring(
                            filePath.lastIndexOf("/") + 1)
 
+        root.playingGame = false
+
         if (gameController.loadSgf(filePath)) {
             gameList.clearSearchResults()
             boardPane.clearMatchNavigation()
@@ -228,6 +231,277 @@ ApplicationWindow {
     }
 }
 
+    FileDialog {
+        id: saveSgfDialog
+
+        title: qsTr("Save SGF")
+        fileMode: FileDialog.SaveFile
+
+        nameFilters: [
+            qsTr("SGF files (*.sgf)"),
+            qsTr("All files (*)")
+        ]
+
+        onAccepted: {
+            const fileUrl = new URL(selectedFile)
+            let filePath =
+                decodeURIComponent(fileUrl.pathname)
+
+            if (!filePath.toLowerCase().endsWith(".sgf"))
+                filePath += ".sgf"
+
+            if (!gameController.savePlayedGameSgf(
+                        filePath)) {
+                console.warn(
+                    gameController.error_message)
+            }
+        }
+    }
+
+    Dialog {
+        id: newGameDialog
+
+        title: qsTr("New Game")
+        modal: true
+        focus: true
+
+        width: Math.min(
+            root.width - Kirigami.Units.gridUnit * 4,
+            Kirigami.Units.gridUnit * 24)
+
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+
+        function startGame() {
+            errorLabel.text = ""
+
+            const blackName = blackPlayerField.text.trim()
+            const whiteName = whitePlayerField.text.trim()
+            const komiText = komiField.text.trim()
+
+            if (!gameController.newGame(
+                        19,
+                        blackName,
+                        whiteName,
+                        komiText)) {
+                errorLabel.text = gameController.error_message
+                return
+            }
+
+            gameList.clearSearchResults()
+            boardPane.clearMatchNavigation()
+            boardPane.resetPatternSelection()
+
+            boardPane.editingPosition = false
+            root.playingGame = true
+            root.localGameFinished = false
+            root.localGameResult = ""
+
+            boardPane.selectedGame = {
+                gameId: -1,
+                black: blackName.length > 0
+                       ? blackName
+                       : qsTr("Black"),
+                white: whiteName.length > 0
+                       ? whiteName
+                       : qsTr("White"),
+                blackRank: "",
+                whiteRank: "",
+                gameDate: "",
+                result: "",
+                event: "",
+                komi: gameController.komi,
+                handicap: "",
+                fromSearchResults: false
+            }
+
+            boardPane.applyLoadedPosition()
+            close()
+        }
+
+        onOpened: {
+            errorLabel.text = ""
+            blackPlayerField.forceActiveFocus()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: Kirigami.Units.largeSpacing
+                rowSpacing: Kirigami.Units.smallSpacing
+
+                Label {
+                    text: qsTr("Black:")
+                }
+
+                TextField {
+                    id: blackPlayerField
+
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Black player")
+                }
+
+                Label {
+                    text: qsTr("White:")
+                }
+
+                TextField {
+                    id: whitePlayerField
+
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("White player")
+                }
+
+                Label {
+                    text: qsTr("Komi:")
+                }
+
+                TextField {
+                    id: komiField
+
+                    Layout.fillWidth: true
+                    text: "6.5"
+                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+
+                    onAccepted: newGameDialog.startGame()
+                }
+
+                Label {
+                    text: qsTr("Board:")
+                }
+
+                Label {
+                    text: qsTr("19 × 19")
+                }
+            }
+
+            Label {
+                id: errorLabel
+
+                Layout.fillWidth: true
+
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+            }
+
+            Item {
+                Layout.preferredHeight:
+                    Kirigami.Units.smallSpacing
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Button {
+                    text: qsTr("Cancel")
+                    onClicked: newGameDialog.close()
+                }
+
+                Button {
+                    text: qsTr("Start Game")
+                    highlighted: true
+
+                    onClicked: newGameDialog.startGame()
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: finishGameDialog
+
+        title: qsTr("Finish Game")
+        modal: true
+        focus: true
+
+        width: Math.min(
+            root.width - Kirigami.Units.gridUnit * 4,
+            Kirigami.Units.gridUnit * 22)
+
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+
+        function finishGame() {
+            finishGameErrorLabel.text = ""
+
+            const result =
+                finishGameResultField.text.trim()
+
+            if (!gameController.finishGame(result)) {
+                finishGameErrorLabel.text =
+                    gameController.error_message
+                return
+            }
+
+            root.localGameResult = result
+            root.localGameFinished = true
+
+            close()
+        }
+
+        onOpened: {
+            finishGameErrorLabel.text = ""
+            finishGameResultField.text = ""
+            finishGameResultField.forceActiveFocus()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Kirigami.Units.smallSpacing
+
+            Label {
+                Layout.fillWidth: true
+
+                text: qsTr(
+                    "Enter the result, for example B+3.5, W+0.5 or 0.")
+
+                wrapMode: Text.WordWrap
+            }
+
+            TextField {
+                id: finishGameResultField
+
+                Layout.fillWidth: true
+                placeholderText: qsTr("Result")
+
+                onAccepted: finishGameDialog.finishGame()
+            }
+
+            Label {
+                id: finishGameErrorLabel
+
+                Layout.fillWidth: true
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Button {
+                    text: qsTr("Cancel")
+                    onClicked: finishGameDialog.close()
+                }
+
+                Button {
+                    text: qsTr("Finish Game")
+                    highlighted: true
+                    onClicked: finishGameDialog.finishGame()
+                }
+            }
+        }
+    }
+
 menuBar: MenuBar {
     Menu {
         title: qsTr("&File")
@@ -236,6 +510,8 @@ menuBar: MenuBar {
             text: qsTr("&New Position")
 
             onTriggered: {
+                root.playingGame = false
+
                 if (gameController.newPosition(19)) {
                     gameList.clearSearchResults()
                     boardPane.clearMatchNavigation()
@@ -269,9 +545,27 @@ menuBar: MenuBar {
         }
 
         Action {
+            text: qsTr("&Play Game")
+
+            onTriggered: newGameDialog.open()
+        }
+
+        Action {
             text: qsTr("&Open SGF…")
 
             onTriggered: openSgfDialog.open()
+        }
+
+        Action {
+            text: qsTr("&Save SGF…")
+
+            /*
+             * At present this saves games created by Play Game.
+             * It remains available after the game has finished.
+             */
+            enabled: root.playingGame
+
+            onTriggered: saveSgfDialog.open()
         }
     }
 
@@ -395,6 +689,9 @@ menuBar: MenuBar {
 
 }
 
+    property bool playingGame: false
+    property bool localGameFinished: false
+    property string localGameResult: ""
     property bool includeHandicapGames: false
 
     Settings {
@@ -490,6 +787,7 @@ menuBar: MenuBar {
                 boardPane.clearMatchNavigation()
                 boardPane.resetPatternSelection()
                 boardPane.editingPosition = false
+                root.playingGame = false
                 boardPane.selectedGame = game
 
                 if (gameController.loadGame(
@@ -964,6 +1262,9 @@ menuBar: MenuBar {
             }
 
             function showMove(moveNumber) {
+                if (root.playingGame)
+                    return
+
                 if (!selectedGame) {
                     return
                 }
@@ -1039,6 +1340,21 @@ menuBar: MenuBar {
 
 
                           onPointClicked: function(x, y) {
+                              if (root.playingGame) {
+                                  if (root.localGameFinished)
+                                      return
+
+                                  if (gameController.playGamePoint(x, y)) {
+                                      gameList.clearSearchResults()
+                                      boardPane.applyLoadedPosition()
+                                  } else {
+                                      console.warn(
+                                                  gameController.error_message)
+                                  }
+
+                                  return
+                              }
+
                               if (!boardPane.editingPosition)
                                   return
 
@@ -1073,8 +1389,82 @@ menuBar: MenuBar {
                       Layout.rightMargin: 8
                       spacing: 4
 
+                      Label {
+                          visible: root.playingGame
+
+                          text: root.localGameFinished
+                                ? qsTr("Game finished — %1")
+                                    .arg(root.localGameResult)
+                                : qsTr("Move %1 — %2 to play")
+                                    .arg(gameController.move_count + 1)
+                                    .arg(gameController.move_count % 2 === 0
+                                         ? qsTr("Black")
+                                         : qsTr("White"))
+
+                          font.bold: true
+                      }
+
                       ToolButton {
-                          visible: !gameList.searchHasRun
+                          visible: root.playingGame
+                                   && !root.localGameFinished
+                          text: qsTr("Pass")
+
+                          onClicked: {
+                              if (gameController.playGamePass()) {
+                                  boardPane.applyLoadedPosition()
+                              } else {
+                                  console.warn(
+                                              gameController.error_message)
+                              }
+                          }
+                      }
+
+                      ToolButton {
+                          visible: root.playingGame
+                                   && !root.localGameFinished
+                          text: qsTr("Undo")
+                          enabled: gameController.move_count > 0
+
+                          onClicked: {
+                              if (gameController.undoGameMove()) {
+                                  boardPane.applyLoadedPosition()
+                              } else {
+                                  console.warn(
+                                              gameController.error_message)
+                              }
+                          }
+                      }
+
+                      ToolButton {
+                          visible: root.playingGame
+                                   && !root.localGameFinished
+                          text: qsTr("Resign")
+
+                          onClicked: {
+                              const result =
+                                  gameController.resignGame()
+
+                              if (result.length > 0) {
+                                  root.localGameResult = result
+                                  root.localGameFinished = true
+                              } else {
+                                  console.warn(
+                                      gameController.error_message)
+                              }
+                          }
+                      }
+
+                      ToolButton {
+                          visible: root.playingGame
+                                   && !root.localGameFinished
+                          text: qsTr("Finish Game")
+
+                          onClicked: finishGameDialog.open()
+                      }
+
+                      ToolButton {
+                          visible: !root.playingGame
+                                   && !gameList.searchHasRun
                           text: qsTr("Select Pattern")
                           checkable: true
 
@@ -1092,7 +1482,8 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
-                          visible: !gameList.searchHasRun
+                          visible: !root.playingGame
+                                   && !gameList.searchHasRun
                           text: qsTr("Clear Selection")
                           enabled: goBoard.patternSelectionValid
 
@@ -1100,7 +1491,8 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
-                          visible: !gameList.searchHasRun
+                          visible: !root.playingGame
+                                   && !gameList.searchHasRun
                           text: qsTr("Search Database")
 
                           enabled: goBoard.patternSelectionValid

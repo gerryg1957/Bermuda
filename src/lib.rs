@@ -26,6 +26,7 @@ pub mod project_manager;
 pub mod replay;
 pub mod search;
 pub mod sgf;
+pub mod sgf_writer;
 
 mod game_date;
 
@@ -54,3 +55,4 @@ pub use search::{
     SearchPatternSummaryReportOutcome, SearchResult, SearchSummaryReport, SearchSummaryResult,
 };
 pub use sgf::{Collection, GameTree, Node, parse_collection};
+pub use sgf_writer::{SgfWriteError, write_game_record_sgf};

@@ -3,8 +3,9 @@
 use std::{fmt::Write as _, fs, path::Path, pin::Pin};
 
 use bermuda::{
-    Board, Colour, Move, PositionOccurrence, PositionState, extract_main_variation,
-    parse_collection, position_fingerprint, project_manager::ProjectManager, replay_positions,
+    Board, Colour, GameRecord, Metadata, Move, PositionOccurrence, PositionState,
+    extract_main_variation, parse_collection, position_fingerprint,
+    project_manager::ProjectManager, replay_positions, write_game_record_sgf,
 };
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
@@ -45,8 +46,42 @@ mod ffi {
         fn load_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "savePlayedGameSgf"]
+        fn save_played_game_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "newPosition"]
         fn new_position(self: Pin<&mut BermudaApp>, board_size: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "newGame"]
+        fn new_game(
+            self: Pin<&mut BermudaApp>,
+            board_size: i32,
+            black_player: &QString,
+            white_player: &QString,
+            komi: &QString,
+        ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "playGamePoint"]
+        fn play_game_point(self: Pin<&mut BermudaApp>, x: i32, y: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "playGamePass"]
+        fn play_game_pass(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "undoGameMove"]
+        fn undo_game_move(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "resignGame"]
+        fn resign_game(self: Pin<&mut BermudaApp>) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "finishGame"]
+        fn finish_game(self: Pin<&mut BermudaApp>, result: &QString) -> bool;
 
         #[qinvokable]
         #[cxx_name = "snapshotSearchSource"]
@@ -94,6 +129,9 @@ struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
     editable: bool,
+    playable: bool,
+    finished: bool,
+    result: Option<String>,
     black_player: Option<String>,
     white_player: Option<String>,
     komi: Option<f32>,
@@ -214,6 +252,33 @@ impl ffi::BermudaApp {
         self.as_mut().show_cached_position(0)
     }
 
+    fn save_played_game_sgf(mut self: Pin<&mut Self>, sgf_path: &QString) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let sgf_path = sgf_path.to_string();
+
+        let result = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            match rust.loaded_document.as_ref() {
+                Some(document) => save_played_document_sgf(document, &sgf_path),
+
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(()) => true,
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+
+                false
+            }
+        }
+    }
+
     fn new_position(mut self: Pin<&mut Self>, board_size: i32) -> bool {
         let document = match new_position_document(board_size) {
             Ok(document) => document,
@@ -243,6 +308,171 @@ impl ffi::BermudaApp {
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
+    }
+
+    fn new_game(
+        mut self: Pin<&mut Self>,
+        board_size: i32,
+        black_player: &QString,
+        white_player: &QString,
+        komi: &QString,
+    ) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let black_player = optional_player_name(&black_player.to_string());
+        let white_player = optional_player_name(&white_player.to_string());
+
+        let komi_text = komi.to_string();
+        let komi_value = match komi_text.trim().parse::<f32>() {
+            Ok(value) if value.is_finite() => value,
+
+            _ => {
+                self.as_mut()
+                    .set_error_message(QString::from("komi must be a number, for example 6.5"));
+                return false;
+            }
+        };
+
+        let document = match new_game_document(board_size, black_player, white_player, komi_value) {
+            Ok(document) => document,
+
+            Err(error) => {
+                self.as_mut().rust_mut().loaded_document = None;
+                self.as_mut().reset_position_display();
+                self.as_mut().set_error_message(QString::from(error));
+                return false;
+            }
+        };
+
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
+
+        self.as_mut().rust_mut().loaded_document = Some(document);
+
+        self.as_mut().show_cached_position(0)
+    }
+
+    fn play_game_point(mut self: Pin<&mut Self>, x: i32, y: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => play_document_point(document, x, y),
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(move_number) => self.as_mut().show_cached_position(move_number),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn play_game_pass(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => play_document_pass(document),
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(move_number) => self.as_mut().show_cached_position(move_number),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn undo_game_move(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => undo_document_move(document),
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(move_number) => self.as_mut().show_cached_position(move_number),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn resign_game(mut self: Pin<&mut Self>) -> QString {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => resign_document_game(document),
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(result) => QString::from(result),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                QString::default()
+            }
+        }
+    }
+
+    fn finish_game(mut self: Pin<&mut Self>, result: &QString) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let result_text = result.to_string();
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => finish_document_game(document, &result_text),
+
+                None => Err("no game is being played".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(()) => true,
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
     }
 
     fn snapshot_search_source(mut self: Pin<&mut Self>) -> bool {
@@ -626,6 +856,9 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         description: format!("game {game_id}"),
         positions,
         editable: false,
+        playable: false,
+        finished: false,
+        result: None,
         black_player: None,
         white_player: None,
         komi: None,
@@ -654,6 +887,9 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
         description: format!("SGF {}", path.display()),
         positions,
         editable: false,
+        playable: false,
+        finished: false,
+        result: record.metadata.result.clone(),
         black_player: record.metadata.black_player.clone(),
         white_player: record.metadata.white_player.clone(),
         komi: record.metadata.komi,
@@ -670,10 +906,47 @@ fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
         description: "untitled position".to_owned(),
         positions: vec![editable_position_state(board)],
         editable: true,
+        playable: false,
+        finished: false,
+        result: None,
         black_player: None,
         white_player: None,
         komi: None,
     })
+}
+
+fn new_game_document(
+    board_size: i32,
+    black_player: Option<String>,
+    white_player: Option<String>,
+    komi: f32,
+) -> Result<LoadedDocument, String> {
+    let board_size =
+        u8::try_from(board_size).map_err(|_| format!("invalid board size {board_size}"))?;
+
+    let board = Board::new(board_size).map_err(|error| error.to_string())?;
+
+    Ok(LoadedDocument {
+        description: "untitled game".to_owned(),
+        positions: vec![editable_position_state(board)],
+        editable: false,
+        playable: true,
+        finished: false,
+        result: None,
+        black_player,
+        white_player,
+        komi: Some(komi),
+    })
+}
+
+fn optional_player_name(name: &str) -> Option<String> {
+    let name = name.trim();
+
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_owned())
+    }
 }
 
 fn editable_position_state(board: Board) -> PositionState {
@@ -691,6 +964,245 @@ fn editable_position_state(board: Board) -> PositionState {
         occurrence,
         last_move: None,
     }
+}
+
+fn played_game_record(document: &LoadedDocument) -> Result<GameRecord, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    let initial = document
+        .positions
+        .first()
+        .ok_or_else(|| "the game has no initial position".to_owned())?;
+
+    if initial.last_move.is_some() {
+        return Err("the initial game position unexpectedly has a last move".to_owned());
+    }
+
+    let mut moves = Vec::with_capacity(document.positions.len().saturating_sub(1));
+
+    for (index, position) in document.positions.iter().enumerate().skip(1) {
+        let mv = position
+            .last_move
+            .ok_or_else(|| format!("game position {index} has no recorded move"))?;
+
+        moves.push(mv);
+    }
+
+    Ok(GameRecord {
+        board_size: initial.board.size(),
+
+        metadata: Metadata {
+            black_player: document.black_player.clone(),
+            white_player: document.white_player.clone(),
+            date: None,
+            event: None,
+            result: document.result.clone(),
+            komi: document.komi,
+            handicap: None,
+        },
+
+        /*
+         * Play Game currently starts from an empty board.
+         *
+         * When handicap/setup play is added, the initial board will
+         * be converted into SetupStone entries here.
+         */
+        setup: Vec::new(),
+
+        moves,
+    })
+}
+
+fn save_played_document_sgf(document: &LoadedDocument, sgf_path: &str) -> Result<(), String> {
+    let sgf_path = sgf_path.trim();
+
+    if sgf_path.is_empty() {
+        return Err("no SGF filename was selected".to_owned());
+    }
+
+    let record = played_game_record(document)?;
+
+    let sgf = write_game_record_sgf(&record).map_err(|error| format!("creating SGF: {error}"))?;
+
+    let path = Path::new(sgf_path);
+
+    fs::write(path, sgf).map_err(|error| format!("writing {}: {error}", path.display()))?;
+
+    Ok(())
+}
+
+fn play_document_point(document: &mut LoadedDocument, x: i32, y: i32) -> Result<i32, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    let current = document
+        .positions
+        .last()
+        .ok_or_else(|| "the game has no initial position".to_owned())?;
+
+    let x = u8::try_from(x).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+    let qml_y = u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+    let core_y = qml_y_to_core(current.board.size(), qml_y)?;
+
+    let point = current
+        .board
+        .point(x, core_y)
+        .map_err(|error| error.to_string())?;
+
+    let mv = Move {
+        colour: current.occurrence.side_to_move,
+        point: Some(point),
+    };
+
+    append_game_move(document, mv)
+}
+
+fn play_document_pass(document: &mut LoadedDocument) -> Result<i32, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    let colour = document
+        .positions
+        .last()
+        .ok_or_else(|| "the game has no initial position".to_owned())?
+        .occurrence
+        .side_to_move;
+
+    append_game_move(
+        document,
+        Move {
+            colour,
+            point: None,
+        },
+    )
+}
+
+fn append_game_move(document: &mut LoadedDocument, mv: Move) -> Result<i32, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    if document.finished {
+        return Err("the game has already finished".to_owned());
+    }
+
+    let current = document
+        .positions
+        .last()
+        .cloned()
+        .ok_or_else(|| "the game has no initial position".to_owned())?;
+
+    let mut board = current.board.clone();
+
+    board.play(mv).map_err(|error| error.to_string())?;
+
+    let move_number = current
+        .occurrence
+        .move_number
+        .checked_add(1)
+        .ok_or_else(|| "move number overflow".to_owned())?;
+
+    let side_to_move = mv.colour.opponent();
+
+    let occurrence = PositionOccurrence {
+        move_number,
+        side_to_move,
+        ko_point: board.ko_point(),
+        fingerprint: position_fingerprint(&board, side_to_move),
+    };
+
+    document.positions.push(PositionState {
+        board,
+        occurrence,
+        last_move: Some(mv),
+    });
+
+    i32::try_from(move_number)
+        .map_err(|_| "move number is too large for the Qt interface".to_owned())
+}
+
+fn undo_document_move(document: &mut LoadedDocument) -> Result<i32, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    if document.finished {
+        return Err("the game has already finished".to_owned());
+    }
+
+    if document.positions.len() <= 1 {
+        return Err("there are no moves to undo".to_owned());
+    }
+
+    document.positions.pop();
+
+    let move_number = document
+        .positions
+        .last()
+        .ok_or_else(|| "the game has no initial position".to_owned())?
+        .occurrence
+        .move_number;
+
+    i32::try_from(move_number)
+        .map_err(|_| "move number is too large for the Qt interface".to_owned())
+}
+
+fn resign_document_game(document: &mut LoadedDocument) -> Result<String, String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    if document.finished {
+        return Err("the game has already finished".to_owned());
+    }
+
+    let side_to_move = document
+        .positions
+        .last()
+        .ok_or_else(|| "the game has no initial position".to_owned())?
+        .occurrence
+        .side_to_move;
+
+    /*
+     * The player whose turn it is resigns.
+     */
+    let result = match side_to_move {
+        Colour::Black => "W+R",
+        Colour::White => "B+R",
+    }
+    .to_owned();
+
+    document.finished = true;
+    document.result = Some(result.clone());
+
+    Ok(result)
+}
+
+fn finish_document_game(document: &mut LoadedDocument, result: &str) -> Result<(), String> {
+    if !document.playable {
+        return Err("the loaded document is not a game being played".to_owned());
+    }
+
+    if document.finished {
+        return Err("the game has already finished".to_owned());
+    }
+
+    let result = result.trim();
+
+    if result.is_empty() {
+        return Err("enter a result, for example B+3.5, W+0.5 or 0".to_owned());
+    }
+
+    document.finished = true;
+    document.result = Some(result.to_owned());
+
+    Ok(())
 }
 
 fn edit_document_position(
@@ -848,3 +1360,106 @@ fn board_stones_json(board: &Board) -> QString {
 
     QString::from(json)
 } // closes board_stones_json()
+
+#[cfg(test)]
+mod played_game_record_tests {
+    use super::*;
+
+    #[test]
+    fn converts_live_game_to_core_game_record() {
+        let mut document = new_game_document(
+            19,
+            Some("Black Player".to_owned()),
+            Some("White Player".to_owned()),
+            6.5,
+        )
+        .expect("create live game");
+
+        let first_point = document.positions[0]
+            .board
+            .point(3, 3)
+            .expect("board point");
+
+        append_game_move(
+            &mut document,
+            Move {
+                colour: Colour::Black,
+                point: Some(first_point),
+            },
+        )
+        .expect("play black move");
+
+        append_game_move(
+            &mut document,
+            Move {
+                colour: Colour::White,
+                point: None,
+            },
+        )
+        .expect("play white pass");
+
+        document.finished = true;
+        document.result = Some("B+R".to_owned());
+
+        let record = played_game_record(&document).expect("convert live game");
+
+        assert_eq!(record.board_size, 19);
+
+        assert_eq!(
+            record.metadata.black_player.as_deref(),
+            Some("Black Player"),
+        );
+
+        assert_eq!(
+            record.metadata.white_player.as_deref(),
+            Some("White Player"),
+        );
+
+        assert_eq!(record.metadata.komi, Some(6.5));
+        assert_eq!(record.metadata.result.as_deref(), Some("B+R"),);
+
+        assert_eq!(record.metadata.date, None);
+        assert_eq!(record.metadata.event, None);
+        assert_eq!(record.metadata.handicap, None);
+
+        assert!(record.setup.is_empty());
+        assert_eq!(record.moves.len(), 2);
+
+        assert_eq!(
+            record.moves[0],
+            Move {
+                colour: Colour::Black,
+                point: Some(first_point),
+            },
+        );
+
+        assert_eq!(
+            record.moves[1],
+            Move {
+                colour: Colour::White,
+                point: None,
+            },
+        );
+    }
+
+    #[test]
+    fn converts_unfinished_live_game() {
+        let document =
+            new_game_document(19, Some("Black".to_owned()), Some("White".to_owned()), 6.5)
+                .expect("create live game");
+
+        let record = played_game_record(&document).expect("convert live game");
+
+        assert!(record.metadata.result.is_none());
+        assert!(record.moves.is_empty());
+    }
+
+    #[test]
+    fn rejects_non_playable_document() {
+        let document = new_position_document(19).expect("create position");
+
+        let error = played_game_record(&document).expect_err("position is not a played game");
+
+        assert_eq!(error, "the loaded document is not a game being played",);
+    }
+}
