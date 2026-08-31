@@ -231,11 +231,102 @@ ApplicationWindow {
     }
 }
 
+    function safeSgfFilenamePart(value, fallback) {
+        let cleaned = value === undefined || value === null
+                      ? ""
+                      : value.toString().trim()
+
+        const forbidden = [
+            "<", ">", ":", "\"", "/", "\\", "|", "?", "*"
+        ]
+
+        for (let i = 0; i < forbidden.length; ++i)
+            cleaned = cleaned.split(forbidden[i]).join(" ")
+
+        while (cleaned.indexOf("  ") >= 0)
+            cleaned = cleaned.split("  ").join(" ")
+
+        cleaned = cleaned.trim()
+
+        return cleaned.length > 0 ? cleaned : fallback
+    }
+
+    function twoDateDigits(value) {
+        return value < 10 ? "0" + value : value.toString()
+    }
+
+    function playedGameSgfFilename() {
+        const black =
+            boardPane.selectedGame !== null
+            ? safeSgfFilenamePart(
+                  boardPane.selectedGame.black,
+                  qsTr("Black"))
+            : qsTr("Black")
+
+        const white =
+            boardPane.selectedGame !== null
+            ? safeSgfFilenamePart(
+                  boardPane.selectedGame.white,
+                  qsTr("White"))
+            : qsTr("White")
+
+        const today = new Date()
+
+        const dateText =
+            today.getFullYear().toString()
+            + twoDateDigits(today.getMonth() + 1)
+            + twoDateDigits(today.getDate())
+
+        return black
+               + " v "
+               + white
+               + " "
+               + dateText
+               + ".sgf"
+    }
+
+    function openSaveSgfDialog() {
+        let folder = uiSettings.lastSgfSaveFolder
+
+        if (folder.length === 0) {
+            folder =
+                StandardPaths.writableLocation(
+                    StandardPaths.DownloadLocation).toString()
+        }
+
+        /*
+         * Downloads should normally exist, but Home is a harmless
+         * fallback if the platform does not provide one.
+         */
+        if (folder.length === 0) {
+            folder =
+                StandardPaths.writableLocation(
+                    StandardPaths.HomeLocation).toString()
+        }
+
+        if (folder.length > 0) {
+            saveSgfDialog.currentFolder = folder
+
+            let baseUrl = folder
+
+            if (!baseUrl.endsWith("/"))
+                baseUrl += "/"
+
+            saveSgfDialog.selectedFile =
+                new URL(
+                    playedGameSgfFilename(),
+                    baseUrl).toString()
+        }
+
+        saveSgfDialog.open()
+    }
+
     FileDialog {
         id: saveSgfDialog
 
         title: qsTr("Save SGF")
         fileMode: FileDialog.SaveFile
+        defaultSuffix: "sgf"
 
         nameFilters: [
             qsTr("SGF files (*.sgf)"),
@@ -254,7 +345,11 @@ ApplicationWindow {
                         filePath)) {
                 console.warn(
                     gameController.error_message)
+                return
             }
+
+            uiSettings.lastSgfSaveFolder =
+                saveSgfDialog.currentFolder.toString()
         }
     }
 
@@ -296,6 +391,7 @@ ApplicationWindow {
             root.playingGame = true
             root.localGameFinished = false
             root.localGameResult = ""
+            root.localGameAddedToMyGames = false
 
             boardPane.selectedGame = {
                 gameId: -1,
@@ -565,7 +661,7 @@ menuBar: MenuBar {
              */
             enabled: root.playingGame
 
-            onTriggered: saveSgfDialog.open()
+            onTriggered: root.openSaveSgfDialog()
         }
 
         Action {
@@ -576,16 +672,10 @@ menuBar: MenuBar {
              */
             enabled: root.playingGame
                      && root.localGameFinished
+                     && !root.localGameAddedToMyGames
 
-            onTriggered: {
-                if (gameController.addPlayedGameToMyGames()) {
-                    console.log(
-                        qsTr("Game added to My Games"))
-                } else {
-                    console.warn(
-                        gameController.error_message)
-                }
-            }
+            onTriggered:
+                root.addCurrentPlayedGameToMyGames()
         }
     }
 
@@ -712,6 +802,21 @@ menuBar: MenuBar {
     property bool playingGame: false
     property bool localGameFinished: false
     property string localGameResult: ""
+    property bool localGameAddedToMyGames: false
+
+    function addCurrentPlayedGameToMyGames() {
+        if (gameController.addPlayedGameToMyGames()) {
+            root.localGameAddedToMyGames = true
+
+            console.log(
+                qsTr("Game added to My Games"))
+
+            return true
+        }
+
+        console.warn(gameController.error_message)
+        return false
+    }
     property bool includeHandicapGames: false
 
     Settings {
@@ -726,6 +831,7 @@ menuBar: MenuBar {
         property alias windowWidth: root.width
         property alias windowHeight: root.height
         property var splitViewState
+        property string lastSgfSaveFolder: ""
     }
 
     Component.onCompleted: {
@@ -1482,6 +1588,30 @@ menuBar: MenuBar {
                           onClicked: finishGameDialog.open()
                       }
 
+                      Button {
+                          visible: root.playingGame
+                                   && root.localGameFinished
+
+                          text: root.localGameAddedToMyGames
+                                ? qsTr("Added to My Games")
+                                : qsTr("Add to My Games")
+
+                          enabled: !root.localGameAddedToMyGames
+                          highlighted: !root.localGameAddedToMyGames
+
+                          onClicked:
+                              root.addCurrentPlayedGameToMyGames()
+                      }
+
+                      Button {
+                          visible: root.playingGame
+                                   && root.localGameFinished
+
+                          text: qsTr("Save SGF…")
+
+                          onClicked: root.openSaveSgfDialog()
+                      }
+
                       ToolButton {
                           visible: !root.playingGame
                                    && !gameList.searchHasRun
@@ -1625,13 +1755,15 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
-                          visible: boardPane.investigatingSearch
+                          visible: !root.playingGame
+                                   && boardPane.investigatingSearch
                           text: qsTr("New search")
 
                           onClicked: boardPane.beginNewSearch()
                       }
 
                       ToolButton {
+                          visible: !root.playingGame
                           text: qsTr("Influence")
                           checkable: true
                           checked: goBoard.influenceVisible
@@ -1644,6 +1776,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: !root.playingGame
                           text: qsTr("↔")
                           Layout.preferredWidth: Kirigami.Units.gridUnit * 2
                           font.pixelSize: Kirigami.Units.gridUnit * 1.15
@@ -1655,6 +1788,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: !root.playingGame
                           text: qsTr("↕")
                           Layout.preferredWidth: Kirigami.Units.gridUnit * 2
                           font.pixelSize: Kirigami.Units.gridUnit * 1.15
@@ -1666,6 +1800,7 @@ menuBar: MenuBar {
                       }
 
                       ToolButton {
+                          visible: !root.playingGame
                           text: qsTr("↺")
                           Layout.preferredWidth: Kirigami.Units.gridUnit * 2
                           font.pixelSize: Kirigami.Units.gridUnit * 1.15
@@ -1771,9 +1906,11 @@ menuBar: MenuBar {
                     Layout.fillWidth: true
 
                     Layout.minimumHeight:
-                        Math.max(
-                            gameDetailsContent.implicitHeight,
-                            continuationComparisonContent.implicitHeight)
+                        (root.playingGame
+                         ? gameDetailsContent.implicitHeight
+                         : Math.max(
+                               gameDetailsContent.implicitHeight,
+                               continuationComparisonContent.implicitHeight))
                         + gameDetailsFrame.topPadding
                         + gameDetailsFrame.bottomPadding
 
@@ -1786,7 +1923,8 @@ menuBar: MenuBar {
                         id: gameDetailsContent
                         anchors.fill: parent
                         spacing: 4
-                        visible: !boardPane.showingContinuationComparison
+                        visible: root.playingGame
+                                 || !boardPane.showingContinuationComparison
 
                         Label {
                             Layout.fillWidth: true
@@ -1812,6 +1950,7 @@ menuBar: MenuBar {
                         }
 
                         Label {
+                            visible: !root.playingGame
                             Layout.fillWidth: true
 
                             text: {
@@ -1854,6 +1993,7 @@ menuBar: MenuBar {
                         }
 
                         RowLayout {
+                            visible: !root.playingGame
                             Layout.fillWidth: true
                             spacing: 4
 
@@ -1947,6 +2087,7 @@ menuBar: MenuBar {
                         }
 
                         Slider {
+                            visible: !root.playingGame
     id: moveSlider
 
     Layout.fillWidth: true
@@ -1973,6 +2114,7 @@ menuBar: MenuBar {
 }
 
                         RowLayout {
+                            visible: !root.playingGame
                             Layout.fillWidth: true
                             spacing: 4
 
@@ -2087,7 +2229,8 @@ menuBar: MenuBar {
                         id: continuationComparisonContent
                         anchors.fill: parent
                         spacing: 4
-                        visible: boardPane.showingContinuationComparison
+                        visible: !root.playingGame
+                                 && boardPane.showingContinuationComparison
 
                         RowLayout {
                             Layout.fillWidth: true
