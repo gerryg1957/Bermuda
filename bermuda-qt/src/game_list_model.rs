@@ -24,10 +24,12 @@ const RESULT_ROLE: i32 = GAME_ID_ROLE + 6;
 const EVENT_ROLE: i32 = GAME_ID_ROLE + 7;
 const KOMI_ROLE: i32 = GAME_ID_ROLE + 8;
 const HANDICAP_ROLE: i32 = GAME_ID_ROLE + 9;
+const GAME_SOURCE_ID_ROLE: i32 = GAME_ID_ROLE + 10;
 
 #[derive(Clone, Debug, Default)]
 struct GameListRow {
     game_id: i64,
+    game_source_id: i64,
     black_player: String,
     white_player: String,
     black_rank: String,
@@ -45,6 +47,7 @@ pub struct GameListModelRust {
     error_message: QString,
     loading: bool,
     load_generation: u64,
+    occurrence_mode: bool,
 }
 
 #[cxx_qt::bridge]
@@ -76,6 +79,7 @@ pub mod ffi {
         #[base = QAbstractListModel]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, loading)]
+        #[qproperty(bool, occurrence_mode)]
         type GameListModel = super::GameListModelRust;
 
         #[qinvokable]
@@ -316,6 +320,7 @@ impl ffi::GameListModel {
             EVENT_ROLE => QVariant::from(&QString::from(&row.event)),
             KOMI_ROLE => QVariant::from(&QString::from(&row.komi)),
             HANDICAP_ROLE => QVariant::from(&QString::from(&row.handicap)),
+            GAME_SOURCE_ID_ROLE => QVariant::from(&row.game_source_id),
             _ => QVariant::default(),
         }
     }
@@ -333,6 +338,7 @@ impl ffi::GameListModel {
         roles.insert(EVENT_ROLE, QByteArray::from("event"));
         roles.insert(KOMI_ROLE, QByteArray::from("komi"));
         roles.insert(HANDICAP_ROLE, QByteArray::from("handicap"));
+        roles.insert(GAME_SOURCE_ID_ROLE, QByteArray::from("gameSourceId"));
 
         roles
     }
@@ -525,29 +531,53 @@ impl ffi::GameListModel {
         self.as_mut().set_error_message(QString::default());
         self.as_mut().set_loading(true);
 
+        let occurrence_mode = self.rust().occurrence_mode;
         let qt_thread = self.qt_thread();
 
         std::thread::spawn(move || {
             let result = ProjectManager::new()
                 .open(Path::new(&path))
                 .and_then(|project| project.catalogue())
-                .and_then(|catalogue| catalogue.list(&query))
-                .map(|games| {
-                    games
-                        .into_iter()
-                        .map(|game| GameListRow {
-                            game_id: game.game_id,
-                            black_player: optional_text(&game.black_player_display),
-                            white_player: optional_text(&game.white_player_display),
-                            black_rank: String::new(),
-                            white_rank: String::new(),
-                            played_date: optional_text(&game.game_date),
-                            result: optional_text(&game.result),
-                            event: optional_text(&game.event),
-                            komi: optional_number(&game.komi),
-                            handicap: String::new(),
+                .and_then(|catalogue| {
+                    if occurrence_mode {
+                        catalogue.list_occurrences(&query).map(|games| {
+                            games
+                                .into_iter()
+                                .map(|game| GameListRow {
+                                    game_id: game.game_id,
+                                    game_source_id: game.game_source_id,
+                                    black_player: optional_text(&game.black_player_display),
+                                    white_player: optional_text(&game.white_player_display),
+                                    black_rank: String::new(),
+                                    white_rank: String::new(),
+                                    played_date: optional_text(&game.game_date),
+                                    result: optional_text(&game.result),
+                                    event: optional_text(&game.event),
+                                    komi: optional_number(&game.komi),
+                                    handicap: String::new(),
+                                })
+                                .collect::<Vec<_>>()
                         })
-                        .collect::<Vec<_>>()
+                    } else {
+                        catalogue.list(&query).map(|games| {
+                            games
+                                .into_iter()
+                                .map(|game| GameListRow {
+                                    game_id: game.game_id,
+                                    game_source_id: -1,
+                                    black_player: optional_text(&game.black_player_display),
+                                    white_player: optional_text(&game.white_player_display),
+                                    black_rank: String::new(),
+                                    white_rank: String::new(),
+                                    played_date: optional_text(&game.game_date),
+                                    result: optional_text(&game.result),
+                                    event: optional_text(&game.event),
+                                    komi: optional_number(&game.komi),
+                                    handicap: String::new(),
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    }
                 })
                 .map_err(|error| error.to_string());
 

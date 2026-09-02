@@ -55,6 +55,10 @@ mod ffi {
         fn project_exists(self: &BermudaApp, project_path: &QString) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "personalProjectPath"]
+        fn personal_project_path(self: &BermudaApp) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "loadGame"]
         fn load_game(self: Pin<&mut BermudaApp>, project_path: &QString, game_id: i64) -> bool;
 
@@ -69,6 +73,10 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "addPlayedGameToMyGames"]
         fn add_played_game_to_my_games(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "removeGameFromMyGames"]
+        fn remove_game_from_my_games(self: Pin<&mut BermudaApp>, game_source_id: i64) -> bool;
 
         #[qinvokable]
         #[cxx_name = "newPosition"]
@@ -208,6 +216,13 @@ impl ffi::BermudaApp {
         !path.trim().is_empty() && ProjectManager::new().open(Path::new(&path)).is_ok()
     }
 
+    fn personal_project_path(&self) -> QString {
+        match personal_project_root() {
+            Ok(path) => QString::from(path.to_string_lossy().as_ref()),
+            Err(_) => QString::default(),
+        }
+    }
+
     fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {
         let path = project_path.to_string();
 
@@ -321,6 +336,39 @@ impl ffi::BermudaApp {
             Err(error) => {
                 self.as_mut().set_error_message(QString::from(error));
 
+                false
+            }
+        }
+    }
+
+    fn remove_game_from_my_games(mut self: Pin<&mut Self>, game_source_id: i64) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let result = (|| -> Result<(), String> {
+            let root = personal_project_root()?;
+
+            let project = ProjectManager::new()
+                .open(&root)
+                .map_err(|error| format!("opening My Games at {}: {error}", root.display()))?;
+
+            let mut store = project
+                .game_store()
+                .map_err(|error| format!("opening My Games game store: {error}"))?;
+
+            store.remove_source(game_source_id).map_err(|error| {
+                format!("removing game occurrence {game_source_id} from My Games: {error}")
+            })
+        })();
+
+        match result {
+            Ok(()) => {
+                self.as_mut().rust_mut().loaded_document = None;
+                self.as_mut().reset_position_display();
+                true
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
                 false
             }
         }

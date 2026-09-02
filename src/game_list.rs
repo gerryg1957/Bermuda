@@ -108,6 +108,24 @@ pub struct GameListRow {
     pub match_count: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameOccurrenceRow {
+    pub game_source_id: i64,
+    pub game_id: i64,
+
+    pub black_player: Option<String>,
+    pub white_player: Option<String>,
+    pub black_player_id: Option<i64>,
+    pub white_player_id: Option<i64>,
+    pub black_player_display: Option<String>,
+    pub white_player_display: Option<String>,
+
+    pub game_date: Option<String>,
+    pub result: Option<String>,
+    pub event: Option<String>,
+    pub komi: Option<f32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameListPlayerMetadata<'a> {
     pub source_name: Option<&'a str>,
@@ -619,6 +637,149 @@ ORDER BY {order_by}
 
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .context("reading game-list rows")
+}
+
+/// Lists source occurrences rather than canonical games.
+///
+/// This is appropriate for personal game history, where two separately
+/// played games remain two occurrences even when their canonical move
+/// sequence is identical.
+pub fn list_game_occurrences(
+    connection: &Connection,
+    query: &GameListQuery,
+) -> Result<Vec<GameOccurrenceRow>> {
+    let mut order_by = order_by_clause(query);
+
+    /*
+     * order_by_clause() already ends with games.id as the canonical-game
+     * tie-breaker. Multiple occurrences can share that id, so add the
+     * source id as the final deterministic tie-breaker.
+     */
+    order_by.push_str(", game_sources.id ASC");
+
+    let player_condition = player_condition(query.colour, "?3");
+    let matchup_condition = matchup_condition(query.colour, "?3", "?4");
+    let result_condition = result_condition(query.result);
+    let date_from = normalise_date_from(query.date_from.as_deref());
+    let date_to = normalise_date_to(query.date_to.as_deref());
+
+    let sql = format!(
+        r#"
+        SELECT
+            game_sources.id,
+            games.id,
+
+            selected_metadata.black_player,
+            selected_metadata.white_player,
+            selected_metadata.black_player_id,
+            selected_metadata.white_player_id,
+
+            COALESCE(
+                black_identity.preferred_name,
+                selected_metadata.black_player
+            ),
+
+            COALESCE(
+                white_identity.preferred_name,
+                selected_metadata.white_player
+            ),
+
+            selected_metadata.played_date,
+            selected_metadata.result,
+            selected_metadata.event,
+            selected_metadata.komi
+
+        FROM game_sources
+
+        JOIN games
+            ON games.id = game_sources.game_id
+
+        LEFT JOIN game_metadata AS selected_metadata
+            ON selected_metadata.game_source_id = game_sources.id
+
+        LEFT JOIN players AS black_identity
+            ON black_identity.id = selected_metadata.black_player_id
+
+        LEFT JOIN players AS white_identity
+            ON white_identity.id = selected_metadata.white_player_id
+
+        WHERE (
+            (
+                ?4 IS NULL
+                AND (
+                    ?3 IS NULL
+                    OR {player_condition}
+                )
+            )
+            OR (
+                ?4 IS NOT NULL
+                AND ?3 IS NOT NULL
+                AND {matchup_condition}
+            )
+        )
+
+        AND (
+            ?5 IS NULL
+            OR selected_metadata.event LIKE '%' || ?5 || '%' COLLATE NOCASE
+        )
+
+        AND (
+            ?6 IS NULL
+            OR selected_metadata.played_date_sort >= ?6
+        )
+
+        AND (
+            ?7 IS NULL
+            OR selected_metadata.played_date_sort <= ?7
+        )
+
+        AND (
+            {result_condition}
+        )
+
+        ORDER BY {order_by}
+
+        LIMIT ?1
+        OFFSET ?2
+        "#
+    );
+
+    let mut statement = connection
+        .prepare(&sql)
+        .context("preparing game-occurrence query")?;
+
+    let rows = statement
+        .query_map(
+            params![
+                i64::from(query.limit),
+                i64::from(query.offset),
+                query.player.as_deref(),
+                query.versus.as_deref(),
+                query.event.as_deref(),
+                date_from.as_deref(),
+                date_to.as_deref(),
+            ],
+            |row| {
+                Ok(GameOccurrenceRow {
+                    game_source_id: row.get(0)?,
+                    game_id: row.get(1)?,
+                    black_player: row.get(2)?,
+                    white_player: row.get(3)?,
+                    black_player_id: row.get(4)?,
+                    white_player_id: row.get(5)?,
+                    black_player_display: row.get(6)?,
+                    white_player_display: row.get(7)?,
+                    game_date: row.get(8)?,
+                    result: row.get(9)?,
+                    event: row.get(10)?,
+                    komi: row.get(11)?,
+                })
+            },
+        )
+        .context("querying game occurrences")?;
+
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .context("reading game-occurrence rows")
 }
 
 pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64> {
@@ -1922,6 +2083,96 @@ VALUES (
         let error = get_game(&connection, 999).expect_err("unknown game should fail");
 
         assert!(error.to_string().contains("game 999 does not exist"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn lists_each_game_source_as_a_separate_occurrence() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let mut occurrences = list_game_occurrences(&connection, &GameListQuery::default())?;
+
+        occurrences.sort_by_key(|occurrence| occurrence.game_source_id);
+
+        assert_eq!(occurrences.len(), 3);
+
+        assert_eq!(occurrences[0].game_source_id, 1);
+        assert_eq!(occurrences[0].game_id, 1);
+        assert_eq!(
+            occurrences[0].black_player_display.as_deref(),
+            Some("Alpha")
+        );
+        assert_eq!(occurrences[0].white_player_display.as_deref(), Some("Beta"));
+
+        assert_eq!(occurrences[1].game_source_id, 2);
+        assert_eq!(occurrences[1].game_id, 1);
+        assert_eq!(
+            occurrences[1].black_player_display.as_deref(),
+            Some("Preferred Alpha")
+        );
+        assert_eq!(
+            occurrences[1].white_player_display.as_deref(),
+            Some("Preferred Beta")
+        );
+        assert_eq!(occurrences[1].game_date.as_deref(), Some("2026-04-15"));
+        assert_eq!(occurrences[1].result.as_deref(), Some("B+R"));
+
+        assert_eq!(occurrences[2].game_source_id, 3);
+        assert_eq!(occurrences[2].game_id, 2);
+        assert_eq!(
+            occurrences[2].black_player_display.as_deref(),
+            Some("Gamma")
+        );
+        assert_eq!(
+            occurrences[2].white_player_display.as_deref(),
+            Some("Delta")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_game_occurrences_without_collapsing_sources() -> Result<()> {
+        let connection = populated_test_connection()?;
+
+        let alpha_query = GameListQuery {
+            player: Some("Alpha".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        let mut alpha = list_game_occurrences(&connection, &alpha_query)?;
+
+        alpha.sort_by_key(|occurrence| occurrence.game_source_id);
+
+        assert_eq!(
+            alpha
+                .iter()
+                .map(|occurrence| occurrence.game_source_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+
+        assert_eq!(
+            alpha
+                .iter()
+                .map(|occurrence| occurrence.game_id)
+                .collect::<Vec<_>>(),
+            vec![1, 1]
+        );
+
+        let gamma_query = GameListQuery {
+            player: Some("Gamma".to_owned()),
+            colour: PlayerColour::Black,
+            ..GameListQuery::default()
+        };
+
+        let gamma = list_game_occurrences(&connection, &gamma_query)?;
+
+        assert_eq!(gamma.len(), 1);
+        assert_eq!(gamma[0].game_source_id, 3);
+        assert_eq!(gamma[0].game_id, 2);
 
         Ok(())
     }

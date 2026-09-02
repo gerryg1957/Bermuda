@@ -9,14 +9,41 @@ Kirigami.AbstractCard {
     id: root
 
     signal gameSelected(var game)
+    signal removeSelectedMyGameRequested()
     signal continuationCandidateSelected(int boardX, int coreY, int count)
     signal continuationFilterCleared()
     signal sourceContinuationMapReady(var points)
 
-    property string projectPath: ""
+    property string databaseProjectPath: ""
+    property string myGamesProjectPath: ""
+    property bool showingMyGames: false
+    property bool removeSelectedMyGameEnabled: false
+
+    readonly property string projectPath:
+        showingMyGames
+        ? myGamesProjectPath
+        : databaseProjectPath
+
+    readonly property var gameModel:
+        showingMyGames
+        ? myGamesGameModel
+        : databaseGameModel
+
     property int selectedRow: -1
+    property int databaseSelectedRow: -1
+    property int myGamesSelectedRow: -1
     property int selectedSearchRow: -1
-    property bool projectLoaded: false
+
+    property bool databaseProjectLoaded: false
+    property bool myGamesProjectLoaded: false
+
+    readonly property bool projectLoaded:
+        showingMyGames
+        ? myGamesProjectLoaded
+        : databaseProjectLoaded
+
+    property var databaseCatalogueState: null
+    property var myGamesCatalogueState: null
     property bool searchHasRun: false
     readonly property bool searchInProgress:
         searchModel.search_in_progress
@@ -168,7 +195,7 @@ Kirigami.AbstractCard {
     }
 
     readonly property bool searchResultsSelected:
-    catalogueTabs.currentIndex === 1
+    mainTabs.currentIndex === 2
 
     readonly property string searchErrorMessage:
         searchModel.error_message
@@ -219,31 +246,206 @@ Kirigami.AbstractCard {
 
 
 
-        function loadProject() {
-        selectedRow = -1
-        projectLoaded = false
+    function captureCatalogueState() {
+        return {
+            cataloguePlayer: cataloguePlayer,
+            catalogueVersus: catalogueVersus,
+            catalogueColour: catalogueColour,
+            catalogueEvent: catalogueEvent,
+            catalogueDateFrom: catalogueDateFrom,
+            catalogueDateTo: catalogueDateTo,
+            catalogueResult: catalogueResult,
 
-        if (projectPath.length === 0) {
+            appliedCataloguePlayer: appliedCataloguePlayer,
+            appliedCatalogueVersus: appliedCatalogueVersus,
+            appliedCatalogueColour: appliedCatalogueColour,
+            appliedCatalogueEvent: appliedCatalogueEvent,
+            appliedCatalogueDateFrom: appliedCatalogueDateFrom,
+            appliedCatalogueDateTo: appliedCatalogueDateTo,
+            appliedCatalogueResult: appliedCatalogueResult,
+
+            sortColumn: sortColumn,
+            sortAscending: sortAscending,
+            sortThenColumn: sortThenColumn,
+            sortThenAscending: sortThenAscending,
+            sortThirdColumn: sortThirdColumn,
+            sortThirdAscending: sortThirdAscending
+        }
+    }
+
+    function applyCatalogueState(state) {
+        if (state === null)
+            return
+
+        cataloguePlayer = state.cataloguePlayer
+        catalogueVersus = state.catalogueVersus
+        catalogueColour = state.catalogueColour
+        catalogueEvent = state.catalogueEvent
+        catalogueDateFrom = state.catalogueDateFrom
+        catalogueDateTo = state.catalogueDateTo
+        catalogueResult = state.catalogueResult
+
+        appliedCataloguePlayer = state.appliedCataloguePlayer
+        appliedCatalogueVersus = state.appliedCatalogueVersus
+        appliedCatalogueColour = state.appliedCatalogueColour
+        appliedCatalogueEvent = state.appliedCatalogueEvent
+        appliedCatalogueDateFrom = state.appliedCatalogueDateFrom
+        appliedCatalogueDateTo = state.appliedCatalogueDateTo
+        appliedCatalogueResult = state.appliedCatalogueResult
+
+        sortColumn = state.sortColumn
+        sortAscending = state.sortAscending
+        sortThenColumn = state.sortThenColumn
+        sortThenAscending = state.sortThenAscending
+        sortThirdColumn = state.sortThirdColumn
+        sortThirdAscending = state.sortThirdAscending
+    }
+
+    function saveCurrentCatalogueState() {
+        if (showingMyGames) {
+            myGamesCatalogueState = captureCatalogueState()
+            myGamesSelectedRow = selectedRow
+        } else {
+            databaseCatalogueState = captureCatalogueState()
+            databaseSelectedRow = selectedRow
+        }
+    }
+
+    function resetCatalogueSelection(myGames) {
+        if (myGames) {
+            myGamesSelectedRow = -1
+
+            if (showingMyGames)
+                selectedRow = -1
+        } else {
+            databaseSelectedRow = -1
+
+            if (!showingMyGames)
+                selectedRow = -1
+        }
+    }
+
+    function loadCatalogue(model, path, state, myGames) {
+        resetCatalogueSelection(myGames)
+
+        if (myGames)
+            myGamesProjectLoaded = false
+        else
+            databaseProjectLoaded = false
+
+        if (path.length === 0)
+            return
+
+        if (!model.loadFilteredProject(
+                    path,
+                    state.sortColumn,
+                    state.sortAscending,
+                    state.sortThenColumn,
+                    state.sortThenAscending,
+                    state.sortThirdColumn,
+                    state.sortThirdAscending,
+                    state.appliedCataloguePlayer,
+                    state.appliedCatalogueVersus,
+                    state.appliedCatalogueColour,
+                    state.appliedCatalogueEvent,
+                    state.appliedCatalogueDateFrom,
+                    state.appliedCatalogueDateTo,
+                    state.appliedCatalogueResult)) {
+            if (myGames)
+                myGamesProjectLoaded = false
+            else
+                databaseProjectLoaded = false
+        }
+    }
+
+    function loadProject() {
+        saveCurrentCatalogueState()
+
+        if (showingMyGames) {
+            loadCatalogue(
+                myGamesGameModel,
+                myGamesProjectPath,
+                myGamesCatalogueState,
+                true)
+        } else {
+            loadCatalogue(
+                databaseGameModel,
+                databaseProjectPath,
+                databaseCatalogueState,
+                false)
+        }
+    }
+
+    function reloadDatabaseProject() {
+        if (!componentReadyForProjectLoad) {
+            databaseProjectLoaded = false
             return
         }
 
-        if (!gameModel.loadFilteredProject(
-                    projectPath,
-                    sortColumn,
-                    sortAscending,
-                    sortThenColumn,
-                    sortThenAscending,
-                    sortThirdColumn,
-                    sortThirdAscending,
-                    appliedCataloguePlayer,
-                    appliedCatalogueVersus,
-                    appliedCatalogueColour,
-                    appliedCatalogueEvent,
-                    appliedCatalogueDateFrom,
-                    appliedCatalogueDateTo,
-                    appliedCatalogueResult)) {
-            projectLoaded = false
+        if (!showingMyGames)
+            databaseCatalogueState = captureCatalogueState()
+
+        loadCatalogue(
+            databaseGameModel,
+            databaseProjectPath,
+            databaseCatalogueState,
+            false)
+    }
+
+    function reloadMyGamesProject() {
+        if (!componentReadyForProjectLoad) {
+            myGamesProjectLoaded = false
+            return
         }
+
+        if (showingMyGames)
+            myGamesCatalogueState = captureCatalogueState()
+
+        loadCatalogue(
+            myGamesGameModel,
+            myGamesProjectPath,
+            myGamesCatalogueState,
+            true)
+    }
+
+    function ensureCurrentProjectLoaded() {
+        if (showingMyGames) {
+            if (!myGamesProjectLoaded) {
+                loadCatalogue(
+                    myGamesGameModel,
+                    myGamesProjectPath,
+                    myGamesCatalogueState,
+                    true)
+            }
+        } else {
+            if (!databaseProjectLoaded) {
+                loadCatalogue(
+                    databaseGameModel,
+                    databaseProjectPath,
+                    databaseCatalogueState,
+                    false)
+            }
+        }
+    }
+
+    function selectCatalogue(myGames) {
+        if (showingMyGames === myGames)
+            return
+
+        saveCurrentCatalogueState()
+        clearSearchResults()
+
+        showingMyGames = myGames
+
+        if (showingMyGames) {
+            applyCatalogueState(myGamesCatalogueState)
+            selectedRow = myGamesSelectedRow
+        } else {
+            applyCatalogueState(databaseCatalogueState)
+            selectedRow = databaseSelectedRow
+        }
+
+        ensureCurrentProjectLoaded()
     }
 
     function applyCatalogueSearch() {
@@ -412,10 +614,18 @@ Kirigami.AbstractCard {
 }
 
     Connections {
-        target: gameModel
+        target: databaseGameModel
 
         function onLoadFinished(success) {
-            root.projectLoaded = success
+            root.databaseProjectLoaded = success
+        }
+    }
+
+    Connections {
+        target: myGamesGameModel
+
+        function onLoadFinished(success) {
+            root.myGamesProjectLoaded = success
         }
     }
 
@@ -776,7 +986,7 @@ Kirigami.AbstractCard {
 
         resetSearchResultSort()
         searchModel.clearResults()
-        catalogueTabs.currentIndex = 1
+        mainTabs.currentIndex = 2
 
         const started = searchModel.searchProject(
                             projectPath,
@@ -979,19 +1189,35 @@ Kirigami.AbstractCard {
      */
     property bool componentReadyForProjectLoad: false
 
-    onProjectPathChanged: {
-        clearSearchResults()
+    onDatabaseProjectPathChanged: {
+        databaseProjectLoaded = false
 
-        if (componentReadyForProjectLoad)
-            loadProject()
+        if (componentReadyForProjectLoad && !showingMyGames)
+            ensureCurrentProjectLoaded()
+    }
+
+    onMyGamesProjectPathChanged: {
+        myGamesProjectLoaded = false
+
+        if (componentReadyForProjectLoad && showingMyGames)
+            ensureCurrentProjectLoaded()
     }
 
     Component.onCompleted: {
+        databaseCatalogueState = captureCatalogueState()
+        myGamesCatalogueState = captureCatalogueState()
+
         componentReadyForProjectLoad = true
-        loadProject()
+        ensureCurrentProjectLoaded()
     }
+
     GameListModel {
-        id: gameModel
+        id: databaseGameModel
+    }
+
+    GameListModel {
+        id: myGamesGameModel
+        occurrence_mode: true
     }
 
     SearchResultModel {
@@ -1052,10 +1278,21 @@ Kirigami.AbstractCard {
         spacing: 0
 
         TabBar {
-            id: catalogueTabs
+            id: mainTabs
+
+            onCurrentIndexChanged: {
+                if (currentIndex === 0)
+                    root.selectCatalogue(false)
+                else if (currentIndex === 1)
+                    root.selectCatalogue(true)
+            }
 
             TabButton {
                 text: qsTr("Game database")
+            }
+
+            TabButton {
+                text: qsTr("My games")
             }
 
             TabButton {
@@ -1075,7 +1312,7 @@ Kirigami.AbstractCard {
 
         Frame {
             Layout.fillWidth: true
-            visible: catalogueTabs.currentIndex === 0
+            visible: mainTabs.currentIndex !== 2
             padding: Kirigami.Units.smallSpacing
 
             contentItem: ColumnLayout {
@@ -1450,7 +1687,7 @@ Kirigami.AbstractCard {
 
         Frame {
             Layout.fillWidth: true
-            visible: catalogueTabs.currentIndex === 1
+            visible: mainTabs.currentIndex === 2
             enabled: root.searchHasRun && !root.searchInProgress
             padding: Kirigami.Units.smallSpacing
 
@@ -1627,10 +1864,32 @@ Kirigami.AbstractCard {
             }
         }
 
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: mainTabs.currentIndex === 1
+            spacing: Kirigami.Units.smallSpacing
+
+            Button {
+                text: qsTr("Remove selected game…")
+                highlighted: root.removeSelectedMyGameEnabled
+                enabled: root.removeSelectedMyGameEnabled
+
+                onClicked: root.removeSelectedMyGameRequested()
+
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Remove selected game from My games")
+            }
+
+            Item {
+                Layout.fillWidth: true
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: headerRow.implicitHeight
-            visible: catalogueTabs.currentIndex === 0
+            visible: mainTabs.currentIndex !== 2
             color: Kirigami.Theme.alternateBackgroundColor
 
           RowLayout {
@@ -1767,13 +2026,13 @@ Kirigami.AbstractCard {
 
         Kirigami.Separator {
             Layout.fillWidth: true
-            visible: catalogueTabs.currentIndex === 0
+            visible: mainTabs.currentIndex !== 2
         }
 
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: searchHeaderRow.implicitHeight
-            visible: catalogueTabs.currentIndex === 1
+            visible: mainTabs.currentIndex === 2
             color: Kirigami.Theme.alternateBackgroundColor
 
             RowLayout {
@@ -1947,7 +2206,7 @@ Kirigami.AbstractCard {
 
         Kirigami.Separator {
             Layout.fillWidth: true
-            visible: catalogueTabs.currentIndex === 1
+            visible: mainTabs.currentIndex === 2
         }
 
         ListView {
@@ -1956,7 +2215,7 @@ Kirigami.AbstractCard {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            visible: catalogueTabs.currentIndex === 1
+            visible: mainTabs.currentIndex === 2
 
             clip: true
             model: searchModel
@@ -2201,7 +2460,7 @@ Kirigami.AbstractCard {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            visible: catalogueTabs.currentIndex === 0
+            visible: mainTabs.currentIndex !== 2
 
             clip: true
             model: gameModel
@@ -2216,6 +2475,7 @@ Kirigami.AbstractCard {
 
                 required property int index
                 required property var gameId
+                required property var gameSourceId
                 required property string blackPlayer
                 required property string whitePlayer
                 required property string playedDate
@@ -2255,6 +2515,7 @@ Kirigami.AbstractCard {
 
                     root.gameSelected({
                         gameId: gameId,
+                        gameSourceId: gameSourceId,
                         black: blackPlayer,
                         white: whitePlayer,
                         gameDate: playedDate,

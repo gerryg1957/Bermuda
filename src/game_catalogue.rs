@@ -5,7 +5,7 @@ use rusqlite::Connection;
 
 use crate::{
     database,
-    game_list::{self, GameListQuery, GameListRow},
+    game_list::{self, GameListQuery, GameListRow, GameOccurrenceRow},
     player_catalogue::PlayerCatalogue,
     project::Project,
 };
@@ -29,6 +29,10 @@ impl GameCatalogue {
 
     pub fn list(&self, query: &GameListQuery) -> Result<Vec<GameListRow>> {
         game_list::list_games(&self.connection, query)
+    }
+
+    pub fn list_occurrences(&self, query: &GameListQuery) -> Result<Vec<GameOccurrenceRow>> {
+        game_list::list_game_occurrences(&self.connection, query)
     }
 
     pub fn count(&self, query: &GameListQuery) -> Result<u64> {

@@ -79,6 +79,9 @@ ApplicationWindow {
         id: gameController
     }
 
+    readonly property string personalProjectPath:
+        gameController.personalProjectPath()
+
     function clearProjectSelection() {
         gameList.clearSearchResults()
         boardPane.clearMatchNavigation()
@@ -108,7 +111,7 @@ ApplicationWindow {
 
         if (operation === "add-games") {
             clearProjectSelection()
-            gameList.loadProject()
+            gameList.reloadDatabaseProject()
         }
     }
 
@@ -148,7 +151,7 @@ ApplicationWindow {
              * discard stale pattern-result presentation rows.
              */
             gameList.clearSearchResults()
-            gameList.loadProject()
+            gameList.reloadDatabaseProject()
         }
     }
 
@@ -677,6 +680,7 @@ menuBar: MenuBar {
             onTriggered:
                 root.addCurrentPlayedGameToMyGames()
         }
+
     }
 
     Menu {
@@ -807,6 +811,7 @@ menuBar: MenuBar {
     function addCurrentPlayedGameToMyGames() {
         if (gameController.addPlayedGameToMyGames()) {
             root.localGameAddedToMyGames = true
+            gameList.reloadMyGamesProject()
 
             console.log(
                 qsTr("Game added to My Games"))
@@ -817,7 +822,61 @@ menuBar: MenuBar {
         console.warn(gameController.error_message)
         return false
     }
+
+    function removeSelectedMyGame() {
+        const game = boardPane.selectedGame
+
+        if (game === null
+                || !gameList.showingMyGames
+                || gameList.searchResultsSelected
+                || game.fromSearchResults === true
+                || game.gameId < 0
+                || game.gameSourceId === undefined
+                || game.gameSourceId < 0) {
+            return false
+        }
+
+        if (gameController.removeGameFromMyGames(
+                    game.gameSourceId)) {
+            clearProjectSelection()
+            gameList.reloadMyGamesProject()
+            return true
+        }
+
+        console.warn(gameController.error_message)
+        return false
+    }
+
     property bool includeHandicapGames: false
+
+    Dialog {
+        id: removeMyGameDialog
+
+        modal: true
+        anchors.centerIn: parent
+        title: qsTr("Remove from My games?")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onAccepted: root.removeSelectedMyGame()
+
+        contentItem: Label {
+            width: 360
+            wrapMode: Text.WordWrap
+
+            text: {
+                const game = boardPane.selectedGame
+
+                if (game === null)
+                    return ""
+
+                return qsTr(
+                    "Remove %1 — %2 from My games?\n\n"
+                    + "Any SGF you saved separately will not be affected.")
+                    .arg(game.black)
+                    .arg(game.white)
+            }
+        }
+    }
 
     Settings {
         id: uiSettings
@@ -877,7 +936,11 @@ menuBar: MenuBar {
         GameList {
             id: gameList
 
-            projectPath: root.projectPath
+            databaseProjectPath: root.projectPath
+            myGamesProjectPath: root.personalProjectPath
+
+            onShowingMyGamesChanged:
+                root.clearProjectSelection()
 
             onContinuationCandidateSelected:
                 function(boardX, coreY, count) {
@@ -906,6 +969,17 @@ menuBar: MenuBar {
                     })
             }
 
+            removeSelectedMyGameEnabled:
+                gameList.showingMyGames
+                && boardPane.selectedGame !== null
+                && boardPane.selectedGame.gameId >= 0
+                && boardPane.selectedGame.gameSourceId !== undefined
+                && boardPane.selectedGame.gameSourceId >= 0
+                && boardPane.selectedGame.fromSearchResults !== true
+
+            onRemoveSelectedMyGameRequested:
+                removeMyGameDialog.open()
+
                        onGameSelected: function(game) {
                 if (!game.fromSearchResults)
                     gameList.clearSearchResults()
@@ -917,7 +991,7 @@ menuBar: MenuBar {
                 boardPane.selectedGame = game
 
                 if (gameController.loadGame(
-                            root.projectPath,
+                            gameList.projectPath,
                             game.gameId)) {
                     if (game.fromSearchResults
                             && game.matchOccurrences !== undefined
@@ -1608,6 +1682,7 @@ menuBar: MenuBar {
                                    && root.localGameFinished
 
                           text: qsTr("Save SGF…")
+                          highlighted: true
 
                           onClicked: root.openSaveSgfDialog()
                       }
@@ -1643,11 +1718,13 @@ menuBar: MenuBar {
                       ToolButton {
                           visible: !root.playingGame
                                    && !gameList.searchHasRun
-                          text: qsTr("Search Database")
+                          text: gameList.showingMyGames
+                              ? qsTr("Search My Games")
+                              : qsTr("Search Database")
 
                           enabled: goBoard.patternSelectionValid
                                    && boardPane.selectedGame !== null
-                                   && root.projectPath.length > 0
+                                   && gameList.projectPath.length > 0
                                    && !gameList.searchInProgress
 
                           onClicked: {
