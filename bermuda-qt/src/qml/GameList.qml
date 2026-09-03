@@ -1870,15 +1870,36 @@ Kirigami.AbstractCard {
             visible: mainTabs.currentIndex === 1
             spacing: Kirigami.Units.smallSpacing
 
-            Button {
-                text: qsTr("Remove selected game…")
-                highlighted: root.removeSelectedMyGameEnabled
-                enabled: root.removeSelectedMyGameEnabled
+            Item {
+                implicitWidth:
+                    removeSelectedMyGameButton.implicitWidth + 6
+                implicitHeight:
+                    removeSelectedMyGameButton.implicitHeight + 6
 
-                onClicked: root.removeSelectedMyGameRequested()
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: Kirigami.Theme.highlightColor
+                    opacity:
+                        removeSelectedMyGameButton.enabled ? 0.45 : 0.0
+                }
 
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Remove selected game from My games")
+                Button {
+                    id: removeSelectedMyGameButton
+
+                    anchors.centerIn: parent
+
+                    text: qsTr("Remove selected game…")
+                    highlighted: root.removeSelectedMyGameEnabled
+                    enabled: root.removeSelectedMyGameEnabled
+
+                    onClicked:
+                        root.removeSelectedMyGameRequested()
+
+                    ToolTip.visible: hovered
+                    ToolTip.text:
+                        qsTr("Remove selected game from My games")
+                }
             }
 
             Item {

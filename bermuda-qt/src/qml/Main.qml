@@ -273,29 +273,35 @@ ApplicationWindow {
                   qsTr("White"))
             : qsTr("White")
 
-        const today = new Date()
+        const startedAt =
+            root.localGameStartedAt !== null
+            ? root.localGameStartedAt
+            : new Date()
 
         const dateText =
-            today.getFullYear().toString()
-            + twoDateDigits(today.getMonth() + 1)
-            + twoDateDigits(today.getDate())
+            startedAt.getFullYear().toString()
+            + twoDateDigits(startedAt.getMonth() + 1)
+            + twoDateDigits(startedAt.getDate())
+
+        const timeText =
+            twoDateDigits(startedAt.getHours())
+            + twoDateDigits(startedAt.getMinutes())
+            + twoDateDigits(startedAt.getSeconds())
 
         return black
                + " v "
                + white
                + " "
                + dateText
+               + " "
+               + timeText
                + ".sgf"
     }
 
     function openSaveSgfDialog() {
-        let folder = uiSettings.lastSgfSaveFolder
-
-        if (folder.length === 0) {
-            folder =
-                StandardPaths.writableLocation(
-                    StandardPaths.DownloadLocation).toString()
-        }
+        let folder =
+            StandardPaths.writableLocation(
+                StandardPaths.DownloadLocation).toString()
 
         /*
          * Downloads should normally exist, but Home is a harmless
@@ -351,8 +357,7 @@ ApplicationWindow {
                 return
             }
 
-            uiSettings.lastSgfSaveFolder =
-                saveSgfDialog.currentFolder.toString()
+            // Played-game SGF exports start in Downloads each time.
         }
     }
 
@@ -392,6 +397,8 @@ ApplicationWindow {
 
             boardPane.editingPosition = false
             root.playingGame = true
+            root.localGameSessionAvailable = true
+            root.localGameStartedAt = new Date()
             root.localGameFinished = false
             root.localGameResult = ""
             root.localGameAddedToMyGames = false
@@ -606,7 +613,7 @@ menuBar: MenuBar {
         title: qsTr("&File")
 
         Action {
-            text: qsTr("&New Position")
+            text: qsTr("&New Pattern")
 
             onTriggered: {
                 root.playingGame = false
@@ -804,9 +811,52 @@ menuBar: MenuBar {
 }
 
     property bool playingGame: false
+    property bool localGameSessionAvailable: false
+    property var localGameStartedAt: null
     property bool localGameFinished: false
     property string localGameResult: ""
     property bool localGameAddedToMyGames: false
+
+    function returnToPlayedGame() {
+        if (!root.localGameSessionAvailable)
+            return false
+
+        if (!gameController.restorePlayedGame()) {
+            console.warn(gameController.error_message)
+            return false
+        }
+
+        gameList.clearSearchResults()
+        boardPane.clearMatchNavigation()
+        boardPane.resetPatternSelection()
+        boardPane.editingPosition = false
+
+        root.playingGame = true
+
+        const blackName = gameController.black_player
+        const whiteName = gameController.white_player
+
+        boardPane.selectedGame = {
+            gameId: -1,
+            black: blackName.length > 0
+                   ? blackName
+                   : qsTr("Black"),
+            white: whiteName.length > 0
+                   ? whiteName
+                   : qsTr("White"),
+            blackRank: "",
+            whiteRank: "",
+            gameDate: "",
+            result: root.localGameResult,
+            event: "",
+            komi: gameController.komi,
+            handicap: "",
+            fromSearchResults: false
+        }
+
+        boardPane.applyLoadedPosition()
+        return true
+    }
 
     function addCurrentPlayedGameToMyGames() {
         if (gameController.addPlayedGameToMyGames()) {
@@ -890,7 +940,6 @@ menuBar: MenuBar {
         property alias windowWidth: root.width
         property alias windowHeight: root.height
         property var splitViewState
-        property string lastSgfSaveFolder: ""
     }
 
     Component.onCompleted: {
@@ -1662,29 +1711,93 @@ menuBar: MenuBar {
                           onClicked: finishGameDialog.open()
                       }
 
-                      Button {
+                      Item {
                           visible: root.playingGame
                                    && root.localGameFinished
 
-                          text: root.localGameAddedToMyGames
-                                ? qsTr("Added to My Games")
-                                : qsTr("Add to My Games")
+                          implicitWidth:
+                              addToMyGamesButton.implicitWidth + 6
+                          implicitHeight:
+                              addToMyGamesButton.implicitHeight + 6
 
-                          enabled: !root.localGameAddedToMyGames
-                          highlighted: !root.localGameAddedToMyGames
+                          Rectangle {
+                              anchors.fill: parent
+                              radius: 6
+                              color: Kirigami.Theme.highlightColor
+                              opacity: addToMyGamesButton.enabled ? 0.45 : 0.0
+                          }
 
-                          onClicked:
-                              root.addCurrentPlayedGameToMyGames()
+                          Button {
+                              id: addToMyGamesButton
+
+                              anchors.centerIn: parent
+
+                              text: root.localGameAddedToMyGames
+                                    ? qsTr("Added to My Games")
+                                    : qsTr("Add to My Games")
+
+                              enabled: !root.localGameAddedToMyGames
+                              highlighted: !root.localGameAddedToMyGames
+
+                              onClicked:
+                                  root.addCurrentPlayedGameToMyGames()
+                          }
                       }
 
-                      Button {
+                      Item {
                           visible: root.playingGame
                                    && root.localGameFinished
 
-                          text: qsTr("Save SGF…")
-                          highlighted: true
+                          implicitWidth:
+                              savePlayedGameSgfButton.implicitWidth + 6
+                          implicitHeight:
+                              savePlayedGameSgfButton.implicitHeight + 6
 
-                          onClicked: root.openSaveSgfDialog()
+                          Rectangle {
+                              anchors.fill: parent
+                              radius: 6
+                              color: Kirigami.Theme.highlightColor
+                              opacity: 0.45
+                          }
+
+                          Button {
+                              id: savePlayedGameSgfButton
+
+                              anchors.centerIn: parent
+
+                              text: qsTr("Save SGF…")
+                              highlighted: true
+
+                              onClicked: root.openSaveSgfDialog()
+                          }
+                      }
+
+                      Item {
+                          visible: !root.playingGame
+                                   && root.localGameSessionAvailable
+
+                          implicitWidth:
+                              returnToPlayedGameButton.implicitWidth + 6
+                          implicitHeight:
+                              returnToPlayedGameButton.implicitHeight + 6
+
+                          Rectangle {
+                              anchors.fill: parent
+                              radius: 6
+                              color: Kirigami.Theme.highlightColor
+                              opacity: 0.45
+                          }
+
+                          Button {
+                              id: returnToPlayedGameButton
+
+                              anchors.centerIn: parent
+
+                              text: qsTr("Return to game")
+                              highlighted: true
+
+                              onClicked: root.returnToPlayedGame()
+                          }
                       }
 
                       ToolButton {
@@ -2019,7 +2132,7 @@ menuBar: MenuBar {
 
                                 return gameList.searchResultsSelected
                                     ? qsTr("No search result selected")
-                                    : qsTr("No game selected")
+                                    : ""
                             }
 
                             font.pixelSize: 20
@@ -2034,7 +2147,7 @@ menuBar: MenuBar {
                                 if (!boardPane.selectedGame) {
                                 return gameList.searchResultsSelected
                                 ? qsTr("Run a search, then select a matching game")
-                                : qsTr("Select a game from the catalogue")
+                                : ""
                             }
 
                                 let details = []
@@ -2165,6 +2278,7 @@ menuBar: MenuBar {
 
                         Slider {
                             visible: !root.playingGame
+                                     && boardPane.selectedGame !== null
     id: moveSlider
 
     Layout.fillWidth: true
@@ -2192,6 +2306,7 @@ menuBar: MenuBar {
 
                         RowLayout {
                             visible: !root.playingGame
+                                     && boardPane.selectedGame !== null
                             Layout.fillWidth: true
                             spacing: 4
 

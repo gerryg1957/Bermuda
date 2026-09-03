@@ -75,6 +75,10 @@ mod ffi {
         fn add_played_game_to_my_games(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "restorePlayedGame"]
+        fn restore_played_game(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "removeGameFromMyGames"]
         fn remove_game_from_my_games(self: Pin<&mut BermudaApp>, game_source_id: i64) -> bool;
 
@@ -186,6 +190,7 @@ pub struct BermudaAppRust {
     error_message: QString,
 
     loaded_document: Option<LoadedDocument>,
+    played_game_document: Option<LoadedDocument>,
     search_source_snapshot: Option<SearchSourceSnapshot>,
 }
 
@@ -204,6 +209,7 @@ impl Default for BermudaAppRust {
             error_message: QString::default(),
 
             loaded_document: None,
+            played_game_document: None,
             search_source_snapshot: None,
         }
     }
@@ -225,6 +231,20 @@ impl ffi::BermudaApp {
 
     fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {
         let path = project_path.to_string();
+
+        let played_document = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            rust.loaded_document
+                .as_ref()
+                .filter(|document| document.playable)
+                .cloned()
+        };
+
+        if let Some(document) = played_document {
+            self.as_mut().rust_mut().played_game_document = Some(document);
+        }
 
         let document = match load_game_document(&path, game_id) {
             Ok(document) => document,
@@ -258,6 +278,20 @@ impl ffi::BermudaApp {
 
     fn load_sgf(mut self: Pin<&mut Self>, sgf_path: &QString) -> bool {
         let path = sgf_path.to_string();
+
+        let played_document = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            rust.loaded_document
+                .as_ref()
+                .filter(|document| document.playable)
+                .cloned()
+        };
+
+        if let Some(document) = played_document {
+            self.as_mut().rust_mut().played_game_document = Some(document);
+        }
 
         let document = match load_sgf_document(&path) {
             Ok(document) => document,
@@ -341,6 +375,60 @@ impl ffi::BermudaApp {
         }
     }
 
+    fn restore_played_game(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        /*
+         * If the playable document is still current, use it directly.
+         * Otherwise restore the copy retained before another document
+         * replaced the board view.
+         */
+        let document = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            rust.loaded_document
+                .as_ref()
+                .filter(|document| document.playable)
+                .cloned()
+                .or_else(|| rust.played_game_document.clone())
+        };
+
+        let document = match document {
+            Some(document) => document,
+
+            None => {
+                self.as_mut()
+                    .set_error_message(QString::from("no played game is available"));
+                return false;
+            }
+        };
+
+        let final_move =
+            i32::try_from(document.positions.len().saturating_sub(1)).unwrap_or(i32::MAX);
+
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
+
+        self.as_mut().rust_mut().played_game_document = Some(document.clone());
+
+        self.as_mut().rust_mut().loaded_document = Some(document);
+
+        self.as_mut().show_cached_position(final_move)
+    }
+
     fn remove_game_from_my_games(mut self: Pin<&mut Self>, game_source_id: i64) -> bool {
         self.as_mut().set_error_message(QString::default());
 
@@ -375,6 +463,20 @@ impl ffi::BermudaApp {
     }
 
     fn new_position(mut self: Pin<&mut Self>, board_size: i32) -> bool {
+        let played_document = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            rust.loaded_document
+                .as_ref()
+                .filter(|document| document.playable)
+                .cloned()
+        };
+
+        if let Some(document) = played_document {
+            self.as_mut().rust_mut().played_game_document = Some(document);
+        }
+
         let document = match new_position_document(board_size) {
             Ok(document) => document,
 
@@ -452,6 +554,7 @@ impl ffi::BermudaApp {
                 .unwrap_or_default(),
         ));
 
+        self.as_mut().rust_mut().played_game_document = None;
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
