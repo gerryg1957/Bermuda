@@ -143,7 +143,14 @@ Item {
         && patternEndX >= 0
         && patternEndY >= 0
 
-    property real boardPadding: Kirigami.Units.gridUnit * 1.5
+    /*
+     * Reserve enough wood outside the playable grid for coordinates.
+     * Stones scale with intersection spacing, so this margin must scale too.
+     */
+    property real boardPadding: Math.max(
+        Kirigami.Units.gridUnit * 1.5,
+        Math.min(width, height) / 20
+    )
     property color boardColor: "#d8a45b"
     property color lineColor: "#30251a"
 
@@ -801,7 +808,11 @@ Item {
             if (!root.showCoordinates)
                 return
 
-            const offset = root.boardPadding * 0.52
+            /*
+             * Keep the coordinate labels clear of edge stones while leaving
+             * a similar amount of wood outside the labels.
+             */
+            const offset = spacing * 0.73
 
             ctx.fillStyle = root.lineColor
             ctx.font = Math.max(10, spacing * 0.36)
