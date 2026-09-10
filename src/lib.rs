@@ -10,6 +10,7 @@ pub mod import_directory;
 pub mod importer;
 pub mod index_build;
 pub mod indexer;
+pub mod katago;
 pub mod move_file;
 pub mod occurrence_context;
 pub mod pattern;
@@ -33,6 +34,9 @@ mod game_date;
 pub use board::{Board, Colour, Move};
 pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
+pub use katago::{
+    AnalysisCandidate, AnalysisPoint, AnalysisResult, AnalysisVertex, parse_analysis_response,
+};
 pub use move_file::{read_move_file, write_move_file};
 pub use occurrence_context::{
     LOCAL_ACTIVITY_MAX_DISTANCE, LocalActivity, NearbyMove, measure_local_activity,
