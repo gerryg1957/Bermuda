@@ -947,6 +947,14 @@ menuBar: MenuBar {
             mainSplitView.restoreState(uiSettings.splitViewState)
         }
 
+        /*
+         * My Games is a built-in Bermuda collection.  A new user should
+         * see an empty collection rather than having to create or know
+         * about its backing project directory.
+         */
+        if (!gameController.ensurePersonalProject())
+            console.warn(gameController.error_message)
+
         if (root.projectPath.length === 0
                 && root.managedProjectPath.length > 0) {
             if (gameController.projectExists(

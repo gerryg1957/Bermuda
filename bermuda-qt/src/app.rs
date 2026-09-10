@@ -59,6 +59,10 @@ mod ffi {
         fn personal_project_path(self: &BermudaApp) -> QString;
 
         #[qinvokable]
+        #[cxx_name = "ensurePersonalProject"]
+        fn ensure_personal_project(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "loadGame"]
         fn load_game(self: Pin<&mut BermudaApp>, project_path: &QString, game_id: i64) -> bool;
 
@@ -226,6 +230,18 @@ impl ffi::BermudaApp {
         match personal_project_root() {
             Ok(path) => QString::from(path.to_string_lossy().as_ref()),
             Err(_) => QString::default(),
+        }
+    }
+
+    fn ensure_personal_project(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        match open_or_create_personal_project() {
+            Ok(_) => true,
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
         }
     }
 
