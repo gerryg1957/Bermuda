@@ -83,6 +83,10 @@ mod ffi {
         fn restore_played_game(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "discardPlayedGame"]
+        fn discard_played_game(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "removeGameFromMyGames"]
         fn remove_game_from_my_games(self: Pin<&mut BermudaApp>, game_source_id: i64) -> bool;
 
@@ -443,6 +447,35 @@ impl ffi::BermudaApp {
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(final_move)
+    }
+
+    fn discard_played_game(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        /*
+         * Forget the retained Play Game session. If the same game is still
+         * being viewed for study, keep that position viewable but no longer
+         * treat it as a playable session.
+         */
+        {
+            let mut rust = self.as_mut().rust_mut();
+
+            rust.played_game_document = None;
+
+            if let Some(document) = rust.loaded_document.as_mut() {
+                if document.playable {
+                    document.playable = false;
+                }
+            }
+
+            if let Some(snapshot) = rust.search_source_snapshot.as_mut() {
+                if snapshot.document.playable {
+                    snapshot.document.playable = false;
+                }
+            }
+        }
+
+        true
     }
 
     fn remove_game_from_my_games(mut self: Pin<&mut Self>, game_source_id: i64) -> bool {

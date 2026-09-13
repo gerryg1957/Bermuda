@@ -18,6 +18,14 @@ Kirigami.AbstractCard {
     property string myGamesProjectPath: ""
     property bool showingMyGames: false
     property bool removeSelectedMyGameEnabled: false
+    property string currentSearchProjectPath: ""
+    property bool databaseSearchHasRun: false
+    property bool myGamesSearchHasRun: false
+
+    readonly property var searchModel:
+        currentSearchProjectPath === myGamesProjectPath
+        ? myGamesSearchModel
+        : databaseSearchModel
 
     readonly property string projectPath:
         showingMyGames
@@ -44,7 +52,13 @@ Kirigami.AbstractCard {
 
     property var databaseCatalogueState: null
     property var myGamesCatalogueState: null
-    property bool searchHasRun: false
+    readonly property bool searchHasRun:
+        currentSearchProjectPath === myGamesProjectPath
+        ? myGamesSearchHasRun
+        : currentSearchProjectPath === databaseProjectPath
+          ? databaseSearchHasRun
+          : false
+
     readonly property bool searchInProgress:
         searchModel.search_in_progress
     readonly property int searchResultCount:
@@ -323,6 +337,10 @@ Kirigami.AbstractCard {
             if (!showingMyGames)
                 selectedRow = -1
         }
+    }
+
+    function clearCurrentCatalogueSelection() {
+        resetCatalogueSelection(showingMyGames)
     }
 
     function loadCatalogue(model, path, state, myGames) {
@@ -941,10 +959,57 @@ Kirigami.AbstractCard {
         }
     }
 
+    function searchHasRunFor(searchProjectPath) {
+        if (searchProjectPath === databaseProjectPath)
+            return databaseSearchHasRun
+
+        if (searchProjectPath === myGamesProjectPath)
+            return myGamesSearchHasRun
+
+        return false
+    }
+
+    function showSearchResults(searchProjectPath) {
+        if (!searchHasRunFor(searchProjectPath))
+            return false
+
+        selectedSearchRow = -1
+        pendingSearchGame = null
+
+        continuationFilterActive = false
+        continuationFilterAppearances = 0
+        selectedContinuationX = -1
+        selectedContinuationCoreY = -1
+        continuationCandidates = []
+        comparisonCandidateA = null
+        comparisonCandidateB = null
+
+        currentSearchProjectPath = searchProjectPath
+        mainTabs.currentIndex = 2
+
+        /*
+         * Search-result text filters are common UI controls. Apply the
+         * currently visible filter to whichever retained result set becomes
+         * active; this is an in-memory operation, not another corpus search.
+         */
+        filterSearchResults()
+
+        if (searchSortColumn !== "none") {
+            searchModel.sortResults(
+                searchSortColumn,
+                searchSortAscending)
+        }
+
+        Qt.callLater(showSourceContinuationMap)
+        return true
+    }
+
     function clearSearchResults() {
         selectedSearchRow = -1
         pendingSearchGame = null
-        searchHasRun = false
+        databaseSearchHasRun = false
+        myGamesSearchHasRun = false
+        currentSearchProjectPath = ""
         searchPatternWidth = 0
         searchPatternHeight = 0
         searchBoardSize = 0
@@ -958,10 +1023,12 @@ Kirigami.AbstractCard {
         comparisonCandidateA = null
         comparisonCandidateB = null
         resetSearchResultSort()
-        searchModel.clearResults()
+        databaseSearchModel.clearResults()
+        myGamesSearchModel.clearResults()
     }
 
-    function searchProject(boardSize,
+    function searchProject(searchProjectPath,
+                           boardSize,
                            stonesJson,
                            left,
                            bottom,
@@ -970,7 +1037,7 @@ Kirigami.AbstractCard {
                            includeHandicapGames) {
         selectedSearchRow = -1
         pendingSearchGame = null
-        searchHasRun = true
+        currentSearchProjectPath = searchProjectPath
         searchPatternWidth = width
         searchPatternHeight = height
         searchBoardSize = boardSize
@@ -985,11 +1052,17 @@ Kirigami.AbstractCard {
         comparisonCandidateB = null
 
         resetSearchResultSort()
-        searchModel.clearResults()
+
+        const targetModel =
+            searchProjectPath === myGamesProjectPath
+            ? myGamesSearchModel
+            : databaseSearchModel
+
+        targetModel.clearResults()
         mainTabs.currentIndex = 2
 
-        const started = searchModel.searchProject(
-                            projectPath,
+        const started = targetModel.searchProject(
+                            searchProjectPath,
                             boardSize,
                             stonesJson,
                             left,
@@ -998,8 +1071,14 @@ Kirigami.AbstractCard {
                             height,
                             includeHandicapGames)
 
-        if (!started)
-            console.warn(searchModel.error_message)
+        if (started) {
+            if (searchProjectPath === myGamesProjectPath)
+                myGamesSearchHasRun = true
+            else
+                databaseSearchHasRun = true
+        } else {
+            console.warn(targetModel.error_message)
+        }
     }
 
     function appearanceCountText(count) {
@@ -1221,11 +1300,15 @@ Kirigami.AbstractCard {
     }
 
     SearchResultModel {
-        id: searchModel
+        id: databaseSearchModel
+    }
+
+    SearchResultModel {
+        id: myGamesSearchModel
     }
 
     Connections {
-        target: searchModel
+        target: root.searchModel
 
         function onOccurrencesLoaded(rowNumber,
                                      occurrencesJson,
@@ -2486,6 +2569,14 @@ Kirigami.AbstractCard {
             clip: true
             model: gameModel
             currentIndex: root.selectedRow
+
+            onAtYEndChanged: {
+                if (atYEnd
+                        && root.gameModel.has_more
+                        && !root.gameModel.loading_more) {
+                    root.gameModel.loadMore()
+                }
+            }
 
             ScrollBar.vertical: ScrollBar {
                 id: verticalScrollBar

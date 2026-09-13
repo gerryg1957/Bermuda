@@ -663,6 +663,27 @@ menuBar: MenuBar {
         }
 
         Action {
+            text: root.localGameFinished
+                  ? qsTr("Return to &Played Game")
+                  : qsTr("Return to &Game")
+
+            enabled: root.localGameSessionAvailable
+                     && !root.playingGame
+
+            onTriggered: root.returnToPlayedGame()
+        }
+
+        Action {
+            text: root.localGameFinished
+                  ? qsTr("&Close Played Game…")
+                  : qsTr("&Abandon Game…")
+
+            enabled: root.localGameSessionAvailable
+
+            onTriggered: discardPlayedGameDialog.open()
+        }
+
+        Action {
             text: qsTr("&Save SGF…")
 
             /*
@@ -827,6 +848,7 @@ menuBar: MenuBar {
         }
 
         gameList.clearSearchResults()
+        gameList.clearCurrentCatalogueSelection()
         boardPane.clearMatchNavigation()
         boardPane.resetPatternSelection()
         boardPane.editingPosition = false
@@ -855,6 +877,60 @@ menuBar: MenuBar {
         }
 
         boardPane.applyLoadedPosition()
+        return true
+    }
+
+    function reviewPlayedGame() {
+        if (!root.playingGame || !root.localGameFinished)
+            return false
+
+        gameList.clearSearchResults()
+        gameList.clearCurrentCatalogueSelection()
+        boardPane.clearMatchNavigation()
+        boardPane.resetPatternSelection()
+        boardPane.editingPosition = false
+
+        /*
+         * Do not replace the played-game document. The same loaded game is
+         * simply being viewed through Bermuda's ordinary study controls, so
+         * it remains available through Return to played game.
+         */
+        root.playingGame = false
+
+        boardPane.applyLoadedPosition()
+        return true
+    }
+
+    function discardPlayedGame() {
+        if (!root.localGameSessionAvailable)
+            return false
+
+        const wasPlaying = root.playingGame
+
+        if (!gameController.discardPlayedGame()) {
+            console.warn(gameController.error_message)
+            return false
+        }
+
+        root.localGameSessionAvailable = false
+        root.playingGame = false
+        root.localGameStartedAt = null
+        root.localGameFinished = false
+        root.localGameResult = ""
+        root.localGameAddedToMyGames = false
+
+        /*
+         * Closing the retained session must not blank an unrelated game
+         * currently being studied. If the played game itself is on screen,
+         * simply leave it there as an ordinary study position.
+         */
+        if (wasPlaying) {
+            boardPane.clearMatchNavigation()
+            boardPane.resetPatternSelection()
+            boardPane.editingPosition = false
+            boardPane.applyLoadedPosition()
+        }
+
         return true
     }
 
@@ -900,11 +976,42 @@ menuBar: MenuBar {
     property bool includeHandicapGames: false
 
     Dialog {
+        id: discardPlayedGameDialog
+
+        modal: true
+        anchors.centerIn: parent
+
+        title: root.localGameFinished
+               ? qsTr("Close played game?")
+               : qsTr("Abandon game?")
+
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onAccepted: root.discardPlayedGame()
+
+        contentItem: Label {
+            width: 380
+            wrapMode: Text.WordWrap
+
+            text: root.localGameFinished
+                  ? qsTr(
+                      "This game will no longer be available through "
+                      + "Return to Played Game.\n\n"
+                      + "Any copy already added to My Games or saved "
+                      + "as an SGF will not be affected.")
+                  : qsTr(
+                      "This game will no longer be available through "
+                      + "Return to Game.\n\n"
+                      + "Any SGF saved separately will not be affected.")
+        }
+    }
+
+    Dialog {
         id: removeMyGameDialog
 
         modal: true
         anchors.centerIn: parent
-        title: qsTr("Remove from My games?")
+        title: qsTr("Remove this game from My Games?")
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         onAccepted: root.removeSelectedMyGame()
@@ -1092,6 +1199,150 @@ menuBar: MenuBar {
             id: boardPane
 
             property var selectedGame: null
+
+            function searchSelectedPattern(destinationProjectPath) {
+                if (destinationProjectPath.length === 0)
+                    return false
+
+                if (!boardPane.beginSearchSession())
+                    return false
+
+                const width =
+                    boardPane.patternRight
+                    - boardPane.patternLeft + 1
+
+                const height =
+                    boardPane.patternBottom
+                    - boardPane.patternTop + 1
+
+                const bottom =
+                    goBoard.boardSize - 1
+                    - boardPane.patternBottom
+
+                goBoard.continuationPoints = []
+
+                gameList.searchProject(
+                    destinationProjectPath,
+                    gameController.board_size,
+                    gameController.stones_json,
+                    boardPane.patternLeft,
+                    bottom,
+                    width,
+                    height,
+                    root.includeHandicapGames)
+
+                return true
+            }
+
+            function showSamePatternResults(
+                    destinationProjectPath) {
+                if (!gameList.searchHasRunFor(destinationProjectPath))
+                    return false
+
+                const left = gameList.searchPatternLeft
+                const bottom = gameList.searchPatternBottom
+                const width = gameList.searchPatternWidth
+                const height = gameList.searchPatternHeight
+
+                const sourceGame = boardPane.searchSourceGame
+                const sourceEditing =
+                    boardPane.searchSourceEditingPosition
+                const sourceTransform =
+                    boardPane.searchSourceViewTransform
+
+                /*
+                 * restoreSearchSource consumes the backend snapshot.
+                 * Recreate it immediately so Database Results / My Games
+                 * Results can be switched repeatedly.
+                 */
+                if (!gameController.restoreSearchSource()) {
+                    console.warn(gameController.error_message)
+                    return false
+                }
+
+                boardPane.selectedGame = sourceGame
+                boardPane.editingPosition = sourceEditing
+                boardPane.applyLoadedPosition()
+
+                if (sourceTransform !== null)
+                    goBoard.setViewTransform(sourceTransform)
+
+                boardPane.clearMatchNavigation()
+
+                boardPane.patternLeft = left
+                boardPane.patternRight = left + width - 1
+                boardPane.patternBottom =
+                    goBoard.boardSize - 1 - bottom
+                boardPane.patternTop =
+                    boardPane.patternBottom - height + 1
+
+                goBoard.setPatternSelection(
+                    boardPane.patternLeft,
+                    boardPane.patternTop,
+                    boardPane.patternRight,
+                    boardPane.patternBottom)
+
+                if (!gameController.snapshotSearchSource()) {
+                    console.warn(gameController.error_message)
+                    return false
+                }
+
+                return gameList.showSearchResults(
+                    destinationProjectPath)
+            }
+
+            function searchSamePatternIn(destinationProjectPath) {
+                if (!boardPane.investigatingSearch
+                        || destinationProjectPath.length === 0) {
+                    return false
+                }
+
+                /*
+                 * A selected search result moves the blue rectangle to that
+                 * occurrence. Reuse the geometry of the original query,
+                 * rather than the geometry of whichever match is visible.
+                 */
+                const left = gameList.searchPatternLeft
+                const bottom = gameList.searchPatternBottom
+                const width = gameList.searchPatternWidth
+                const height = gameList.searchPatternHeight
+
+                const sourceGame = boardPane.searchSourceGame
+                const sourceEditing =
+                    boardPane.searchSourceEditingPosition
+                const sourceTransform =
+                    boardPane.searchSourceViewTransform
+
+                if (!gameController.restoreSearchSource()) {
+                    console.warn(gameController.error_message)
+                    return false
+                }
+
+                boardPane.selectedGame = sourceGame
+                boardPane.editingPosition = sourceEditing
+                boardPane.applyLoadedPosition()
+
+                if (sourceTransform !== null)
+                    goBoard.setViewTransform(sourceTransform)
+
+                boardPane.clearMatchNavigation()
+
+                boardPane.patternLeft = left
+                boardPane.patternRight = left + width - 1
+                boardPane.patternBottom =
+                    goBoard.boardSize - 1 - bottom
+                boardPane.patternTop =
+                    boardPane.patternBottom - height + 1
+
+                goBoard.setPatternSelection(
+                    boardPane.patternLeft,
+                    boardPane.patternTop,
+                    boardPane.patternRight,
+                    boardPane.patternBottom)
+
+                return boardPane.searchSelectedPattern(
+                    destinationProjectPath)
+            }
 
             property bool editingPosition: false
 
@@ -1758,6 +2009,34 @@ menuBar: MenuBar {
                                    && root.localGameFinished
 
                           implicitWidth:
+                              reviewPlayedGameButton.implicitWidth + 6
+                          implicitHeight:
+                              reviewPlayedGameButton.implicitHeight + 6
+
+                          Rectangle {
+                              anchors.fill: parent
+                              radius: 6
+                              color: Kirigami.Theme.highlightColor
+                              opacity: 0.45
+                          }
+
+                          Button {
+                              id: reviewPlayedGameButton
+
+                              anchors.centerIn: parent
+
+                              text: qsTr("Review game")
+                              highlighted: true
+
+                              onClicked: root.reviewPlayedGame()
+                          }
+                      }
+
+                      Item {
+                          visible: root.playingGame
+                                   && root.localGameFinished
+
+                          implicitWidth:
                               addToMyGamesButton.implicitWidth + 6
                           implicitHeight:
                               addToMyGamesButton.implicitHeight + 6
@@ -1814,34 +2093,6 @@ menuBar: MenuBar {
                           }
                       }
 
-                      Item {
-                          visible: !root.playingGame
-                                   && root.localGameSessionAvailable
-
-                          implicitWidth:
-                              returnToPlayedGameButton.implicitWidth + 6
-                          implicitHeight:
-                              returnToPlayedGameButton.implicitHeight + 6
-
-                          Rectangle {
-                              anchors.fill: parent
-                              radius: 6
-                              color: Kirigami.Theme.highlightColor
-                              opacity: 0.45
-                          }
-
-                          Button {
-                              id: returnToPlayedGameButton
-
-                              anchors.centerIn: parent
-
-                              text: qsTr("Return to game")
-                              highlighted: true
-
-                              onClicked: root.returnToPlayedGame()
-                          }
-                      }
-
                       ToolButton {
                           visible: !root.playingGame
                                    && !gameList.searchHasRun
@@ -1873,42 +2124,31 @@ menuBar: MenuBar {
                       ToolButton {
                           visible: !root.playingGame
                                    && !gameList.searchHasRun
-                          text: gameList.showingMyGames
-                              ? qsTr("Search My Games")
-                              : qsTr("Search Database")
+                          text: qsTr("Search Database")
 
                           enabled: goBoard.patternSelectionValid
                                    && boardPane.selectedGame !== null
-                                   && gameList.projectPath.length > 0
+                                   && gameList.databaseProjectPath.length > 0
                                    && !gameList.searchInProgress
 
-                          onClicked: {
-                              if (!boardPane.beginSearchSession())
-                                  return
+                          onClicked:
+                              boardPane.searchSelectedPattern(
+                                  gameList.databaseProjectPath)
+                      }
 
-                              const width =
-                                  boardPane.patternRight
-                                  - boardPane.patternLeft + 1
+                      ToolButton {
+                          visible: !root.playingGame
+                                   && !gameList.searchHasRun
+                          text: qsTr("Search My Games")
 
-                              const height =
-                                  boardPane.patternBottom
-                                  - boardPane.patternTop + 1
+                          enabled: goBoard.patternSelectionValid
+                                   && boardPane.selectedGame !== null
+                                   && gameList.myGamesProjectPath.length > 0
+                                   && !gameList.searchInProgress
 
-                              const bottom =
-                                  goBoard.boardSize - 1
-                                  - boardPane.patternBottom
-
-                              goBoard.continuationPoints = []
-
-                              gameList.searchProject(
-                                  gameController.board_size,
-                                  gameController.stones_json,
-                                  boardPane.patternLeft,
-                                  bottom,
-                                  width,
-                                  height,
-                                  root.includeHandicapGames)
-                          }
+                          onClicked:
+                              boardPane.searchSelectedPattern(
+                                  gameList.myGamesProjectPath)
                       }
 
                       Label {
@@ -1982,6 +2222,58 @@ menuBar: MenuBar {
                                   gameList.comparisonCandidateB = null
                               } else {
                                   boardPane.beginContinuationComparison()
+                              }
+                          }
+                      }
+
+                      ToolButton {
+                          visible: !root.playingGame
+                                   && boardPane.investigatingSearch
+                                   && gameList.currentSearchProjectPath
+                                      !== gameList.databaseProjectPath
+                          text:
+                              gameList.searchHasRunFor(
+                                  gameList.databaseProjectPath)
+                              ? qsTr("Database Results")
+                              : qsTr("Search Database")
+
+                          enabled: gameList.databaseProjectPath.length > 0
+                                   && !gameList.searchInProgress
+
+                          onClicked: {
+                              if (gameList.searchHasRunFor(
+                                      gameList.databaseProjectPath)) {
+                                  boardPane.showSamePatternResults(
+                                      gameList.databaseProjectPath)
+                              } else {
+                                  boardPane.searchSamePatternIn(
+                                      gameList.databaseProjectPath)
+                              }
+                          }
+                      }
+
+                      ToolButton {
+                          visible: !root.playingGame
+                                   && boardPane.investigatingSearch
+                                   && gameList.currentSearchProjectPath
+                                      !== gameList.myGamesProjectPath
+                          text:
+                              gameList.searchHasRunFor(
+                                  gameList.myGamesProjectPath)
+                              ? qsTr("My Games Results")
+                              : qsTr("Search My Games")
+
+                          enabled: gameList.myGamesProjectPath.length > 0
+                                   && !gameList.searchInProgress
+
+                          onClicked: {
+                              if (gameList.searchHasRunFor(
+                                      gameList.myGamesProjectPath)) {
+                                  boardPane.showSamePatternResults(
+                                      gameList.myGamesProjectPath)
+                              } else {
+                                  boardPane.searchSamePatternIn(
+                                      gameList.myGamesProjectPath)
                               }
                           }
                       }

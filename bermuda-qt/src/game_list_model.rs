@@ -46,8 +46,12 @@ pub struct GameListModelRust {
     rows: Vec<GameListRow>,
     error_message: QString,
     loading: bool,
+    loading_more: bool,
+    has_more: bool,
     load_generation: u64,
     occurrence_mode: bool,
+    project_path: String,
+    query: Option<GameListQuery>,
 }
 
 #[cxx_qt::bridge]
@@ -79,8 +83,14 @@ pub mod ffi {
         #[base = QAbstractListModel]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, loading)]
+        #[qproperty(bool, loading_more)]
+        #[qproperty(bool, has_more)]
         #[qproperty(bool, occurrence_mode)]
         type GameListModel = super::GameListModelRust;
+
+        #[qinvokable]
+        #[cxx_name = "loadMore"]
+        fn load_more(self: Pin<&mut GameListModel>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "loadProject"]
@@ -137,6 +147,19 @@ pub mod ffi {
         #[inherit]
         #[rust_name = "end_reset_model"]
         fn endResetModel(self: Pin<&mut GameListModel>);
+
+        #[inherit]
+        #[rust_name = "begin_insert_rows"]
+        fn beginInsertRows(
+            self: Pin<&mut GameListModel>,
+            parent: &QModelIndex,
+            first: i32,
+            last: i32,
+        );
+
+        #[inherit]
+        #[rust_name = "end_insert_rows"]
+        fn endInsertRows(self: Pin<&mut GameListModel>);
     }
 
     unsafe extern "RustQt" {
@@ -514,72 +537,40 @@ impl ffi::GameListModel {
     ) -> bool {
         let path = project_path.to_string();
 
+        /*
+         * Catalogue queries are deliberately paged. GameListQuery's default
+         * limit is the catalogue page size; do not replace it with u32::MAX.
+         */
         query.offset = 0;
-        query.limit = u32::MAX;
-
-        let generation = {
-            let mut rust = self.as_mut().rust_mut();
-            rust.load_generation = rust.load_generation.wrapping_add(1);
-            rust.load_generation
-        };
+        let page_limit = query.limit;
 
         if path.trim().is_empty() {
             self.as_mut().set_loading(false);
+            self.as_mut().set_loading_more(false);
+            self.as_mut().set_has_more(false);
             return false;
         }
 
+        let generation = {
+            let mut rust = self.as_mut().rust_mut();
+
+            rust.load_generation = rust.load_generation.wrapping_add(1);
+            rust.project_path = path.clone();
+            rust.query = Some(query.clone());
+
+            rust.load_generation
+        };
+
         self.as_mut().set_error_message(QString::default());
         self.as_mut().set_loading(true);
+        self.as_mut().set_loading_more(false);
+        self.as_mut().set_has_more(false);
 
         let occurrence_mode = self.rust().occurrence_mode;
         let qt_thread = self.qt_thread();
 
         std::thread::spawn(move || {
-            let result = ProjectManager::new()
-                .open(Path::new(&path))
-                .and_then(|project| project.catalogue())
-                .and_then(|catalogue| {
-                    if occurrence_mode {
-                        catalogue.list_occurrences(&query).map(|games| {
-                            games
-                                .into_iter()
-                                .map(|game| GameListRow {
-                                    game_id: game.game_id,
-                                    game_source_id: game.game_source_id,
-                                    black_player: optional_text(&game.black_player_display),
-                                    white_player: optional_text(&game.white_player_display),
-                                    black_rank: String::new(),
-                                    white_rank: String::new(),
-                                    played_date: optional_text(&game.game_date),
-                                    result: optional_text(&game.result),
-                                    event: optional_text(&game.event),
-                                    komi: optional_number(&game.komi),
-                                    handicap: String::new(),
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                    } else {
-                        catalogue.list(&query).map(|games| {
-                            games
-                                .into_iter()
-                                .map(|game| GameListRow {
-                                    game_id: game.game_id,
-                                    game_source_id: -1,
-                                    black_player: optional_text(&game.black_player_display),
-                                    white_player: optional_text(&game.white_player_display),
-                                    black_rank: String::new(),
-                                    white_rank: String::new(),
-                                    played_date: optional_text(&game.game_date),
-                                    result: optional_text(&game.result),
-                                    event: optional_text(&game.event),
-                                    komi: optional_number(&game.komi),
-                                    handicap: String::new(),
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                    }
-                })
-                .map_err(|error| error.to_string());
+            let result = load_catalogue_page(&path, &query, occurrence_mode);
 
             let _ = qt_thread.queue(move |mut model| {
                 if model.rust().load_generation != generation {
@@ -588,10 +579,13 @@ impl ffi::GameListModel {
 
                 match result {
                     Ok(rows) => {
+                        let has_more = page_limit > 0 && rows.len() == page_limit as usize;
+
                         model.as_mut().begin_reset_model();
                         model.as_mut().rust_mut().rows = rows;
                         model.as_mut().end_reset_model();
 
+                        model.as_mut().set_has_more(has_more);
                         model.as_mut().set_error_message(QString::default());
                         model.as_mut().set_loading(false);
                         model.as_mut().load_finished(true);
@@ -602,6 +596,7 @@ impl ffi::GameListModel {
                         model.as_mut().rust_mut().rows.clear();
                         model.as_mut().end_reset_model();
 
+                        model.as_mut().set_has_more(false);
                         model.as_mut().set_error_message(QString::from(error));
                         model.as_mut().set_loading(false);
                         model.as_mut().load_finished(false);
@@ -612,6 +607,150 @@ impl ffi::GameListModel {
 
         true
     }
+
+    fn load_more(mut self: Pin<&mut Self>) -> bool {
+        if self.rust().loading || self.rust().loading_more || !self.rust().has_more {
+            return false;
+        }
+
+        let (path, mut query, occurrence_mode, generation, offset) = {
+            let rust = self.rust();
+
+            let Some(query) = rust.query.clone() else {
+                return false;
+            };
+
+            let Ok(offset) = u32::try_from(rust.rows.len()) else {
+                self.as_mut().set_error_message(QString::from(
+                    "catalogue contains too many rows to continue paging",
+                ));
+                self.as_mut().set_has_more(false);
+                return false;
+            };
+
+            (
+                rust.project_path.clone(),
+                query,
+                rust.occurrence_mode,
+                rust.load_generation,
+                offset,
+            )
+        };
+
+        query.offset = offset;
+        let page_limit = query.limit;
+
+        self.as_mut().set_loading_more(true);
+
+        let qt_thread = self.qt_thread();
+
+        std::thread::spawn(move || {
+            let result = load_catalogue_page(&path, &query, occurrence_mode);
+
+            let _ = qt_thread.queue(move |mut model| {
+                if model.rust().load_generation != generation {
+                    return;
+                }
+
+                match result {
+                    Ok(rows) => {
+                        let has_more = page_limit > 0 && rows.len() == page_limit as usize;
+
+                        if !rows.is_empty() {
+                            let first = model.rust().rows.len();
+                            let last = first + rows.len() - 1;
+
+                            let (Ok(first), Ok(last)) = (i32::try_from(first), i32::try_from(last))
+                            else {
+                                model.as_mut().set_error_message(QString::from(
+                                    "catalogue contains too many rows to append to the Qt model",
+                                ));
+                                model.as_mut().set_has_more(false);
+                                model.as_mut().set_loading_more(false);
+                                return;
+                            };
+
+                            let parent = QModelIndex::default();
+
+                            model.as_mut().begin_insert_rows(&parent, first, last);
+
+                            model.as_mut().rust_mut().rows.extend(rows);
+
+                            model.as_mut().end_insert_rows();
+                        }
+
+                        model.as_mut().set_has_more(has_more);
+                        model.as_mut().set_error_message(QString::default());
+                        model.as_mut().set_loading_more(false);
+                    }
+
+                    Err(error) => {
+                        /*
+                         * Keep rows already displayed. A failed later page
+                         * must not destroy a successfully loaded catalogue.
+                         */
+                        model.as_mut().set_has_more(false);
+                        model.as_mut().set_error_message(QString::from(error));
+                        model.as_mut().set_loading_more(false);
+                    }
+                }
+            });
+        });
+
+        true
+    }
+}
+
+fn load_catalogue_page(
+    path: &str,
+    query: &GameListQuery,
+    occurrence_mode: bool,
+) -> Result<Vec<GameListRow>, String> {
+    ProjectManager::new()
+        .open(Path::new(path))
+        .and_then(|project| project.catalogue())
+        .and_then(|catalogue| {
+            if occurrence_mode {
+                catalogue.list_occurrences(query).map(|games| {
+                    games
+                        .into_iter()
+                        .map(|game| GameListRow {
+                            game_id: game.game_id,
+                            game_source_id: game.game_source_id,
+                            black_player: optional_text(&game.black_player_display),
+                            white_player: optional_text(&game.white_player_display),
+                            black_rank: String::new(),
+                            white_rank: String::new(),
+                            played_date: optional_text(&game.game_date),
+                            result: optional_text(&game.result),
+                            event: optional_text(&game.event),
+                            komi: optional_number(&game.komi),
+                            handicap: String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+            } else {
+                catalogue.list(query).map(|games| {
+                    games
+                        .into_iter()
+                        .map(|game| GameListRow {
+                            game_id: game.game_id,
+                            game_source_id: -1,
+                            black_player: optional_text(&game.black_player_display),
+                            white_player: optional_text(&game.white_player_display),
+                            black_rank: String::new(),
+                            white_rank: String::new(),
+                            played_date: optional_text(&game.game_date),
+                            result: optional_text(&game.result),
+                            event: optional_text(&game.event),
+                            komi: optional_number(&game.komi),
+                            handicap: String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 fn optional_text(value: &Option<String>) -> String {
