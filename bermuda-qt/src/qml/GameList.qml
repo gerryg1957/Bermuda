@@ -446,6 +446,13 @@ Kirigami.AbstractCard {
         }
     }
 
+    function showCatalogue(myGames) {
+        if (showingMyGames !== myGames)
+            selectCatalogue(myGames)
+
+        mainTabs.currentIndex = myGames ? 1 : 0
+    }
+
     function selectCatalogue(myGames) {
         if (showingMyGames === myGames)
             return

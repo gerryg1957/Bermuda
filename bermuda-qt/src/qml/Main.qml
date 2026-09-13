@@ -610,7 +610,211 @@ ApplicationWindow {
 
 menuBar: MenuBar {
     Menu {
-        title: qsTr("&File")
+        title: qsTr("&Game")
+
+        Action {
+            text: qsTr("&Play Game…")
+            onTriggered: newGameDialog.open()
+        }
+
+        Menu {
+            title: qsTr("&Open")
+
+            Action {
+                text: qsTr("&SGF File…")
+                onTriggered: openSgfDialog.open()
+            }
+
+            MenuSeparator {}
+
+            Action {
+                text: qsTr("From &Game Database")
+                onTriggered: gameList.showCatalogue(false)
+            }
+
+            Action {
+                text: qsTr("From &My Games")
+                onTriggered: gameList.showCatalogue(true)
+            }
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: root.localGameFinished
+                  ? qsTr("Return to &Played Game")
+                  : qsTr("Return to &Game")
+
+            enabled: root.localGameSessionAvailable
+                     && !root.playingGame
+
+            onTriggered: root.returnToPlayedGame()
+        }
+
+        Action {
+            text: root.localGameFinished
+                  ? qsTr("&Close Played Game…")
+                  : qsTr("&Abandon Game…")
+
+            enabled: root.localGameSessionAvailable
+
+            onTriggered: discardPlayedGameDialog.open()
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("&Save SGF…")
+
+            /*
+             * At present this saves games created by Play Game.
+             * It remains available after the game has finished.
+             */
+            enabled: root.playingGame
+
+            onTriggered: root.openSaveSgfDialog()
+        }
+    }
+
+    Menu {
+        title: qsTr("&My Games")
+
+        Action {
+            text: qsTr("&Show My Games")
+            onTriggered: gameList.showCatalogue(true)
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("&Add Current Game")
+
+            /*
+             * For now, only completed live games are added.
+             */
+            enabled: root.playingGame
+                     && root.localGameFinished
+                     && !root.localGameAddedToMyGames
+
+            onTriggered:
+                root.addCurrentPlayedGameToMyGames()
+        }
+
+        Action {
+            text: qsTr("&Remove Selected Game…")
+            enabled: gameList.showingMyGames
+                     && gameList.removeSelectedMyGameEnabled
+
+            onTriggered:
+                gameList.removeSelectedMyGameRequested()
+        }
+    }
+
+    Menu {
+        title: qsTr("Game &Database")
+
+        Action {
+            text: qsTr("&Show Game Database")
+            onTriggered: gameList.showCatalogue(false)
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("&Add Games…")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
+
+            onTriggered: {
+                if (root.isManagedProjectPath(root.projectPath)) {
+                    databaseImportDialog.openManagedAdd(
+                        root.projectPath)
+                } else {
+                    databaseImportDialog.openAdd(
+                        root.projectPath)
+                }
+            }
+        }
+
+        Action {
+            text: qsTr("Manage Player &Names…")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
+
+            onTriggered:
+                playerIdentityDialog.openForProject(root.projectPath)
+        }
+
+        MenuSeparator {}
+
+        Menu {
+            title: qsTr("&Maintenance")
+
+            Action {
+                text: qsTr("&Current Operation…")
+
+                enabled: databaseOperation.in_progress
+                         || databaseOperation.stage.length > 0
+
+                onTriggered:
+                    databaseProgressDialog.open()
+            }
+
+            Action {
+                text: qsTr("&Cancel Current Operation")
+
+                enabled: databaseOperation.in_progress
+                         && !databaseOperation.cancel_requested
+
+                onTriggered: {
+                    databaseProgressDialog.open()
+                    databaseOperation.cancelOperation()
+                }
+            }
+
+            MenuSeparator {}
+
+            Action {
+                text: qsTr("&Open Another Database…")
+
+                enabled: !databaseOperation.in_progress
+
+                onTriggered: openDatabaseDialog.open()
+            }
+
+            Action {
+                text: qsTr("&Create Another Database…")
+
+                enabled: !databaseOperation.in_progress
+
+                onTriggered:
+                    databaseImportDialog.openCreate()
+            }
+
+            Action {
+                text: qsTr("&Update Position Index")
+
+                enabled: root.projectPath.length > 0
+                         && !databaseOperation.in_progress
+
+                onTriggered: {
+                    databaseOperation.clearStatus()
+
+                    if (databaseOperation.updatePositionIndex(
+                                root.projectPath)) {
+                        databaseProgressDialog.open()
+                    } else {
+                        databaseProgressDialog.open()
+                    }
+                }
+            }
+        }
+    }
+
+    Menu {
+        title: qsTr("&Pattern Search")
 
         Action {
             text: qsTr("&New Pattern")
@@ -650,167 +854,98 @@ menuBar: MenuBar {
             }
         }
 
-        Action {
-            text: qsTr("&Play Game")
-
-            onTriggered: newGameDialog.open()
-        }
+        MenuSeparator {}
 
         Action {
-            text: qsTr("&Open SGF…")
+            text: qsTr("Select Search &Area")
 
-            onTriggered: openSgfDialog.open()
-        }
-
-        Action {
-            text: root.localGameFinished
-                  ? qsTr("Return to &Played Game")
-                  : qsTr("Return to &Game")
-
-            enabled: root.localGameSessionAvailable
-                     && !root.playingGame
-
-            onTriggered: root.returnToPlayedGame()
-        }
-
-        Action {
-            text: root.localGameFinished
-                  ? qsTr("&Close Played Game…")
-                  : qsTr("&Abandon Game…")
-
-            enabled: root.localGameSessionAvailable
-
-            onTriggered: discardPlayedGameDialog.open()
-        }
-
-        Action {
-            text: qsTr("&Save SGF…")
-
-            /*
-             * At present this saves games created by Play Game.
-             * It remains available after the game has finished.
-             */
-            enabled: root.playingGame
-
-            onTriggered: root.openSaveSgfDialog()
-        }
-
-        Action {
-            text: qsTr("Add to &My Games")
-
-            /*
-             * For now, only completed live games are added.
-             */
-            enabled: root.playingGame
-                     && root.localGameFinished
-                     && !root.localGameAddedToMyGames
-
-            onTriggered:
-                root.addCurrentPlayedGameToMyGames()
-        }
-
-    }
-
-    Menu {
-        title: qsTr("&Database")
-
-        Action {
-            text: qsTr("&Add Games…")
-
-            enabled: root.projectPath.length > 0
-                     && !databaseOperation.in_progress
+            enabled: !root.playingGame
+                     && boardPane.selectedGame !== null
+                     && !gameList.searchInProgress
+                     && !boardPane.investigatingSearch
 
             onTriggered: {
-                if (root.isManagedProjectPath(root.projectPath)) {
-                    databaseImportDialog.openManagedAdd(
-                        root.projectPath)
+                boardPane.selectingPattern = true
+                boardPane.clearMatchNavigation()
+                gameList.clearSearchResults()
+                goBoard.hoverValid = false
+            }
+        }
+
+        Action {
+            text:
+                gameList.searchHasRunFor(
+                    gameList.databaseProjectPath)
+                ? qsTr("Game Database &Results")
+                : qsTr("Find Matches in Game &Database")
+
+            enabled: !root.playingGame
+                     && !gameList.searchInProgress
+                     && gameList.databaseProjectPath.length > 0
+                     && (gameList.searchHasRunFor(
+                             gameList.databaseProjectPath)
+                         || boardPane.investigatingSearch
+                         || (goBoard.patternSelectionValid
+                             && boardPane.selectedGame !== null))
+
+            onTriggered: {
+                if (gameList.searchHasRunFor(
+                        gameList.databaseProjectPath)) {
+                    boardPane.showSamePatternResults(
+                        gameList.databaseProjectPath)
+                } else if (boardPane.investigatingSearch) {
+                    boardPane.searchSamePatternIn(
+                        gameList.databaseProjectPath)
                 } else {
-                    databaseImportDialog.openAdd(
-                        root.projectPath)
+                    boardPane.searchSelectedPattern(
+                        gameList.databaseProjectPath)
                 }
             }
         }
 
         Action {
-            text: qsTr("Player &Names…")
+            text:
+                gameList.searchHasRunFor(
+                    gameList.myGamesProjectPath)
+                ? qsTr("My Games &Results")
+                : qsTr("Find Matches in &My Games")
 
-            enabled: root.projectPath.length > 0
-                     && !databaseOperation.in_progress
-
-            onTriggered:
-                playerIdentityDialog.openForProject(root.projectPath)
-        }
-
-        MenuSeparator {}
-
-        Action {
-            text: qsTr("&Show Current Operation")
-
-            enabled: databaseOperation.in_progress
-                     || databaseOperation.stage.length > 0
-
-            onTriggered:
-                databaseProgressDialog.open()
-        }
-
-        Action {
-            text: qsTr("&Cancel Current Operation")
-
-            enabled: databaseOperation.in_progress
-                     && !databaseOperation.cancel_requested
+            enabled: !root.playingGame
+                     && !gameList.searchInProgress
+                     && gameList.myGamesProjectPath.length > 0
+                     && (gameList.searchHasRunFor(
+                             gameList.myGamesProjectPath)
+                         || boardPane.investigatingSearch
+                         || (goBoard.patternSelectionValid
+                             && boardPane.selectedGame !== null))
 
             onTriggered: {
-                databaseProgressDialog.open()
-                databaseOperation.cancelOperation()
+                if (gameList.searchHasRunFor(
+                        gameList.myGamesProjectPath)) {
+                    boardPane.showSamePatternResults(
+                        gameList.myGamesProjectPath)
+                } else if (boardPane.investigatingSearch) {
+                    boardPane.searchSamePatternIn(
+                        gameList.myGamesProjectPath)
+                } else {
+                    boardPane.searchSelectedPattern(
+                        gameList.myGamesProjectPath)
+                }
             }
         }
 
         MenuSeparator {}
 
-        Menu {
-            title: qsTr("&Advanced")
-
-            Action {
-                text: qsTr("&Open Another Database…")
-
-                enabled: !databaseOperation.in_progress
-
-                onTriggered: openDatabaseDialog.open()
-            }
-
-            Action {
-                text: qsTr("&Create Another Database…")
-
-                enabled: !databaseOperation.in_progress
-
-                onTriggered:
-                    databaseImportDialog.openCreate()
-            }
-
-            Action {
-                text: qsTr("&Update Position Index")
-
-                enabled: root.projectPath.length > 0
-                         && !databaseOperation.in_progress
-
-                onTriggered: {
-                    databaseOperation.clearStatus()
-
-                    if (databaseOperation.updatePositionIndex(
-                                root.projectPath)) {
-                        databaseProgressDialog.open()
-                    } else {
-                        databaseProgressDialog.open()
-                    }
-                }
-            }
+        Action {
+            text: qsTr("New &Search")
+            enabled: boardPane.investigatingSearch
+            onTriggered: boardPane.beginNewSearch()
         }
-    }
-    Menu {
-        title: qsTr("&Settings")
+
+        MenuSeparator {}
 
         Action {
-            text: qsTr("Include &handicap games in pattern searches")
+            text: qsTr("Include &handicap games")
             checkable: true
             checked: root.includeHandicapGames
 
@@ -820,15 +955,50 @@ menuBar: MenuBar {
     }
 
     Menu {
+        title: qsTr("&View")
+
+        enabled: boardPane.selectedGame !== null
+                 && !root.playingGame
+
+        Action {
+            text: qsTr("&Influence")
+            checkable: true
+            checked: goBoard.influenceVisible
+            enabled: !root.playingGame
+
+            onTriggered:
+                goBoard.influenceVisible = checked
+        }
+
+        MenuSeparator {}
+
+        Action {
+            text: qsTr("Flip &Left/Right")
+            enabled: !root.playingGame
+            onTriggered: goBoard.flipViewLeftRight()
+        }
+
+        Action {
+            text: qsTr("Flip &Top/Bottom")
+            enabled: !root.playingGame
+            onTriggered: goBoard.flipViewTopBottom()
+        }
+
+        Action {
+            text: qsTr("&Rotate 90° Counter-clockwise")
+            enabled: !root.playingGame
+            onTriggered: goBoard.rotateViewCounterClockwise()
+        }
+    }
+
+    Menu {
         title: qsTr("&Help")
 
         Action {
             text: qsTr("&About Bermuda")
-
             onTriggered: aboutDialog.open()
         }
     }
-
 }
 
     property bool playingGame: false
