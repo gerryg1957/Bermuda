@@ -1096,6 +1096,7 @@ menuBar: MenuBar {
             property bool editingPosition: false
 
             property string editTool: "black"
+            property string alternateEditColour: "black"
             property bool selectingPattern: false
             property int patternLeft: -1
             property int patternTop: -1
@@ -1563,6 +1564,16 @@ menuBar: MenuBar {
                     Layout.fillHeight: true
 
                     /*
+                     * The GoBoard has a generous implicit size, but the right
+                     * pane may legitimately be narrower. Never let that
+                     * preferred size make the frame extend beyond the visible
+                     * pane.
+                     */
+                    Layout.minimumWidth: 0
+                    Layout.preferredWidth: boardPane.availableWidth
+                    Layout.maximumWidth: boardPane.availableWidth
+
+                    /*
                      * Prefer a full-width square goban when vertical space
                      * permits, but allow the board area to shrink so that the
                      * controls and game information below it remain visible.
@@ -1615,10 +1626,33 @@ menuBar: MenuBar {
                               if (!boardPane.editingPosition)
                                   return
 
+                              let tool = boardPane.editTool
+                              let alternatePlacement = tool === "alternate"
+                              let pointWasEmpty = true
+
+                              if (alternatePlacement) {
+                                  tool = boardPane.alternateEditColour
+
+                                  for (const stone of goBoard.stones) {
+                                      if (Number(stone.x) === x
+                                              && Number(stone.y) === y) {
+                                          pointWasEmpty = false
+                                          break
+                                      }
+                                  }
+                              }
+
                               if (gameController.editPositionPoint(
                                           x,
                                           y,
-                                          boardPane.editTool)) {
+                                          tool)) {
+                                  if (alternatePlacement && pointWasEmpty) {
+                                      boardPane.alternateEditColour =
+                                          tool === "black"
+                                          ? "white"
+                                          : "black"
+                                  }
+
                                   gameList.clearSearchResults()
                                   boardPane.applyLoadedPosition()
                               } else {
@@ -1973,58 +2007,6 @@ menuBar: MenuBar {
                           Layout.fillWidth: true
                       }
 
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("↔")
-                          Layout.preferredWidth: Kirigami.Units.gridUnit * 2
-                          font.pixelSize: Kirigami.Units.gridUnit * 1.15
-
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Flip board left to right")
-
-                          onClicked: goBoard.flipViewLeftRight()
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("↕")
-                          Layout.preferredWidth: Kirigami.Units.gridUnit * 2
-                          font.pixelSize: Kirigami.Units.gridUnit * 1.15
-
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Flip board top to bottom")
-
-                          onClicked: goBoard.flipViewTopBottom()
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("↺")
-                          Layout.preferredWidth: Kirigami.Units.gridUnit * 2
-                          font.pixelSize: Kirigami.Units.gridUnit * 1.15
-
-                          ToolTip.visible: hovered
-                          ToolTip.text: qsTr("Rotate board 90° counter-clockwise")
-
-                          onClicked: goBoard.rotateViewCounterClockwise()
-                      }
-
-                      Label {
-                          text: {
-                              if (goBoard.patternSelectionValid) {
-                                  return qsTr("%1 × %2 intersections")
-                                      .arg(boardPane.patternRight
-                                           - boardPane.patternLeft + 1)
-                                      .arg(boardPane.patternBottom
-                                           - boardPane.patternTop + 1)
-                              }
-
-                              return boardPane.selectingPattern
-                                  ? qsTr("Drag over the board")
-                                  : ""
-                          }
-                          opacity: 0.75
-                      }
                   }
 
                   RowLayout {
@@ -2035,22 +2017,21 @@ menuBar: MenuBar {
                       spacing: 4
 
                       /*
-                       * Keep this row's height reserved even when its
-                       * contents are not needed. Otherwise opening a
-                       * matching game removes the row and makes the Go
-                       * board change size.
+                       * This row is always reserved so that changing modes does
+                       * not resize the Go board. Position-edit controls occupy
+                       * the left side when applicable; board-view controls use
+                       * the same otherwise-unused horizontal space.
                        */
-                      enabled: !boardPane.selectingPattern
-                      opacity: boardPane.selectingPattern ? 0 : 1
-
                       Label {
                           visible: boardPane.editingPosition
+                                   && !boardPane.selectingPattern
                           text: qsTr("Place:")
                       }
 
                       ToolButton {
                           id: editBlackButton
                           visible: boardPane.editingPosition
+                                   && !boardPane.selectingPattern
                           text: qsTr("Black")
                           checkable: true
                           checked: boardPane.editTool === "black"
@@ -2060,6 +2041,7 @@ menuBar: MenuBar {
 
                       ToolButton {
                           visible: boardPane.editingPosition
+                                   && !boardPane.selectingPattern
                           text: qsTr("White")
                           checkable: true
                           checked: boardPane.editTool === "white"
@@ -2069,6 +2051,27 @@ menuBar: MenuBar {
 
                       ToolButton {
                           visible: boardPane.editingPosition
+                                   && !boardPane.selectingPattern
+                          text: qsTr("Alternate")
+                          checkable: true
+                          checked: boardPane.editTool === "alternate"
+
+                          ToolTip.visible: hovered
+                          ToolTip.text:
+                              qsTr("Place Black and White alternately; next %1")
+                                  .arg(boardPane.alternateEditColour === "black"
+                                       ? qsTr("Black")
+                                       : qsTr("White"))
+
+                          onClicked: {
+                              boardPane.editTool = "alternate"
+                              boardPane.alternateEditColour = "black"
+                          }
+                      }
+
+                      ToolButton {
+                          visible: boardPane.editingPosition
+                                   && !boardPane.selectingPattern
                           text: qsTr("Erase")
                           checkable: true
                           checked: boardPane.editTool === "erase"
@@ -2091,9 +2094,80 @@ menuBar: MenuBar {
                           Layout.fillWidth: true
                       }
 
+                      ToolButton {
+                          visible: !root.playingGame
+                          text: qsTr("↔")
+                          Layout.preferredWidth:
+                              Kirigami.Units.gridUnit * 2
+                          font.pixelSize:
+                              Kirigami.Units.gridUnit * 1.15
+
+                          ToolTip.visible: hovered
+                          ToolTip.text:
+                              qsTr("Flip board left to right")
+
+                          onClicked: goBoard.flipViewLeftRight()
+                      }
+
+                      ToolButton {
+                          visible: !root.playingGame
+                          text: qsTr("↕")
+                          Layout.preferredWidth:
+                              Kirigami.Units.gridUnit * 2
+                          font.pixelSize:
+                              Kirigami.Units.gridUnit * 1.15
+
+                          ToolTip.visible: hovered
+                          ToolTip.text:
+                              qsTr("Flip board top to bottom")
+
+                          onClicked: goBoard.flipViewTopBottom()
+                      }
+
+                      ToolButton {
+                          visible: !root.playingGame
+                          text: qsTr("↺")
+                          Layout.preferredWidth:
+                              Kirigami.Units.gridUnit * 2
+                          font.pixelSize:
+                              Kirigami.Units.gridUnit * 1.15
+
+                          ToolTip.visible: hovered
+                          ToolTip.text:
+                              qsTr("Rotate board 90° counter-clockwise")
+
+                          onClicked:
+                              goBoard.rotateViewCounterClockwise()
+                      }
+
                       Label {
-                          visible: boardPane.editingPosition
-                          text: qsTr("Click an intersection to edit")
+                          visible: !root.playingGame
+
+                          text: {
+                              if (goBoard.patternSelectionValid) {
+                                  return qsTr("%1 × %2 intersections")
+                                      .arg(boardPane.patternRight
+                                           - boardPane.patternLeft + 1)
+                                      .arg(boardPane.patternBottom
+                                           - boardPane.patternTop + 1)
+                              }
+
+                              if (boardPane.selectingPattern)
+                                  return qsTr("Drag over the board")
+
+                              if (boardPane.editingPosition
+                                      && boardPane.editTool === "alternate") {
+                                  return qsTr("Next: %1")
+                                      .arg(
+                                          boardPane.alternateEditColour
+                                              === "black"
+                                          ? qsTr("Black")
+                                          : qsTr("White"))
+                              }
+
+                              return ""
+                          }
+
                           opacity: 0.75
                       }
                   }
