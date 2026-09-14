@@ -6,7 +6,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -17,7 +20,7 @@ use bermuda::{
     parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
     replay_positions, write_game_record_sgf,
 };
-use cxx_qt::CxxQtType;
+use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use directories::ProjectDirs;
 
@@ -50,6 +53,8 @@ mod ffi {
         #[qproperty(QString, white_player)]
         #[qproperty(QString, komi)]
         #[qproperty(QString, error_message)]
+        #[qproperty(bool, katago_analysis_in_progress)]
+        #[qproperty(QString, katago_analysis_text)]
         type BermudaApp = super::BermudaAppRust;
 
         #[qinvokable]
@@ -144,7 +149,7 @@ mod ffi {
 
         #[qinvokable]
         #[cxx_name = "analyseCurrentPosition"]
-        fn analyse_current_position(self: Pin<&mut BermudaApp>, visit_budget: i32) -> QString;
+        fn analyse_current_position(self: Pin<&mut BermudaApp>, visit_budget: i32) -> bool;
 
         #[qinvokable]
         #[cxx_name = "hypotheticalMoveStones"]
@@ -169,6 +174,8 @@ mod ffi {
             second_colour: &QString,
         ) -> QString;
     }
+
+    impl cxx_qt::Threading for BermudaApp {}
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +198,33 @@ struct SearchSourceSnapshot {
     move_number: i32,
 }
 
+struct KataGoWorker {
+    sender: mpsc::Sender<KataGoWorkerCommand>,
+}
+
+impl Drop for KataGoWorker {
+    fn drop(&mut self) {
+        /*
+         * Do not block the Qt thread waiting for KataGo. If the worker
+         * is idle it will receive this immediately; if an analysis is
+         * active, shutdown follows that analysis.
+         */
+        let _ = self.sender.send(KataGoWorkerCommand::Shutdown);
+    }
+}
+
+enum KataGoWorkerCommand {
+    Analyse(KataGoWorkerRequest),
+    Shutdown,
+}
+
+struct KataGoWorkerRequest {
+    analysis_id: u64,
+    configuration: KataGoConfiguration,
+    request: AnalysisRequest,
+    expected_player: Colour,
+}
+
 pub struct BermudaAppRust {
     board_size: i32,
     stones_json: QString,
@@ -202,10 +236,15 @@ pub struct BermudaAppRust {
     white_player: QString,
     komi: QString,
     error_message: QString,
+    katago_analysis_in_progress: bool,
+    katago_analysis_text: QString,
 
     loaded_document: Option<LoadedDocument>,
     played_game_document: Option<LoadedDocument>,
     search_source_snapshot: Option<SearchSourceSnapshot>,
+
+    katago_analysis_id: u64,
+    katago_worker: Option<KataGoWorker>,
 }
 
 impl Default for BermudaAppRust {
@@ -221,12 +260,135 @@ impl Default for BermudaAppRust {
             white_player: QString::default(),
             komi: QString::default(),
             error_message: QString::default(),
+            katago_analysis_in_progress: false,
+            katago_analysis_text: QString::default(),
 
             loaded_document: None,
             played_game_document: None,
             search_source_snapshot: None,
+
+            katago_analysis_id: 0,
+            katago_worker: None,
         }
     }
+}
+
+fn start_katago_worker(qt_thread: cxx_qt::CxxQtThread<ffi::BermudaApp>) -> KataGoWorker {
+    let (sender, receiver) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let mut process: Option<(KataGoConfiguration, KataGoProcess)> = None;
+
+        while let Ok(command) = receiver.recv() {
+            let KataGoWorkerCommand::Analyse(work) = command else {
+                break;
+            };
+
+            let analysis_id = work.analysis_id;
+            let completion = execute_katago_analysis(&mut process, &work);
+
+            qt_thread
+                .queue(move |mut app| {
+                    /*
+                     * Do not allow an obsolete completion to overwrite
+                     * state belonging to a later analysis request.
+                     */
+                    if app.rust().katago_analysis_id != analysis_id {
+                        return;
+                    }
+
+                    app.as_mut().set_katago_analysis_in_progress(false);
+
+                    match completion {
+                        Ok(text) => {
+                            app.as_mut().set_katago_analysis_text(QString::from(text));
+                        }
+
+                        Err(error) => {
+                            app.as_mut().set_error_message(QString::from(error.clone()));
+
+                            app.as_mut().set_katago_analysis_text(QString::from(format!(
+                                "Analysis failed: {error}"
+                            )));
+                        }
+                    }
+                })
+                .ok();
+        }
+
+        if let Some((_, process)) = process.take() {
+            let _ = process.shutdown();
+        }
+    });
+
+    KataGoWorker { sender }
+}
+
+fn execute_katago_analysis(
+    process: &mut Option<(KataGoConfiguration, KataGoProcess)>,
+    work: &KataGoWorkerRequest,
+) -> Result<String, String> {
+    let configuration_changed = process
+        .as_ref()
+        .is_none_or(|(configuration, _)| configuration != &work.configuration);
+
+    if configuration_changed {
+        if let Some((_, old_process)) = process.take() {
+            old_process
+                .shutdown()
+                .map_err(|error| format!("shutting down previous KataGo process: {error}"))?;
+        }
+
+        let new_process = KataGoProcess::start(&work.configuration)
+            .map_err(|error| format!("starting KataGo: {error}"))?;
+
+        *process = Some((work.configuration.clone(), new_process));
+    }
+
+    let analysis_result = {
+        let (_, katago) = process.as_mut().expect("KataGo process was started above");
+
+        katago.analyse(&work.request)
+    };
+
+    let analysis = match analysis_result {
+        Ok(analysis) => analysis,
+
+        Err(error) => {
+            /*
+             * After a process/protocol failure we cannot safely assume
+             * that the stream remains synchronised. Dropping the process
+             * kills it; the next request will start a fresh instance.
+             */
+            process.take();
+
+            return Err(format!("analysing the displayed position: {error}"));
+        }
+    };
+
+    if analysis.current_player != work.expected_player {
+        process.take();
+
+        return Err(format!(
+            "KataGo reports {} to move, but Bermuda reports {} to move;              this position is not safe to analyse yet",
+            colour_name(analysis.current_player),
+            colour_name(work.expected_player),
+        ));
+    }
+
+    let candidate = analysis
+        .candidates
+        .first()
+        .ok_or_else(|| "KataGo returned no candidate moves".to_owned())?;
+
+    let candidate_name = analysis_vertex_name(&candidate.vertex, work.request.board_size)?;
+
+    Ok(format!(
+        "Suggested: {candidate_name}     Black ({:.1} pts, {:.0}% win)     {} visits",
+        candidate.score_lead,
+        candidate.win_rate * 100.0,
+        analysis.visits,
+    ))
 }
 
 impl ffi::BermudaApp {
@@ -820,10 +982,31 @@ impl ffi::BermudaApp {
         self.as_mut().show_cached_position(move_number)
     }
 
-    fn analyse_current_position(mut self: Pin<&mut Self>, visit_budget: i32) -> QString {
+    fn analyse_current_position(mut self: Pin<&mut Self>, visit_budget: i32) -> bool {
         self.as_mut().set_error_message(QString::default());
 
-        let result: Result<String, String> = (|| {
+        self.as_mut().set_katago_analysis_text(QString::default());
+
+        if self.as_ref().rust().katago_analysis_in_progress {
+            let error = "KataGo analysis is already in progress";
+
+            self.as_mut().set_error_message(QString::from(error));
+
+            self.as_mut()
+                .set_katago_analysis_text(QString::from(format!("Analysis failed: {error}")));
+
+            return false;
+        }
+
+        let analysis_id = {
+            let mut rust = self.as_mut().rust_mut();
+
+            rust.katago_analysis_id = rust.katago_analysis_id.wrapping_add(1);
+
+            rust.katago_analysis_id
+        };
+
+        let work: Result<KataGoWorkerRequest, String> = (|| {
             if !(10..=100_000).contains(&visit_budget) {
                 return Err("KataGo visit budget must be between 10 and 100000".to_owned());
             }
@@ -843,15 +1026,22 @@ impl ffi::BermudaApp {
                 let move_number = usize::try_from(rust.move_number)
                     .map_err(|_| "move number cannot be negative".to_owned())?;
 
-                let position = analysis_position_from_states(&document.positions, move_number)
+                let position =
+                    analysis_position_from_states(
+                        &document.positions,
+                        move_number,
+                    )
                     .map_err(|error| {
-                        format!("preparing the displayed position for KataGo: {error}")
+                        format!(
+                            "preparing the displayed position                              for KataGo: {error}"
+                        )
                     })?;
 
-                let komi = document.komi.ok_or_else(|| {
-                    "the displayed position has no komi; KataGo analysis currently requires an explicit komi"
-                        .to_owned()
-                })?;
+                let komi =
+                    document.komi.ok_or_else(|| {
+                        "the displayed position has no komi;                          KataGo analysis currently requires                          an explicit komi"
+                            .to_owned()
+                    })?;
 
                 if !komi.is_finite() {
                     return Err("the displayed position has invalid komi".to_owned());
@@ -861,14 +1051,16 @@ impl ffi::BermudaApp {
             };
 
             let executable = required_katago_path("BERMUDA_KATAGO_EXECUTABLE")?;
+
             let model = required_katago_path("BERMUDA_KATAGO_MODEL")?;
+
             let config = required_katago_path("BERMUDA_KATAGO_CONFIG")?;
 
             let working_directory = katago_working_directory()?;
 
             fs::create_dir_all(&working_directory).map_err(|error| {
                 format!(
-                    "creating KataGo working directory {}: {error}",
+                    "creating KataGo working directory {}:                          {error}",
                     working_directory.display()
                 )
             })?;
@@ -877,10 +1069,13 @@ impl ffi::BermudaApp {
                 KataGoConfiguration::new(executable, model, config, &working_directory);
 
             let expected_player = position.current_player;
+
             let board_size = position.board_size;
 
             let request = AnalysisRequest {
-                id: format!("bermuda-gui-position-{move_number}"),
+                id: format!(
+                    "bermuda-gui-analysis-{analysis_id}-                     position-{move_number}"
+                ),
                 board_size,
                 rules: "japanese".to_owned(),
                 komi,
@@ -890,52 +1085,64 @@ impl ffi::BermudaApp {
                 max_visits: visit_budget,
             };
 
-            let mut katago = KataGoProcess::start(&configuration)
-                .map_err(|error| format!("starting KataGo: {error}"))?;
-
-            let analysis_result = katago.analyse(&request);
-            let shutdown_result = katago.shutdown();
-
-            let analysis = analysis_result
-                .map_err(|error| format!("analysing the displayed position: {error}"))?;
-
-            shutdown_result.map_err(|error| format!("shutting down KataGo: {error}"))?;
-
-            if analysis.current_player != expected_player {
-                return Err(format!(
-                    "KataGo reports {} to move, but Bermuda reports {} to move;                      this position is not safe to analyse yet",
-                    colour_name(analysis.current_player),
-                    colour_name(expected_player),
-                ));
-            }
-
-            let candidate = analysis
-                .candidates
-                .first()
-                .ok_or_else(|| "KataGo returned no candidate moves".to_owned())?;
-
-            let candidate_name = analysis_vertex_name(&candidate.vertex, board_size)?;
-
-            Ok(format!(
-                "Move {move_number} · {} to move · Japanese rules\n\
-                 Suggested move: {candidate_name}\n\
-                 Black score lead after {candidate_name}: {:.2}\n\
-                 Black win chance after {candidate_name}: {:.1}%\n\
-                 Search: {} visits (budget {})",
-                colour_name(analysis.current_player),
-                candidate.score_lead,
-                candidate.win_rate * 100.0,
-                analysis.visits,
-                visit_budget,
-            ))
+            Ok(KataGoWorkerRequest {
+                analysis_id,
+                configuration,
+                request,
+                expected_player,
+            })
         })();
 
-        match result {
-            Ok(text) => QString::from(text),
+        let work = match work {
+            Ok(work) => work,
 
             Err(error) => {
-                self.as_mut().set_error_message(QString::from(error));
-                QString::default()
+                self.as_mut()
+                    .set_error_message(QString::from(error.clone()));
+
+                self.as_mut()
+                    .set_katago_analysis_text(QString::from(format!("Analysis failed: {error}")));
+
+                return false;
+            }
+        };
+
+        if self.as_ref().rust().katago_worker.is_none() {
+            let qt_thread = self.qt_thread();
+
+            let worker = start_katago_worker(qt_thread);
+
+            self.as_mut().rust_mut().katago_worker = Some(worker);
+        }
+
+        let send_result = self
+            .as_ref()
+            .rust()
+            .katago_worker
+            .as_ref()
+            .expect("KataGo worker was created above")
+            .sender
+            .send(KataGoWorkerCommand::Analyse(work));
+
+        match send_result {
+            Ok(()) => {
+                self.as_mut().set_katago_analysis_in_progress(true);
+
+                true
+            }
+
+            Err(error) => {
+                self.as_mut().rust_mut().katago_worker = None;
+
+                let message = format!("sending analysis to KataGo worker: {error}");
+
+                self.as_mut()
+                    .set_error_message(QString::from(message.clone()));
+
+                self.as_mut()
+                    .set_katago_analysis_text(QString::from(format!("Analysis failed: {message}")));
+
+                false
             }
         }
     }

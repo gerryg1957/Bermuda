@@ -2570,8 +2570,11 @@ menuBar: MenuBar {
 
                       Layout.minimumHeight:
                           boardPane.investigationBodyHeight
+                      Layout.preferredHeight:
+                          boardPane.investigationBodyHeight
+                      Layout.maximumHeight:
+                          boardPane.investigationBodyHeight
 
-                      property string analysisText: ""
                       property int analysisMoveNumber: -1
                       property int analysisVisitBudget: -1
 
@@ -2593,33 +2596,36 @@ menuBar: MenuBar {
                                   stepSize: 50
                                   editable: true
                                   value: uiSettings.katagoVisitBudget
+                                  enabled:
+                                      !gameController
+                                          .katago_analysis_in_progress
 
                                   onValueModified:
                                       uiSettings.katagoVisitBudget = value
                               }
 
                               Button {
-                                  text: qsTr("Analyse")
+                                  text:
+                                      gameController
+                                          .katago_analysis_in_progress
+                                      ? qsTr("Analysing…")
+                                      : qsTr("Analyse")
+
+                                  enabled:
+                                      !gameController
+                                          .katago_analysis_in_progress
 
                                   onClicked: {
-                                      const result =
-                                          gameController
-                                              .analyseCurrentPosition(
-                                                  uiSettings
-                                                      .katagoVisitBudget)
-
                                       katagoPanel.analysisMoveNumber =
                                           gameController.move_number
+
                                       katagoPanel.analysisVisitBudget =
                                           uiSettings.katagoVisitBudget
 
-                                      katagoPanel.analysisText =
-                                          result.length > 0
-                                          ? result
-                                          : qsTr("Analysis failed: %1")
-                                            .arg(
-                                                gameController
-                                                    .error_message)
+                                      gameController
+                                          .analyseCurrentPosition(
+                                              uiSettings
+                                                  .katagoVisitBudget)
                                   }
                               }
                           }
@@ -2632,14 +2638,17 @@ menuBar: MenuBar {
                               Layout.fillWidth: true
 
                               visible:
-                                  katagoPanel.analysisText.length > 0
+                                  gameController
+                                      .katago_analysis_text.length > 0
                                   && katagoPanel.analysisMoveNumber
                                      === gameController.move_number
                                   && katagoPanel.analysisVisitBudget
                                      === uiSettings.katagoVisitBudget
 
-                              wrapMode: Text.WordWrap
-                              text: katagoPanel.analysisText
+                              wrapMode: Text.NoWrap
+                              elide: Text.ElideRight
+                              text:
+                                  gameController.katago_analysis_text
                           }
                       }
                   }
