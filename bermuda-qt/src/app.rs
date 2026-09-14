@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::{
+    env,
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
@@ -10,7 +11,8 @@ use std::{
 };
 
 use bermuda::{
-    Board, Colour, GameRecord, Metadata, Move, PositionOccurrence, PositionState,
+    AnalysisRequest, AnalysisVertex, Board, Colour, GameRecord, KataGoConfiguration, KataGoProcess,
+    Metadata, Move, PositionOccurrence, PositionState, analysis_position_from_states,
     extract_main_variation, importer::ImportOutcome, indexer::POSITION_INDEX_VERSION,
     parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
     replay_positions, write_game_record_sgf,
@@ -139,6 +141,10 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "showPosition"]
         fn show_position(self: Pin<&mut BermudaApp>, move_number: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "analyseCurrentPosition"]
+        fn analyse_current_position(self: Pin<&mut BermudaApp>) -> QString;
 
         #[qinvokable]
         #[cxx_name = "hypotheticalMoveStones"]
@@ -814,6 +820,114 @@ impl ffi::BermudaApp {
         self.as_mut().show_cached_position(move_number)
     }
 
+    fn analyse_current_position(mut self: Pin<&mut Self>) -> QString {
+        self.as_mut().set_error_message(QString::default());
+
+        let result: Result<String, String> = (|| {
+            let (position, komi, move_number) = {
+                let self_ref = self.as_ref();
+                let rust = self_ref.rust();
+
+                let document = rust
+                    .loaded_document
+                    .as_ref()
+                    .ok_or_else(|| "no game is loaded".to_owned())?;
+
+                let move_number = usize::try_from(rust.move_number)
+                    .map_err(|_| "move number cannot be negative".to_owned())?;
+
+                let position = analysis_position_from_states(&document.positions, move_number)
+                    .map_err(|error| {
+                        format!("preparing the displayed position for KataGo: {error}")
+                    })?;
+
+                let komi = document.komi.ok_or_else(|| {
+                    "the displayed position has no komi; KataGo analysis currently requires an explicit komi"
+                        .to_owned()
+                })?;
+
+                if !komi.is_finite() {
+                    return Err("the displayed position has invalid komi".to_owned());
+                }
+
+                (position, f64::from(komi), move_number)
+            };
+
+            let executable = required_katago_path("BERMUDA_KATAGO_EXECUTABLE")?;
+            let model = required_katago_path("BERMUDA_KATAGO_MODEL")?;
+            let config = required_katago_path("BERMUDA_KATAGO_CONFIG")?;
+
+            let working_directory = katago_working_directory()?;
+
+            fs::create_dir_all(&working_directory).map_err(|error| {
+                format!(
+                    "creating KataGo working directory {}: {error}",
+                    working_directory.display()
+                )
+            })?;
+
+            let configuration =
+                KataGoConfiguration::new(executable, model, config, &working_directory);
+
+            let expected_player = position.current_player;
+            let board_size = position.board_size;
+
+            let request = AnalysisRequest {
+                id: format!("bermuda-gui-position-{move_number}"),
+                board_size,
+                rules: "japanese".to_owned(),
+                komi,
+                initial_stones: position.initial_stones,
+                initial_player: position.initial_player,
+                moves: position.moves,
+                max_visits: 50,
+            };
+
+            let mut katago = KataGoProcess::start(&configuration)
+                .map_err(|error| format!("starting KataGo: {error}"))?;
+
+            let analysis_result = katago.analyse(&request);
+            let shutdown_result = katago.shutdown();
+
+            let analysis = analysis_result
+                .map_err(|error| format!("analysing the displayed position: {error}"))?;
+
+            shutdown_result.map_err(|error| format!("shutting down KataGo: {error}"))?;
+
+            if analysis.current_player != expected_player {
+                return Err(format!(
+                    "KataGo reports {} to move, but Bermuda reports {} to move;                      this position is not safe to analyse yet",
+                    colour_name(analysis.current_player),
+                    colour_name(expected_player),
+                ));
+            }
+
+            let candidate = analysis
+                .candidates
+                .first()
+                .ok_or_else(|| "KataGo returned no candidate moves".to_owned())?;
+
+            let candidate_name = analysis_vertex_name(&candidate.vertex, board_size)?;
+
+            Ok(format!(
+                "Rules: Japanese\n                 Position: move {move_number}\n                 To move: {}\n\n                 Leading candidate: {candidate_name}\n                 Score lead (Black): {:.2}\n                 Win rate (Black): {:.1}%\n                 Visits: {}",
+                colour_name(analysis.current_player),
+                candidate.score_lead,
+                candidate.win_rate * 100.0,
+                analysis.visits,
+            ))
+        })();
+
+        match result {
+            Ok(text) => QString::from(text),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                QString::default()
+            }
+        }
+    }
+
     fn hypothetical_move_stones(
         mut self: Pin<&mut Self>,
         move_number: i32,
@@ -1226,6 +1340,57 @@ fn new_played_source_locator() -> String {
     let sequence = PLAYED_GAME_LOCATOR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
 
     format!("played:{nanos}:{}:{sequence}", std::process::id())
+}
+
+fn required_katago_path(variable: &str) -> Result<PathBuf, String> {
+    let value = env::var_os(variable).ok_or_else(|| format!("{variable} is not set"))?;
+
+    if value.is_empty() {
+        return Err(format!("{variable} is empty"));
+    }
+
+    let path = PathBuf::from(value);
+
+    if !path.is_file() {
+        return Err(format!(
+            "{variable} does not name a file: {}",
+            path.display()
+        ));
+    }
+
+    Ok(path)
+}
+
+fn katago_working_directory() -> Result<PathBuf, String> {
+    let project_dirs = ProjectDirs::from("org", "Bermuda", "Bermuda")
+        .ok_or_else(|| "could not determine the per-user Bermuda data directory".to_owned())?;
+
+    Ok(project_dirs.data_local_dir().join("katago"))
+}
+
+fn analysis_vertex_name(vertex: &AnalysisVertex, board_size: u8) -> Result<String, String> {
+    match vertex {
+        AnalysisVertex::Pass => Ok("Pass".to_owned()),
+
+        AnalysisVertex::Point(point) => {
+            let board = Board::new(board_size).map_err(|error| error.to_string())?;
+
+            let core_point = board
+                .point(point.x, point.y)
+                .map_err(|error| error.to_string())?;
+
+            board
+                .point_name(core_point)
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn colour_name(colour: Colour) -> &'static str {
+    match colour {
+        Colour::Black => "Black",
+        Colour::White => "White",
+    }
 }
 
 fn personal_project_root() -> Result<PathBuf, String> {

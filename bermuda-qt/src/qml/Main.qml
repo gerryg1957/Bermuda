@@ -641,6 +641,26 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
+            text: qsTr("&Analyse Position with KataGo…")
+            enabled: boardPane.selectedGame !== null
+
+            onTriggered: {
+                const result =
+                    gameController.analyseCurrentPosition()
+
+                katagoAnalysisDialog.analysisText =
+                    result.length > 0
+                    ? result
+                    : qsTr("KataGo analysis failed.\n\n%1")
+                      .arg(gameController.error_message)
+
+                katagoAnalysisDialog.open()
+            }
+        }
+
+        MenuSeparator {}
+
+        Action {
             text: root.localGameFinished
                   ? qsTr("Return to &Played Game")
                   : qsTr("Return to &Game")
@@ -1202,6 +1222,26 @@ menuBar: MenuBar {
                     .arg(game.black)
                     .arg(game.white)
             }
+        }
+    }
+
+    Dialog {
+        id: katagoAnalysisDialog
+
+        modal: true
+        anchors.centerIn: parent
+        title: qsTr("KataGo analysis")
+        standardButtons: Dialog.Ok
+
+        property string analysisText: ""
+
+        contentItem: Label {
+            width: Math.min(
+                root.width - Kirigami.Units.gridUnit * 4,
+                Kirigami.Units.gridUnit * 28)
+
+            wrapMode: Text.WordWrap
+            text: katagoAnalysisDialog.analysisText
         }
     }
 
