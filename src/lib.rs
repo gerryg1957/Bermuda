@@ -35,7 +35,8 @@ pub use board::{Board, Colour, Move};
 pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use katago::{
-    AnalysisCandidate, AnalysisPoint, AnalysisResult, AnalysisVertex, parse_analysis_response,
+    AnalysisCandidate, AnalysisMove, AnalysisPoint, AnalysisRequest, AnalysisResult,
+    AnalysisVertex, KataGoConfiguration, KataGoProcess, parse_analysis_response,
 };
 pub use move_file::{read_move_file, write_move_file};
 pub use occurrence_context::{
