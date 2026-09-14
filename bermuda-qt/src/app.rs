@@ -144,7 +144,7 @@ mod ffi {
 
         #[qinvokable]
         #[cxx_name = "analyseCurrentPosition"]
-        fn analyse_current_position(self: Pin<&mut BermudaApp>) -> QString;
+        fn analyse_current_position(self: Pin<&mut BermudaApp>, visit_budget: i32) -> QString;
 
         #[qinvokable]
         #[cxx_name = "hypotheticalMoveStones"]
@@ -820,10 +820,17 @@ impl ffi::BermudaApp {
         self.as_mut().show_cached_position(move_number)
     }
 
-    fn analyse_current_position(mut self: Pin<&mut Self>) -> QString {
+    fn analyse_current_position(mut self: Pin<&mut Self>, visit_budget: i32) -> QString {
         self.as_mut().set_error_message(QString::default());
 
         let result: Result<String, String> = (|| {
+            if !(10..=100_000).contains(&visit_budget) {
+                return Err("KataGo visit budget must be between 10 and 100000".to_owned());
+            }
+
+            let visit_budget = u64::try_from(visit_budget)
+                .map_err(|_| "invalid KataGo visit budget".to_owned())?;
+
             let (position, komi, move_number) = {
                 let self_ref = self.as_ref();
                 let rust = self_ref.rust();
@@ -880,7 +887,7 @@ impl ffi::BermudaApp {
                 initial_stones: position.initial_stones,
                 initial_player: position.initial_player,
                 moves: position.moves,
-                max_visits: 50,
+                max_visits: visit_budget,
             };
 
             let mut katago = KataGoProcess::start(&configuration)
@@ -910,11 +917,16 @@ impl ffi::BermudaApp {
             let candidate_name = analysis_vertex_name(&candidate.vertex, board_size)?;
 
             Ok(format!(
-                "Rules: Japanese\n                 Position: move {move_number}\n                 To move: {}\n\n                 Leading candidate: {candidate_name}\n                 Score lead (Black): {:.2}\n                 Win rate (Black): {:.1}%\n                 Visits: {}",
+                "Move {move_number} · {} to move · Japanese rules\n\
+                 Suggested move: {candidate_name}\n\
+                 Black score lead after {candidate_name}: {:.2}\n\
+                 Black win chance after {candidate_name}: {:.1}%\n\
+                 Search: {} visits (budget {})",
                 colour_name(analysis.current_player),
                 candidate.score_lead,
                 candidate.win_rate * 100.0,
                 analysis.visits,
+                visit_budget,
             ))
         })();
 

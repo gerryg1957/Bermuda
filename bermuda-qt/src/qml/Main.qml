@@ -641,26 +641,6 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
-            text: qsTr("&Analyse Position with KataGo…")
-            enabled: boardPane.selectedGame !== null
-
-            onTriggered: {
-                const result =
-                    gameController.analyseCurrentPosition()
-
-                katagoAnalysisDialog.analysisText =
-                    result.length > 0
-                    ? result
-                    : qsTr("KataGo analysis failed.\n\n%1")
-                      .arg(gameController.error_message)
-
-                katagoAnalysisDialog.open()
-            }
-        }
-
-        MenuSeparator {}
-
-        Action {
             text: root.localGameFinished
                   ? qsTr("Return to &Played Game")
                   : qsTr("Return to &Game")
@@ -1225,26 +1205,6 @@ menuBar: MenuBar {
         }
     }
 
-    Dialog {
-        id: katagoAnalysisDialog
-
-        modal: true
-        anchors.centerIn: parent
-        title: qsTr("KataGo analysis")
-        standardButtons: Dialog.Ok
-
-        property string analysisText: ""
-
-        contentItem: Label {
-            width: Math.min(
-                root.width - Kirigami.Units.gridUnit * 4,
-                Kirigami.Units.gridUnit * 28)
-
-            wrapMode: Text.WordWrap
-            text: katagoAnalysisDialog.analysisText
-        }
-    }
-
     Settings {
         id: uiSettings
 
@@ -1256,6 +1216,7 @@ menuBar: MenuBar {
 
         property alias windowWidth: root.width
         property alias windowHeight: root.height
+        property int katagoVisitBudget: 200
         property var splitViewState
     }
 
@@ -1414,6 +1375,8 @@ menuBar: MenuBar {
                 if (destinationProjectPath.length === 0)
                     return false
 
+                investigationMode = "pattern"
+
                 if (!boardPane.beginSearchSession())
                     return false
 
@@ -1559,6 +1522,12 @@ menuBar: MenuBar {
             property string editTool: "black"
             property string alternateEditColour: "black"
             property bool selectingPattern: false
+
+            onSelectingPatternChanged: {
+                if (selectingPattern)
+                    investigationMode = "pattern"
+            }
+
             property int patternLeft: -1
             property int patternTop: -1
             property int patternRight: -1
@@ -1576,6 +1545,20 @@ menuBar: MenuBar {
 
             property bool comparingContinuations: false
             property string comparisonStep: "A"
+
+            /*
+             * The user explicitly chooses which evidence source owns the
+             * investigation area.  The empty string is ordinary game review.
+             */
+            property string investigationMode: ""
+
+            /*
+             * Pattern Search and KataGo share one stable-height
+             * investigation slot so switching modes does not resize
+             * the goban.
+             */
+            readonly property real investigationBodyHeight:
+                Kirigami.Units.gridUnit * 3
 
             readonly property bool investigatingSearch:
                 gameList.searchHasRun && !gameList.searchInProgress
@@ -1652,6 +1635,7 @@ menuBar: MenuBar {
             }
 
             function beginNewSearch() {
+                investigationMode = "pattern"
                 comparingContinuations = false
                 comparisonStep = "A"
 
@@ -2139,6 +2123,77 @@ menuBar: MenuBar {
                       Layout.fillWidth: true
                       Layout.leftMargin: 8
                       Layout.rightMargin: 8
+                      spacing: 6
+
+                      visible: !root.playingGame
+                               && boardPane.selectedGame !== null
+
+                      Button {
+                          text: qsTr("Pattern Search")
+                          highlighted:
+                              boardPane.investigationMode === "pattern"
+
+                          onClicked: {
+                              if (boardPane.investigationMode === "pattern") {
+                                  boardPane.selectingPattern = false
+                                  boardPane.investigationMode = ""
+                              } else {
+                                  boardPane.investigationMode = "pattern"
+                              }
+                          }
+                      }
+
+                      Button {
+                          text: qsTr("KataGo")
+                          highlighted:
+                              boardPane.investigationMode === "katago"
+
+                          onClicked: {
+                              if (boardPane.investigationMode === "katago") {
+                                  boardPane.investigationMode = ""
+                              } else {
+                                  /*
+                                   * Stop actively dragging a pattern, but
+                                   * preserve any existing rectangle/results
+                                   * so returning to Pattern Search restores
+                                   * the investigation.
+                                   */
+                                  boardPane.selectingPattern = false
+                                  boardPane.investigationMode = "katago"
+                              }
+                          }
+                      }
+
+                      Item {
+                          Layout.fillWidth: true
+                      }
+
+                      Button {
+                          text: qsTr("Influence")
+                          checkable: true
+                          checked: goBoard.influenceVisible
+                          highlighted: checked
+
+                          onToggled:
+                              goBoard.influenceVisible = checked
+                      }
+                  }
+
+                  RowLayout {
+                      id: patternInvestigationControls
+
+                      Layout.fillWidth: true
+                      visible: root.playingGame
+                               || (boardPane.selectedGame !== null
+                                   && boardPane.investigationMode === "pattern")
+
+                      Layout.minimumHeight:
+                          root.playingGame
+                          ? implicitHeight
+                          : boardPane.investigationBodyHeight
+
+                      Layout.leftMargin: 8
+                      Layout.rightMargin: 8
                       spacing: 4
 
                       Label {
@@ -2496,19 +2551,111 @@ menuBar: MenuBar {
                           onClicked: boardPane.beginNewSearch()
                       }
 
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("Influence")
-                          checkable: true
-                          checked: goBoard.influenceVisible
-
-                          onToggled: goBoard.influenceVisible = checked
-                      }
-
                       Item {
                           Layout.fillWidth: true
                       }
 
+                  }
+
+                  Frame {
+                      id: katagoPanel
+
+                      Layout.fillWidth: true
+                      Layout.leftMargin: 8
+                      Layout.rightMargin: 8
+
+                      visible: !root.playingGame
+                               && boardPane.selectedGame !== null
+                               && boardPane.investigationMode === "katago"
+
+                      Layout.minimumHeight:
+                          boardPane.investigationBodyHeight
+
+                      property string analysisText: ""
+                      property int analysisMoveNumber: -1
+                      property int analysisVisitBudget: -1
+
+                      contentItem: ColumnLayout {
+                          spacing: 4
+
+                          RowLayout {
+                              Layout.fillWidth: true
+                              spacing: 6
+
+                              Label {
+                                  text: qsTr("Visit budget:")
+                              }
+
+                              SpinBox {
+                                  id: katagoVisitBudgetSpinBox
+                                  from: 10
+                                  to: 100000
+                                  stepSize: 50
+                                  editable: true
+                                  value: uiSettings.katagoVisitBudget
+
+                                  onValueModified:
+                                      uiSettings.katagoVisitBudget = value
+                              }
+
+                              Button {
+                                  text: qsTr("Analyse")
+
+                                  onClicked: {
+                                      const result =
+                                          gameController
+                                              .analyseCurrentPosition(
+                                                  uiSettings
+                                                      .katagoVisitBudget)
+
+                                      katagoPanel.analysisMoveNumber =
+                                          gameController.move_number
+                                      katagoPanel.analysisVisitBudget =
+                                          uiSettings.katagoVisitBudget
+
+                                      katagoPanel.analysisText =
+                                          result.length > 0
+                                          ? result
+                                          : qsTr("Analysis failed: %1")
+                                            .arg(
+                                                gameController
+                                                    .error_message)
+                                  }
+                              }
+                          }
+
+                          Item {
+                              Layout.fillWidth: true
+                          }
+
+                          Label {
+                              Layout.fillWidth: true
+
+                              visible:
+                                  katagoPanel.analysisText.length > 0
+                                  && katagoPanel.analysisMoveNumber
+                                     === gameController.move_number
+                                  && katagoPanel.analysisVisitBudget
+                                     === uiSettings.katagoVisitBudget
+
+                              wrapMode: Text.WordWrap
+                              text: katagoPanel.analysisText
+                          }
+                      }
+                  }
+
+                  Item {
+                      id: investigationHeightReserve
+
+                      visible: !root.playingGame
+                               && boardPane.selectedGame !== null
+                               && boardPane.investigationMode === ""
+
+                      Layout.fillWidth: true
+                      Layout.minimumHeight:
+                          boardPane.investigationBodyHeight
+                      Layout.preferredHeight:
+                          boardPane.investigationBodyHeight
                   }
 
                   RowLayout {
@@ -2586,8 +2733,10 @@ menuBar: MenuBar {
                       }
 
                       Label {
-                          visible: boardPane.investigatingSearch
-                                   && gameList.searchOutcomeText.length > 0
+                          visible:
+                              boardPane.investigationMode === "pattern"
+                              && boardPane.investigatingSearch
+                              && gameList.searchOutcomeText.length > 0
                           text: gameList.searchOutcomeText
                           font.bold: true
                       }
@@ -2646,7 +2795,8 @@ menuBar: MenuBar {
                           visible: !root.playingGame
 
                           text: {
-                              if (goBoard.patternSelectionValid) {
+                              if (boardPane.investigationMode === "pattern"
+                                      && goBoard.patternSelectionValid) {
                                   return qsTr("%1 × %2 intersections")
                                       .arg(boardPane.patternRight
                                            - boardPane.patternLeft + 1)
@@ -2654,7 +2804,8 @@ menuBar: MenuBar {
                                            - boardPane.patternTop + 1)
                               }
 
-                              if (boardPane.selectingPattern)
+                              if (boardPane.investigationMode === "pattern"
+                                      && boardPane.selectingPattern)
                                   return qsTr("Drag over the board")
 
                               if (boardPane.editingPosition
@@ -2691,40 +2842,72 @@ menuBar: MenuBar {
                     Layout.preferredHeight:
                         Layout.minimumHeight
 
-                    padding: 8
+                    padding: 5
 
                     ColumnLayout {
                         id: gameDetailsContent
                         anchors.fill: parent
-                        spacing: 4
+                        spacing: 2
                         visible: root.playingGame
                                  || !boardPane.showingContinuationComparison
 
-                        Label {
+                        RowLayout {
                             Layout.fillWidth: true
+                            spacing: 8
 
-                            text: {
-                                if (boardPane.selectedGame) {
-                                    if (boardPane.selectedGame.white.length > 0) {
-                                        return qsTr("%1 — %2")
-                                            .arg(boardPane.selectedGame.black)
-                                            .arg(boardPane.selectedGame.white)
+                            Label {
+                                Layout.fillWidth: true
+
+                                text: {
+                                    if (boardPane.selectedGame) {
+                                        if (boardPane.selectedGame.white.length > 0) {
+                                            return qsTr("%1 — %2")
+                                                .arg(boardPane.selectedGame.black)
+                                                .arg(boardPane.selectedGame.white)
+                                        }
+
+                                        return boardPane.selectedGame.black
                                     }
 
-                                    return boardPane.selectedGame.black
+                                    return gameList.searchResultsSelected
+                                        ? qsTr("No search result selected")
+                                        : ""
                                 }
 
-                                return gameList.searchResultsSelected
-                                    ? qsTr("No search result selected")
-                                    : ""
+                                font.pixelSize: 16
+                                elide: Text.ElideRight
                             }
 
-                            font.pixelSize: 20
-                            elide: Text.ElideRight
+                            Label {
+                                visible: !root.playingGame
+                                         && boardPane.selectedGame !== null
+                                         && boardPane.selectedGame.komi.length > 0
+
+                                text: qsTr("Komi %1")
+                                      .arg(boardPane.selectedGame
+                                           ? boardPane.selectedGame.komi
+                                           : "")
+
+                                opacity: 0.75
+                                font.pixelSize: 14
+                            }
                         }
 
                         Label {
                             visible: !root.playingGame
+                                     && (
+                                         (!boardPane.selectedGame
+                                          && gameList.searchResultsSelected)
+                                         || (boardPane.selectedGame
+                                             && (
+                                                 boardPane.selectedGame
+                                                     .gameDate.length > 0
+                                                 || boardPane.selectedGame
+                                                     .result.length > 0
+                                                 || boardPane.selectedGame
+                                                     .eventName.length > 0
+                                             ))
+                                     )
                             Layout.fillWidth: true
 
                             text: {
@@ -2744,12 +2927,6 @@ menuBar: MenuBar {
                                 if (boardPane.selectedGame.result.length > 0) {
                                     details.push(
                                                 boardPane.selectedGame.result)
-                                }
-
-                                if (boardPane.selectedGame.komi.length > 0) {
-                                    details.push(
-                                                qsTr("Komi %1").arg(
-                                                    boardPane.selectedGame.komi))
                                 }
 
                                 if (boardPane.selectedGame.eventName.length > 0) {
