@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::Colour;
+use crate::{Colour, replay::PositionState};
 
 /// Zero-based board coordinate used by Bermuda analysis results.
 ///
@@ -88,13 +88,124 @@ pub struct AnalysisMove {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct AnalysisStone {
+    pub colour: Colour,
+    pub point: AnalysisPoint,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnalysisRequest {
     pub id: String,
     pub board_size: u8,
     pub rules: String,
     pub komi: f64,
+    pub initial_stones: Vec<AnalysisStone>,
+    pub initial_player: Colour,
     pub moves: Vec<AnalysisMove>,
     pub max_visits: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnalysisPosition {
+    pub board_size: u8,
+    pub initial_stones: Vec<AnalysisStone>,
+    pub initial_player: Colour,
+    pub moves: Vec<AnalysisMove>,
+    pub current_player: Colour,
+}
+
+/// Converts Bermuda replay states into the position/history representation
+/// needed for KataGo analysis.
+///
+/// Position zero supplies the already-resolved initial board after all setup
+/// edits. Subsequent states supply the real moves that reached the requested
+/// position.
+pub fn analysis_position_from_states(
+    positions: &[PositionState],
+    move_number: usize,
+) -> Result<AnalysisPosition> {
+    let initial = positions
+        .first()
+        .context("cannot analyse an empty Bermuda position sequence")?;
+
+    if initial.occurrence.move_number != 0 {
+        bail!(
+            "Bermuda analysis position sequence starts at move {}, not move 0",
+            initial.occurrence.move_number
+        );
+    }
+
+    let current = positions.get(move_number).with_context(|| {
+        format!(
+            "requested analysis move {move_number}, but replay contains only {} moves",
+            positions.len().saturating_sub(1)
+        )
+    })?;
+
+    let board_size = initial.board.size();
+    let point_count = u16::from(board_size) * u16::from(board_size);
+
+    let mut initial_stones = Vec::new();
+
+    for point in 0..point_count {
+        if let Some(colour) = initial.board.colour_at(point) {
+            initial_stones.push(AnalysisStone {
+                colour,
+                point: analysis_point_from_core(point, board_size)?,
+            });
+        }
+    }
+
+    let mut moves = Vec::with_capacity(move_number);
+
+    for (index, state) in positions.iter().enumerate().skip(1).take(move_number) {
+        if state.occurrence.move_number != index {
+            bail!(
+                "Bermuda analysis replay position {index} reports move number {}",
+                state.occurrence.move_number
+            );
+        }
+
+        if state.board.size() != board_size {
+            bail!("Bermuda analysis replay changes board size at move {index}");
+        }
+
+        let mv = state.last_move.with_context(|| {
+            format!("Bermuda analysis replay position {index} has no producing move")
+        })?;
+
+        let vertex = match mv.point {
+            Some(point) => AnalysisVertex::Point(analysis_point_from_core(point, board_size)?),
+            None => AnalysisVertex::Pass,
+        };
+
+        moves.push(AnalysisMove {
+            colour: mv.colour,
+            vertex,
+        });
+    }
+
+    Ok(AnalysisPosition {
+        board_size,
+        initial_stones,
+        initial_player: initial.occurrence.side_to_move,
+        moves,
+        current_player: current.occurrence.side_to_move,
+    })
+}
+
+fn analysis_point_from_core(point: u16, board_size: u8) -> Result<AnalysisPoint> {
+    let size = u16::from(board_size);
+    let point_count = size * size;
+
+    if point >= point_count {
+        bail!("Bermuda point {point} lies outside a {board_size}x{board_size} board");
+    }
+
+    Ok(AnalysisPoint {
+        x: (point % size) as u8,
+        y: (point / size) as u8,
+    })
 }
 
 pub struct KataGoProcess {
@@ -273,6 +384,11 @@ impl Drop for KataGoProcess {
 #[serde(rename_all = "camelCase")]
 struct ProtocolQuery<'a> {
     id: &'a str,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    initial_stones: Vec<[String; 2]>,
+
+    initial_player: &'static str,
     moves: Vec<[String; 2]>,
     rules: &'a str,
     komi: f64,
@@ -346,6 +462,17 @@ fn analysis_request_json(request: &AnalysisRequest) -> Result<String> {
         bail!("KataGo analysis max_visits must be greater than zero");
     }
 
+    let initial_stones = request
+        .initial_stones
+        .iter()
+        .map(|stone| {
+            Ok([
+                protocol_colour(stone.colour).to_owned(),
+                format_vertex(AnalysisVertex::Point(stone.point), request.board_size)?,
+            ])
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     let moves = request
         .moves
         .iter()
@@ -359,6 +486,8 @@ fn analysis_request_json(request: &AnalysisRequest) -> Result<String> {
 
     let query = ProtocolQuery {
         id: &request.id,
+        initial_stones,
+        initial_player: protocol_colour(request.initial_player),
         moves,
         rules: &request.rules,
         komi: request.komi,
@@ -571,6 +700,94 @@ mod tests {
 
         assert!(error.to_string().contains("outside a 19x19 board"));
     }
+    fn position_from_sgf(sgf: &str, move_number: usize) -> AnalysisPosition {
+        let collection = crate::parse_collection(sgf.as_bytes()).expect("parse SGF");
+
+        let record = crate::extract_main_variation(&collection).expect("extract game");
+
+        let positions = crate::replay_positions(&record).expect("replay game");
+
+        analysis_position_from_states(&positions, move_number).expect("convert replay position")
+    }
+
+    #[test]
+    fn converts_ordinary_move_history() {
+        let position = position_from_sgf("(;FF[4]GM[1]SZ[19];B[dd];W[pq])", 2);
+
+        assert_eq!(position.board_size, 19);
+        assert!(position.initial_stones.is_empty());
+        assert_eq!(position.initial_player, Colour::Black);
+        assert_eq!(position.current_player, Colour::Black);
+
+        assert_eq!(
+            position.moves,
+            vec![
+                AnalysisMove {
+                    colour: Colour::Black,
+                    vertex: AnalysisVertex::Point(AnalysisPoint { x: 3, y: 3 }),
+                },
+                AnalysisMove {
+                    colour: Colour::White,
+                    vertex: AnalysisVertex::Point(AnalysisPoint { x: 15, y: 16 }),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn converts_pass_in_real_move_history() {
+        let position = position_from_sgf("(;FF[4]GM[1]SZ[19];B[];W[dd])", 1);
+
+        assert_eq!(position.current_player, Colour::White);
+
+        assert_eq!(
+            position.moves,
+            vec![AnalysisMove {
+                colour: Colour::Black,
+                vertex: AnalysisVertex::Pass,
+            }]
+        );
+    }
+
+    #[test]
+    fn converts_resolved_setup_board_and_white_to_move() {
+        let position = position_from_sgf("(;FF[4]GM[1]SZ[19]AB[dd][pd]AW[dp]AE[pd];W[qp])", 0);
+
+        assert_eq!(position.initial_player, Colour::White);
+        assert_eq!(position.current_player, Colour::White);
+        assert!(position.moves.is_empty());
+
+        assert_eq!(
+            position.initial_stones,
+            vec![
+                AnalysisStone {
+                    colour: Colour::Black,
+                    point: AnalysisPoint { x: 3, y: 3 },
+                },
+                AnalysisStone {
+                    colour: Colour::White,
+                    point: AnalysisPoint { x: 3, y: 15 },
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn converts_only_moves_up_to_requested_position() {
+        let position = position_from_sgf("(;FF[4]GM[1]SZ[19];B[dd];W[pq])", 1);
+
+        assert_eq!(position.moves.len(), 1);
+        assert_eq!(position.current_player, Colour::White);
+
+        assert_eq!(
+            position.moves[0],
+            AnalysisMove {
+                colour: Colour::Black,
+                vertex: AnalysisVertex::Point(AnalysisPoint { x: 3, y: 3 }),
+            }
+        );
+    }
+
     #[test]
     fn serialises_analysis_request_as_katago_json() {
         let request = AnalysisRequest {
@@ -578,6 +795,17 @@ mod tests {
             board_size: 19,
             rules: "japanese".to_owned(),
             komi: 6.5,
+            initial_stones: vec![
+                AnalysisStone {
+                    colour: Colour::Black,
+                    point: AnalysisPoint { x: 3, y: 3 },
+                },
+                AnalysisStone {
+                    colour: Colour::White,
+                    point: AnalysisPoint { x: 15, y: 15 },
+                },
+            ],
+            initial_player: Colour::White,
             moves: vec![
                 AnalysisMove {
                     colour: Colour::Black,
@@ -599,6 +827,11 @@ mod tests {
         assert_eq!(value["boardXSize"].as_u64(), Some(19));
         assert_eq!(value["boardYSize"].as_u64(), Some(19));
         assert_eq!(value["maxVisits"].as_u64(), Some(50));
+        assert_eq!(value["initialPlayer"].as_str(), Some("W"));
+        assert_eq!(value["initialStones"][0][0].as_str(), Some("B"));
+        assert_eq!(value["initialStones"][0][1].as_str(), Some("D4"));
+        assert_eq!(value["initialStones"][1][0].as_str(), Some("W"));
+        assert_eq!(value["initialStones"][1][1].as_str(), Some("Q16"));
         assert_eq!(value["moves"][0][0].as_str(), Some("B"));
         assert_eq!(value["moves"][0][1].as_str(), Some("Q16"));
         assert_eq!(value["moves"][1][0].as_str(), Some("W"));
