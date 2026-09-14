@@ -514,73 +514,26 @@ A heuristic influence map belongs to interpretive context rather than human
 or machine evidence. Its assumptions should be documented, and it should be
 visually distinct from both the continuation map and KataGo ownership.
 
-## 15. Implementation priorities
+## 15. Implementation direction
 
-### Current foundation
+The implemented foundation already supports substantial professional-game
+investigation: reliable import, position and pattern search, continuation
+analysis, occurrence-aware navigation and candidate comparison.
 
-- reliable SGF import;
-- canonical deduplication;
-- position indexing;
-- exact pattern matching;
-- rotations, reflections and colour reversal;
-- distinct-appearance counting;
-- responsive asynchronous search;
-- accurate navigation to each occurrence;
-- a normalised immediate continuation map;
-- selectable continuation points;
-- in-memory filtering to the games supporting a selected candidate;
-- a frequency-ordered Professional continuations list without treating
-  frequency as quality;
-- separate appearance and distinct-game counts;
-- explicit retention of passes, off-map moves and ended games in the
-  continuation evidence;
-- A/B comparison of two candidate continuations;
-- direct access to each candidate's supporting games;
-- descriptive SGF outcome summaries using recorded Black/White game colours.
+Further development should deepen the context and connections between evidence
+rather than encode subjective Go judgement into search ranking.
 
-The candidate-investigation workflow is therefore established: a user can
-discover professional candidates, inspect how often they occurred, compare
-two of them, and move directly into the games that provide the evidence.
+Three directions remain strategically important:
 
-Historical outcomes remain prompts for investigation rather than evaluations.
-Because ordinary searches include colour reversal, the current Black/White
-outcome counts describe the recorded supporting games; they are not presented
-as a chooser-relative candidate win rate.
+- richer context around professional occurrences;
+- KataGo as a separately labelled analytical source alongside human precedent;
+- longitudinal My Games analysis connected to professional comparison through
+  independent queries rather than merged corpora.
 
-### Next priority: occurrence context
-
-- first and last matching positions;
-- pattern duration;
-- forming move or capture;
-- previous local moves;
-- next local move;
-- tenuki and delayed-return detection;
-- board occupancy and local activity measurements;
-- grouping into appearances and local episodes.
-
-This is the next useful step because candidate frequency tells the user
-**what** professionals considered, while occurrence context begins to explain
-**what kind of situation** produced each example and whether it is a useful
-example for study.
-
-### Broader aggregate views
-
-- pre-pattern formation maps;
-- post-pattern local-activity maps;
-- explainable ranking of useful examples;
-- result categories and representative examples;
-- appearance-location and move-number distributions;
-- an experimental, transparent influence-map prototype only after occurrence
-  context and candidate investigation are mature.
-
-### Engine integration
-
-- optional KataGo analysis;
-- comparison of human choices with engine candidates;
-- evaluation before and after continuations;
-- a separately labelled KataGo ownership map;
-- identification of robust human alternatives;
-- support for personal-game analysis.
+The project-wide ordering of this work is maintained in
+[`bermuda-workplan.md`](bermuda-workplan.md). This strategy document should not
+duplicate a milestone sequence that will become stale as implementation
+progresses.
 
 ## 16. Long-term direction
 

@@ -2,7 +2,10 @@
 
 ## Status
 
-Design document.
+Design and implementation guide.
+
+The initial interactive-analysis milestone is implemented. Current project
+ordering is maintained in `bermuda-workplan.md`.
 
 ## Purpose
 
@@ -284,7 +287,7 @@ Protocol parsing and process management should have deterministic tests using ca
 
 A smaller integration-test suite can exercise a real KataGo installation when one is available.
 
-## Initial implementation milestone
+## Initial implementation milestone — implemented
 
 The first useful milestone is intentionally small:
 
@@ -296,4 +299,10 @@ The first useful milestone is intentionally small:
 6. terminate cleanly;
 7. cover the adapter with tests.
 
-Only after that works reliably should we add whole-game/background analysis and database persistence.
+This milestone is now implemented in the Rust adapter and Qt review
+interface.
+
+The next implementation priorities are to keep the KataGo process alive across
+requests and move analysis off the GUI thread. Whole-game/background analysis
+and persistent stored analysis should follow only when the interactive engine
+lifecycle is robust.

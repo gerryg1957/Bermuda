@@ -2,7 +2,11 @@
 
 ## Status
 
-Design document.
+Design and implementation guide.
+
+The separate My Games corpus and basic browse, replay, search and play workflow
+are implemented. Longitudinal analysis of recurring personal behaviour remains
+planned. Current project ordering is maintained in `bermuda-workplan.md`.
 
 ## Purpose
 
