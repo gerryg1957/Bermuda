@@ -10,15 +10,16 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use bermuda::{
-    AnalysisRequest, AnalysisVertex, Board, Colour, GameRecord, KataGoConfiguration, KataGoProcess,
-    Metadata, Move, PositionOccurrence, PositionState, analysis_position_from_states,
-    extract_main_variation, importer::ImportOutcome, indexer::POSITION_INDEX_VERSION,
-    parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
-    replay_positions, write_game_record_sgf,
+    AnalysisOutcome, AnalysisRequest, AnalysisResult, AnalysisVertex, Board, Colour, GameRecord,
+    KataGoConfiguration, KataGoWorker as CoreKataGoWorker, KataGoWorkerEvent, Metadata, Move,
+    PositionOccurrence, PositionState, analysis_position_from_states, extract_main_variation,
+    importer::ImportOutcome, indexer::POSITION_INDEX_VERSION, parse_collection,
+    position_fingerprint, project::Project, project_manager::ProjectManager, replay_positions,
+    write_game_record_sgf,
 };
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
@@ -152,6 +153,10 @@ mod ffi {
         fn analyse_current_position(self: Pin<&mut BermudaApp>, visit_budget: i32) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "cancelKataGoAnalysis"]
+        fn cancel_katago_analysis(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "hypotheticalMoveStones"]
         fn hypothetical_move_stones(
             self: Pin<&mut BermudaApp>,
@@ -205,9 +210,9 @@ struct KataGoWorker {
 impl Drop for KataGoWorker {
     fn drop(&mut self) {
         /*
-         * Do not block the Qt thread waiting for KataGo. If the worker
-         * is idle it will receive this immediately; if an analysis is
-         * active, shutdown follows that analysis.
+         * Do not block the Qt thread waiting for KataGo. The bridge
+         * receives Shutdown asynchronously; its core worker then
+         * terminates any active analysis and shuts KataGo down cleanly.
          */
         let _ = self.sender.send(KataGoWorkerCommand::Shutdown);
     }
@@ -215,6 +220,7 @@ impl Drop for KataGoWorker {
 
 enum KataGoWorkerCommand {
     Analyse(KataGoWorkerRequest),
+    Cancel { analysis_id: u64 },
     Shutdown,
 }
 
@@ -273,115 +279,289 @@ impl Default for BermudaAppRust {
     }
 }
 
+struct KataGoLatestRequest {
+    analysis_id: u64,
+    request_id: String,
+    expected_player: Colour,
+    board_size: u8,
+}
+
+fn queue_katago_completion(
+    qt_thread: &cxx_qt::CxxQtThread<ffi::BermudaApp>,
+    analysis_id: u64,
+    completion: Result<String, String>,
+) {
+    qt_thread
+        .queue(move |mut app| {
+            /*
+             * A superseded analysis may still produce a termination event.
+             * Never allow that obsolete completion to overwrite state
+             * belonging to the newest request.
+             */
+            if app.rust().katago_analysis_id != analysis_id {
+                return;
+            }
+
+            app.as_mut().set_katago_analysis_in_progress(false);
+
+            match completion {
+                Ok(text) => {
+                    app.as_mut().set_katago_analysis_text(QString::from(text));
+                }
+
+                Err(error) => {
+                    app.as_mut().set_error_message(QString::from(error.clone()));
+
+                    app.as_mut().set_katago_analysis_text(QString::from(format!(
+                        "Analysis failed: {error}"
+                    )));
+                }
+            }
+        })
+        .ok();
+}
+
 fn start_katago_worker(qt_thread: cxx_qt::CxxQtThread<ffi::BermudaApp>) -> KataGoWorker {
     let (sender, receiver) = mpsc::channel();
 
+    /*
+     * This lightweight Qt bridge remains responsive to new commands while
+     * CoreKataGoWorker owns the long-lived KataGo process on its own thread.
+     *
+     * That separation is what allows a newer GUI request to call
+     * submit_latest(), terminate obsolete analysis, and replace pending work
+     * without blocking either the Qt thread or this command receiver.
+     */
     std::thread::spawn(move || {
-        let mut process: Option<(KataGoConfiguration, KataGoProcess)> = None;
+        let mut core_worker: Option<(KataGoConfiguration, CoreKataGoWorker)> = None;
+        let mut latest: Option<KataGoLatestRequest> = None;
 
-        while let Ok(command) = receiver.recv() {
-            let KataGoWorkerCommand::Analyse(work) = command else {
-                break;
-            };
+        loop {
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(KataGoWorkerCommand::Shutdown) => break,
 
-            let analysis_id = work.analysis_id;
-            let completion = execute_katago_analysis(&mut process, &work);
-
-            qt_thread
-                .queue(move |mut app| {
+                Ok(KataGoWorkerCommand::Cancel { analysis_id }) => {
                     /*
-                     * Do not allow an obsolete completion to overwrite
-                     * state belonging to a later analysis request.
+                     * The GUI has already invalidated the old analysis
+                     * generation. Its eventual Terminated event must not
+                     * become a visible failure.
                      */
-                    if app.rust().katago_analysis_id != analysis_id {
-                        return;
+                    latest = None;
+
+                    let cancel_result = core_worker.as_ref().map(|(_, worker)| worker.cancel_all());
+
+                    if let Some(Err(error)) = cancel_result {
+                        core_worker.take();
+
+                        queue_katago_completion(
+                            &qt_thread,
+                            analysis_id,
+                            Err(format!("cancelling KataGo analysis: {error}")),
+                        );
                     }
+                }
 
-                    app.as_mut().set_katago_analysis_in_progress(false);
+                Ok(KataGoWorkerCommand::Analyse(work)) => {
+                    let KataGoWorkerRequest {
+                        analysis_id,
+                        configuration,
+                        request,
+                        expected_player,
+                    } = work;
 
-                    match completion {
-                        Ok(text) => {
-                            app.as_mut().set_katago_analysis_text(QString::from(text));
+                    let request_id = request.id.clone();
+                    let board_size = request.board_size;
+
+                    let configuration_changed = core_worker
+                        .as_ref()
+                        .is_none_or(|(current, _)| current != &configuration);
+
+                    if configuration_changed {
+                        if let Some((_, old_worker)) = core_worker.take() {
+                            let _ = old_worker.shutdown();
                         }
 
-                        Err(error) => {
-                            app.as_mut().set_error_message(QString::from(error.clone()));
+                        match CoreKataGoWorker::start(&configuration) {
+                            Ok(worker) => {
+                                core_worker = Some((configuration.clone(), worker));
+                            }
 
-                            app.as_mut().set_katago_analysis_text(QString::from(format!(
-                                "Analysis failed: {error}"
-                            )));
+                            Err(error) => {
+                                latest = None;
+
+                                queue_katago_completion(
+                                    &qt_thread,
+                                    analysis_id,
+                                    Err(format!("starting KataGo: {error}")),
+                                );
+
+                                continue;
+                            }
                         }
                     }
-                })
-                .ok();
+
+                    latest = Some(KataGoLatestRequest {
+                        analysis_id,
+                        request_id: request_id.clone(),
+                        expected_player,
+                        board_size,
+                    });
+
+                    let submit_result = core_worker
+                        .as_ref()
+                        .expect("KataGo core worker was started above")
+                        .1
+                        .submit_latest(request);
+
+                    if let Err(error) = submit_result {
+                        /*
+                         * A failed control write means this engine instance
+                         * can no longer be trusted. Drop it; the next request
+                         * will start a fresh process.
+                         */
+                        core_worker.take();
+                        latest = None;
+
+                        queue_katago_completion(
+                            &qt_thread,
+                            analysis_id,
+                            Err(format!("sending analysis to KataGo worker: {error}")),
+                        );
+                    }
+                }
+
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+
+            /*
+             * Drain all events currently available from the core worker.
+             * Obsolete termination/completion events are harmless because
+             * only the newest request is represented by `latest`.
+             */
+            loop {
+                let event = match core_worker.as_ref() {
+                    Some((_, worker)) => match worker.try_recv() {
+                        Ok(event) => event,
+                        Err(mpsc::TryRecvError::Empty) => break,
+
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            let current_analysis_id =
+                                latest.as_ref().map(|request| request.analysis_id);
+
+                            core_worker.take();
+                            latest = None;
+
+                            if let Some(analysis_id) = current_analysis_id {
+                                queue_katago_completion(
+                                    &qt_thread,
+                                    analysis_id,
+                                    Err("KataGo worker stopped unexpectedly".to_owned()),
+                                );
+                            }
+
+                            break;
+                        }
+                    },
+
+                    None => break,
+                };
+
+                match event {
+                    KataGoWorkerEvent::Analysis {
+                        request_id,
+                        outcome,
+                    } => {
+                        let Some(current) = latest.as_ref() else {
+                            continue;
+                        };
+
+                        if current.request_id != request_id {
+                            // Completion or termination of superseded work.
+                            continue;
+                        }
+
+                        let analysis_id = current.analysis_id;
+                        let expected_player = current.expected_player;
+                        let board_size = current.board_size;
+
+                        latest = None;
+
+                        let completion = match outcome {
+                            AnalysisOutcome::Complete(analysis) => {
+                                if analysis.current_player != expected_player {
+                                    /*
+                                     * Preserve the previous safety rule:
+                                     * a side-to-move mismatch means this
+                                     * engine instance should not be reused.
+                                     */
+                                    core_worker.take();
+
+                                    Err(format!(
+                                        "KataGo reports {} to move, but Bermuda reports {} to move; \
+                                         this position is not safe to analyse yet",
+                                        colour_name(analysis.current_player),
+                                        colour_name(expected_player),
+                                    ))
+                                } else {
+                                    format_katago_analysis(&analysis, board_size)
+                                }
+                            }
+
+                            AnalysisOutcome::Terminated => {
+                                Err("KataGo analysis was terminated".to_owned())
+                            }
+                        };
+
+                        queue_katago_completion(&qt_thread, analysis_id, completion);
+                    }
+
+                    KataGoWorkerEvent::Error {
+                        request_id,
+                        message,
+                    } => {
+                        /*
+                         * A process/protocol error invalidates this engine.
+                         * The newest GUI request, if any, must be told that
+                         * its analysis cannot complete.
+                         */
+                        let current_analysis_id =
+                            latest.as_ref().map(|request| request.analysis_id);
+
+                        core_worker.take();
+                        latest = None;
+
+                        if let Some(analysis_id) = current_analysis_id {
+                            queue_katago_completion(
+                                &qt_thread,
+                                analysis_id,
+                                Err(format!(
+                                    "analysing the displayed position \
+                                     (request {request_id:?}): {message}"
+                                )),
+                            );
+                        }
+                    }
+                }
+            }
         }
 
-        if let Some((_, process)) = process.take() {
-            let _ = process.shutdown();
+        if let Some((_, worker)) = core_worker.take() {
+            let _ = worker.shutdown();
         }
     });
 
     KataGoWorker { sender }
 }
 
-fn execute_katago_analysis(
-    process: &mut Option<(KataGoConfiguration, KataGoProcess)>,
-    work: &KataGoWorkerRequest,
-) -> Result<String, String> {
-    let configuration_changed = process
-        .as_ref()
-        .is_none_or(|(configuration, _)| configuration != &work.configuration);
-
-    if configuration_changed {
-        if let Some((_, old_process)) = process.take() {
-            old_process
-                .shutdown()
-                .map_err(|error| format!("shutting down previous KataGo process: {error}"))?;
-        }
-
-        let new_process = KataGoProcess::start(&work.configuration)
-            .map_err(|error| format!("starting KataGo: {error}"))?;
-
-        *process = Some((work.configuration.clone(), new_process));
-    }
-
-    let analysis_result = {
-        let (_, katago) = process.as_mut().expect("KataGo process was started above");
-
-        katago.analyse(&work.request)
-    };
-
-    let analysis = match analysis_result {
-        Ok(analysis) => analysis,
-
-        Err(error) => {
-            /*
-             * After a process/protocol failure we cannot safely assume
-             * that the stream remains synchronised. Dropping the process
-             * kills it; the next request will start a fresh instance.
-             */
-            process.take();
-
-            return Err(format!("analysing the displayed position: {error}"));
-        }
-    };
-
-    if analysis.current_player != work.expected_player {
-        process.take();
-
-        return Err(format!(
-            "KataGo reports {} to move, but Bermuda reports {} to move;              this position is not safe to analyse yet",
-            colour_name(analysis.current_player),
-            colour_name(work.expected_player),
-        ));
-    }
-
+fn format_katago_analysis(analysis: &AnalysisResult, board_size: u8) -> Result<String, String> {
     let candidate = analysis
         .candidates
         .first()
         .ok_or_else(|| "KataGo returned no candidate moves".to_owned())?;
 
-    let candidate_name = analysis_vertex_name(&candidate.vertex, work.request.board_size)?;
+    let candidate_name = analysis_vertex_name(&candidate.vertex, board_size)?;
 
     Ok(format!(
         "Suggested: {candidate_name}     Black ({:.1} pts, {:.0}% win)     {} visits",
@@ -987,17 +1167,6 @@ impl ffi::BermudaApp {
 
         self.as_mut().set_katago_analysis_text(QString::default());
 
-        if self.as_ref().rust().katago_analysis_in_progress {
-            let error = "KataGo analysis is already in progress";
-
-            self.as_mut().set_error_message(QString::from(error));
-
-            self.as_mut()
-                .set_katago_analysis_text(QString::from(format!("Analysis failed: {error}")));
-
-            return false;
-        }
-
         let analysis_id = {
             let mut rust = self.as_mut().rust_mut();
 
@@ -1135,6 +1304,62 @@ impl ffi::BermudaApp {
                 self.as_mut().rust_mut().katago_worker = None;
 
                 let message = format!("sending analysis to KataGo worker: {error}");
+
+                self.as_mut()
+                    .set_error_message(QString::from(message.clone()));
+
+                self.as_mut()
+                    .set_katago_analysis_text(QString::from(format!("Analysis failed: {message}")));
+
+                false
+            }
+        }
+    }
+
+    fn cancel_katago_analysis(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        if !self.as_ref().rust().katago_analysis_in_progress {
+            return true;
+        }
+
+        /*
+         * Invalidate the current generation immediately. Any completion
+         * already queued for the old request will therefore be ignored.
+         */
+        let analysis_id = {
+            let mut rust = self.as_mut().rust_mut();
+
+            rust.katago_analysis_id = rust.katago_analysis_id.wrapping_add(1);
+            rust.katago_analysis_id
+        };
+
+        let send_result = match self.as_ref().rust().katago_worker.as_ref() {
+            Some(worker) => worker
+                .sender
+                .send(KataGoWorkerCommand::Cancel { analysis_id }),
+
+            None => {
+                self.as_mut().set_katago_analysis_in_progress(false);
+                self.as_mut()
+                    .set_katago_analysis_text(QString::from("Analysis cancelled"));
+                return true;
+            }
+        };
+
+        match send_result {
+            Ok(()) => {
+                self.as_mut().set_katago_analysis_in_progress(false);
+                self.as_mut()
+                    .set_katago_analysis_text(QString::from("Analysis cancelled"));
+                true
+            }
+
+            Err(error) => {
+                self.as_mut().rust_mut().katago_worker = None;
+                self.as_mut().set_katago_analysis_in_progress(false);
+
+                let message = format!("cancelling KataGo analysis: {error}");
 
                 self.as_mut()
                     .set_error_message(QString::from(message.clone()));

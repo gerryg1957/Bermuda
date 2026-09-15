@@ -2,6 +2,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result, bail};
@@ -208,9 +209,45 @@ fn analysis_point_from_core(point: u16, board_size: u8) -> Result<AnalysisPoint>
     })
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnalysisOutcome {
+    Complete(AnalysisResult),
+    Terminated,
+}
+
+/// A lightweight handle that may write control messages while another thread
+/// is blocked waiting for an analysis response.
+///
+/// The KataGo process and stdout reader remain owned by `KataGoProcess`.
+#[derive(Clone)]
+pub struct KataGoControl {
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
+}
+
+impl KataGoControl {
+    pub fn terminate(&self, action_id: &str, terminate_id: &str) -> Result<()> {
+        let request_json = termination_request_json(action_id, terminate_id)?;
+
+        let mut guard = self
+            .stdin
+            .lock()
+            .map_err(|_| anyhow::anyhow!("KataGo stdin mutex is poisoned"))?;
+
+        let stdin = guard.as_mut().context("KataGo stdin is already closed")?;
+
+        writeln!(stdin, "{request_json}").context("writing KataGo termination request")?;
+
+        stdin
+            .flush()
+            .context("flushing KataGo termination request")?;
+
+        Ok(())
+    }
+}
+
 pub struct KataGoProcess {
     child: Option<Child>,
-    stdin: Option<ChildStdin>,
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
     stdout: BufReader<ChildStdout>,
 }
 
@@ -248,25 +285,49 @@ impl KataGoProcess {
 
         Ok(Self {
             child: Some(child),
-            stdin: Some(stdin),
+            stdin: Arc::new(Mutex::new(Some(stdin))),
             stdout: BufReader::new(stdout),
         })
     }
 
+    pub fn control(&self) -> KataGoControl {
+        KataGoControl {
+            stdin: Arc::clone(&self.stdin),
+        }
+    }
+
     pub fn analyse(&mut self, request: &AnalysisRequest) -> Result<AnalysisResult> {
+        match self.analyse_interruptible(request)? {
+            AnalysisOutcome::Complete(result) => Ok(result),
+            AnalysisOutcome::Terminated => {
+                bail!("KataGo analysis was terminated before producing results")
+            }
+        }
+    }
+
+    pub fn analyse_interruptible(&mut self, request: &AnalysisRequest) -> Result<AnalysisOutcome> {
+        self.send_analysis(request)?;
+        self.wait_for_analysis(request)
+    }
+
+    pub fn send_analysis(&self, request: &AnalysisRequest) -> Result<()> {
         let request_json = analysis_request_json(request)?;
 
-        {
-            let stdin = self
-                .stdin
-                .as_mut()
-                .context("KataGo stdin is already closed")?;
+        let mut guard = self
+            .stdin
+            .lock()
+            .map_err(|_| anyhow::anyhow!("KataGo stdin mutex is poisoned"))?;
 
-            writeln!(stdin, "{request_json}").context("writing KataGo analysis request")?;
+        let stdin = guard.as_mut().context("KataGo stdin is already closed")?;
 
-            stdin.flush().context("flushing KataGo analysis request")?;
-        }
+        writeln!(stdin, "{request_json}").context("writing KataGo analysis request")?;
 
+        stdin.flush().context("flushing KataGo analysis request")?;
+
+        Ok(())
+    }
+
+    pub fn wait_for_analysis(&mut self, request: &AnalysisRequest) -> Result<AnalysisOutcome> {
         let mut warnings = Vec::new();
 
         loop {
@@ -292,6 +353,15 @@ impl KataGoProcess {
 
             let notice: ProtocolNotice =
                 serde_json::from_str(line).context("parsing KataGo protocol message")?;
+
+            /*
+             * A terminate action has its own acknowledgement on stdout.
+             * It is not an analysis response and may arrive while we are
+             * waiting for the terminated analysis to emit its final reply.
+             */
+            if notice.action.as_deref() == Some("terminate") {
+                continue;
+            }
 
             if notice.error.is_some() || notice.warning.is_some() {
                 if let Some(id) = notice.id.as_deref()
@@ -327,6 +397,18 @@ impl KataGoProcess {
                 continue;
             }
 
+            if notice.no_results {
+                if notice.id.as_deref() != Some(request.id.as_str()) {
+                    bail!(
+                        "KataGo returned terminated analysis for {:?} while waiting for {:?}",
+                        notice.id,
+                        request.id
+                    );
+                }
+
+                return Ok(AnalysisOutcome::Terminated);
+            }
+
             let mut result = parse_analysis_response(line, request.board_size)?;
 
             if result.id != request.id {
@@ -342,13 +424,16 @@ impl KataGoProcess {
             }
 
             result.warnings = warnings;
-            return Ok(result);
+            return Ok(AnalysisOutcome::Complete(result));
         }
     }
 
     pub fn shutdown(mut self) -> Result<()> {
         // Closing stdin asks KataGo to finish any queued work and exit cleanly.
-        self.stdin.take();
+        self.stdin
+            .lock()
+            .map_err(|_| anyhow::anyhow!("KataGo stdin mutex is poisoned"))?
+            .take();
 
         let Some(mut child) = self.child.take() else {
             return Ok(());
@@ -366,7 +451,9 @@ impl KataGoProcess {
 
 impl Drop for KataGoProcess {
     fn drop(&mut self) {
-        self.stdin.take();
+        if let Ok(mut stdin) = self.stdin.lock() {
+            stdin.take();
+        }
 
         if let Some(mut child) = self.child.take() {
             match child.try_wait() {
@@ -378,6 +465,14 @@ impl Drop for KataGoProcess {
             }
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminationQuery<'a> {
+    id: &'a str,
+    action: &'static str,
+    terminate_id: &'a str,
 }
 
 #[derive(Debug, Serialize)]
@@ -403,6 +498,11 @@ struct ProtocolNotice {
     error: Option<String>,
     warning: Option<String>,
     field: Option<String>,
+
+    action: Option<String>,
+
+    #[serde(rename = "noResults", default)]
+    no_results: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -448,6 +548,24 @@ struct ProtocolRootInfo {
 
     winrate: f64,
     visits: u64,
+}
+
+fn termination_request_json(action_id: &str, terminate_id: &str) -> Result<String> {
+    if action_id.trim().is_empty() {
+        bail!("KataGo termination action id must not be empty");
+    }
+
+    if terminate_id.trim().is_empty() {
+        bail!("KataGo termination target id must not be empty");
+    }
+
+    let query = TerminationQuery {
+        id: action_id,
+        action: "terminate",
+        terminate_id,
+    };
+
+    serde_json::to_string(&query).context("serialising KataGo termination request")
 }
 
 fn analysis_request_json(request: &AnalysisRequest) -> Result<String> {
@@ -836,6 +954,31 @@ mod tests {
         assert_eq!(value["moves"][0][1].as_str(), Some("Q16"));
         assert_eq!(value["moves"][1][0].as_str(), Some("W"));
         assert_eq!(value["moves"][1][1].as_str(), Some("pass"));
+    }
+
+    #[test]
+    fn serialises_termination_request_as_katago_json() {
+        let json =
+            termination_request_json("cancel-2", "request-1").expect("serialise termination");
+
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("termination request must be valid JSON");
+
+        assert_eq!(value["id"].as_str(), Some("cancel-2"));
+        assert_eq!(value["action"].as_str(), Some("terminate"));
+        assert_eq!(value["terminateId"].as_str(), Some("request-1"));
+    }
+
+    #[test]
+    fn recognises_terminated_response_without_results() {
+        let notice: ProtocolNotice = serde_json::from_str(
+            r#"{"id":"request-1","isDuringSearch":false,"noResults":true,"turnNumber":3}"#,
+        )
+        .expect("parse terminated response");
+
+        assert_eq!(notice.id.as_deref(), Some("request-1"));
+        assert!(notice.no_results);
+        assert!(notice.action.is_none());
     }
 
     #[test]

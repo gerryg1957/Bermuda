@@ -11,6 +11,7 @@ pub mod importer;
 pub mod index_build;
 pub mod indexer;
 pub mod katago;
+pub mod katago_worker;
 pub mod move_file;
 pub mod occurrence_context;
 pub mod pattern;
@@ -35,10 +36,11 @@ pub use board::{Board, Colour, Move};
 pub use canonical::{canonical_hash, canonical_hash_hex};
 pub use game::{GameRecord, Metadata, SetupStone, extract_main_variation};
 pub use katago::{
-    AnalysisCandidate, AnalysisMove, AnalysisPoint, AnalysisPosition, AnalysisRequest,
-    AnalysisResult, AnalysisStone, AnalysisVertex, KataGoConfiguration, KataGoProcess,
-    analysis_position_from_states, parse_analysis_response,
+    AnalysisCandidate, AnalysisMove, AnalysisOutcome, AnalysisPoint, AnalysisPosition,
+    AnalysisRequest, AnalysisResult, AnalysisStone, AnalysisVertex, KataGoConfiguration,
+    KataGoControl, KataGoProcess, analysis_position_from_states, parse_analysis_response,
 };
+pub use katago_worker::{KataGoWorker, KataGoWorkerEvent};
 pub use move_file::{read_move_file, write_move_file};
 pub use occurrence_context::{
     LOCAL_ACTIVITY_MAX_DISTANCE, LocalActivity, NearbyMove, measure_local_activity,

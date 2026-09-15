@@ -2628,6 +2628,16 @@ menuBar: MenuBar {
                                                   .katagoVisitBudget)
                                   }
                               }
+
+                              Button {
+                                  text: qsTr("Cancel")
+                                  visible:
+                                      gameController
+                                          .katago_analysis_in_progress
+
+                                  onClicked:
+                                      gameController.cancelKataGoAnalysis()
+                              }
                           }
 
                           Item {
