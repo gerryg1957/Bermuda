@@ -56,6 +56,7 @@ mod ffi {
         #[qproperty(QString, error_message)]
         #[qproperty(bool, katago_analysis_in_progress)]
         #[qproperty(QString, katago_analysis_text)]
+        #[qproperty(QString, katago_candidate_points_json)]
         type BermudaApp = super::BermudaAppRust;
 
         #[qinvokable]
@@ -244,6 +245,7 @@ pub struct BermudaAppRust {
     error_message: QString,
     katago_analysis_in_progress: bool,
     katago_analysis_text: QString,
+    katago_candidate_points_json: QString,
 
     loaded_document: Option<LoadedDocument>,
     played_game_document: Option<LoadedDocument>,
@@ -268,6 +270,7 @@ impl Default for BermudaAppRust {
             error_message: QString::default(),
             katago_analysis_in_progress: false,
             katago_analysis_text: QString::default(),
+            katago_candidate_points_json: QString::from("[]"),
 
             loaded_document: None,
             played_game_document: None,
@@ -286,10 +289,15 @@ struct KataGoLatestRequest {
     board_size: u8,
 }
 
+struct KataGoPresentation {
+    text: String,
+    candidate_points_json: String,
+}
+
 fn queue_katago_completion(
     qt_thread: &cxx_qt::CxxQtThread<ffi::BermudaApp>,
     analysis_id: u64,
-    completion: Result<String, String>,
+    completion: Result<KataGoPresentation, String>,
 ) {
     qt_thread
         .queue(move |mut app| {
@@ -305,11 +313,19 @@ fn queue_katago_completion(
             app.as_mut().set_katago_analysis_in_progress(false);
 
             match completion {
-                Ok(text) => {
-                    app.as_mut().set_katago_analysis_text(QString::from(text));
+                Ok(presentation) => {
+                    app.as_mut()
+                        .set_katago_analysis_text(QString::from(presentation.text));
+
+                    app.as_mut().set_katago_candidate_points_json(QString::from(
+                        presentation.candidate_points_json,
+                    ));
                 }
 
                 Err(error) => {
+                    app.as_mut()
+                        .set_katago_candidate_points_json(QString::from("[]"));
+
                     app.as_mut().set_error_message(QString::from(error.clone()));
 
                     app.as_mut().set_katago_analysis_text(QString::from(format!(
@@ -505,7 +521,15 @@ fn start_katago_worker(qt_thread: cxx_qt::CxxQtThread<ffi::BermudaApp>) -> KataG
                                         colour_name(expected_player),
                                     ))
                                 } else {
-                                    format_katago_analysis(&analysis, board_size)
+                                    let candidate_points_json =
+                                        format_katago_candidate_points(&analysis);
+
+                                    format_katago_analysis(&analysis, board_size).map(|text| {
+                                        KataGoPresentation {
+                                            text,
+                                            candidate_points_json,
+                                        }
+                                    })
                                 }
                             }
 
@@ -571,8 +595,52 @@ fn format_katago_analysis(analysis: &AnalysisResult, board_size: u8) -> Result<S
     ))
 }
 
+fn format_katago_candidate_points(analysis: &AnalysisResult) -> String {
+    const MAX_CANDIDATES: usize = 5;
+
+    let mut candidates = analysis
+        .candidates
+        .iter()
+        .filter_map(|candidate| {
+            let AnalysisVertex::Point(point) = candidate.vertex else {
+                return None;
+            };
+
+            Some((point, candidate.visits))
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|left, right| right.1.cmp(&left.1));
+
+    let mut json = String::from("[");
+    let mut first = true;
+
+    for (point, visits) in candidates.into_iter().take(MAX_CANDIDATES) {
+        if !first {
+            json.push(',');
+        }
+
+        first = false;
+
+        /*
+         * Bermuda analysis coordinates have their origin at the lower
+         * edge. QML converts y to the goban's top-down coordinates.
+         */
+        let _ = write!(
+            json,
+            r#"{{"x":{},"y":{},"visits":{}}}"#,
+            point.x, point.y, visits,
+        );
+    }
+
+    json.push(']');
+    json
+}
+
 fn cancel_katago_analysis_impl(mut app: Pin<&mut ffi::BermudaApp>, report_cancelled: bool) -> bool {
     app.as_mut().set_error_message(QString::default());
+    app.as_mut()
+        .set_katago_candidate_points_json(QString::from("[]"));
 
     if !app.as_ref().rust().katago_analysis_in_progress {
         return true;
@@ -1245,6 +1313,8 @@ impl ffi::BermudaApp {
         self.as_mut().set_error_message(QString::default());
 
         self.as_mut().set_katago_analysis_text(QString::default());
+        self.as_mut()
+            .set_katago_candidate_points_json(QString::from("[]"));
 
         let analysis_id = {
             let mut rust = self.as_mut().rust_mut();
@@ -1678,6 +1748,15 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         .open(Path::new(project_path))
         .map_err(|error| error.to_string())?;
 
+    /*
+     * Board positions come from the canonical game record, while metadata
+     * comes from the catalogue's preferred source metadata.  A canonical
+     * game can have several source records, so the move file is not the
+     * authoritative source for the metadata Bermuda presents to the user.
+     */
+    let catalogue = project.catalogue().map_err(|error| error.to_string())?;
+    let game = catalogue.get(game_id).map_err(|error| error.to_string())?;
+
     let store = project.game_store().map_err(|error| error.to_string())?;
 
     let positions = store
@@ -1690,10 +1769,10 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         editable: false,
         playable: false,
         finished: false,
-        result: None,
-        black_player: None,
-        white_player: None,
-        komi: None,
+        result: game.result,
+        black_player: game.black_player,
+        white_player: game.white_player,
+        komi: game.komi,
         played_source_locator: None,
     })
 }

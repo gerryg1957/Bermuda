@@ -12,6 +12,9 @@ Item {
         property int boardSize: 19
     property var stones: []
     property var continuationPoints: []
+    property var katagoCandidatePoints: []
+
+    onKatagoCandidatePointsChanged: boardCanvas.requestPaint()
 
     property int viewA: 1
     property int viewB: 0
@@ -632,6 +635,7 @@ Item {
             drawStarPoints(ctx, left, top, spacing)
             drawCoordinates(ctx, left, top, usable, spacing)
             drawContinuationMap(ctx, left, top, spacing)
+            drawKataGoCandidateMap(ctx, left, top, spacing)
             drawStones(ctx, left, top, spacing)
             drawPatternSelection(ctx, left, top, spacing)
             drawLastMoveNumber(ctx, left, top, spacing)
@@ -1229,6 +1233,72 @@ Item {
                 ctx.stroke()
             }
         }
+
+            function drawKataGoCandidateMap(ctx, left, top, spacing) {
+                if (root.katagoCandidatePoints === null
+                        || root.katagoCandidatePoints.length === 0) {
+                    return
+                }
+
+                let maximumVisits = 0
+
+                for (const point of root.katagoCandidatePoints) {
+                    maximumVisits = Math.max(
+                                maximumVisits,
+                                Number(point.visits))
+                }
+
+                if (maximumVisits <= 0)
+                    return
+
+                ctx.save()
+
+                for (const point of root.katagoCandidatePoints) {
+                    const visits = Number(point.visits)
+
+                    if (visits <= 0)
+                        continue
+
+                    /*
+                     * Match the professional-continuation visual grammar.
+                     * Candidate visits replace professional-game frequency.
+                     */
+                    const strength =
+                        Math.sqrt(visits / maximumVisits)
+
+                    const radius =
+                        spacing * (0.24 + 0.20 * strength)
+
+                    const viewPoint =
+                        root.boardToViewPoint(
+                            Number(point.x),
+                            Number(point.y))
+
+                    const x = left + viewPoint.x * spacing
+                    const y = top + viewPoint.y * spacing
+
+                    ctx.fillStyle = "rgba(190, 48, 35, 0.14)"
+                    ctx.strokeStyle = "rgba(125, 30, 22, 0.92)"
+                    ctx.lineWidth = Math.max(1.25, spacing * 0.060)
+
+                    ctx.beginPath()
+                    ctx.arc(x, y, radius, 0, Math.PI * 2)
+                    ctx.fill()
+                    ctx.stroke()
+
+                    ctx.fillStyle = "rgba(110, 25, 19, 0.88)"
+                    ctx.beginPath()
+                    ctx.arc(
+                                x,
+                                y,
+                                Math.max(1.5, spacing * 0.055),
+                                0,
+                                Math.PI * 2)
+                    ctx.fill()
+                }
+
+                ctx.restore()
+            }
 
             function drawContinuationMap(ctx, left, top, spacing) {
             if (root.continuationPoints === null

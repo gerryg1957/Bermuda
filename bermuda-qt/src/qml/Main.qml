@@ -2039,6 +2039,33 @@ menuBar: MenuBar {
                             boardFrame.availableHeight)
                         height: width
 
+                        /*
+                         * KataGo candidates deliberately use the same visual
+                         * language as professional continuations, while
+                         * remaining a separate non-clickable data source.
+                         */
+                        katagoCandidatePoints: {
+                            if (katagoPanel.analysisMoveNumber
+                                    !== gameController.move_number
+                                    || katagoPanel.analysisVisitBudget
+                                       !== uiSettings.katagoVisitBudget) {
+                                return []
+                            }
+
+                            const points = JSON.parse(
+                                gameController.katago_candidate_points_json)
+
+                            return points.map(function(point) {
+                                return {
+                                    "x": Number(point.x),
+                                    "y": goBoard.boardSize
+                                         - 1
+                                         - Number(point.y),
+                                    "visits": Number(point.visits)
+                                }
+                            })
+                        }
+
                           patternSelectionEnabled: boardPane.selectingPattern
                           patternSelectionAdjustable:
                               !gameList.searchHasRun
