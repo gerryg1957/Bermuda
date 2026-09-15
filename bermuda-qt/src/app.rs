@@ -571,6 +571,74 @@ fn format_katago_analysis(analysis: &AnalysisResult, board_size: u8) -> Result<S
     ))
 }
 
+fn cancel_katago_analysis_impl(mut app: Pin<&mut ffi::BermudaApp>, report_cancelled: bool) -> bool {
+    app.as_mut().set_error_message(QString::default());
+
+    if !app.as_ref().rust().katago_analysis_in_progress {
+        return true;
+    }
+
+    /*
+     * Invalidate this generation immediately. Any result already queued
+     * for the old request will therefore be ignored by the Qt callback.
+     */
+    let analysis_id = {
+        let mut rust = app.as_mut().rust_mut();
+
+        rust.katago_analysis_id = rust.katago_analysis_id.wrapping_add(1);
+        rust.katago_analysis_id
+    };
+
+    let send_result = match app.as_ref().rust().katago_worker.as_ref() {
+        Some(worker) => worker
+            .sender
+            .send(KataGoWorkerCommand::Cancel { analysis_id }),
+
+        None => {
+            app.as_mut().set_katago_analysis_in_progress(false);
+
+            if report_cancelled {
+                app.as_mut()
+                    .set_katago_analysis_text(QString::from("Analysis cancelled"));
+            } else {
+                app.as_mut().set_katago_analysis_text(QString::default());
+            }
+
+            return true;
+        }
+    };
+
+    match send_result {
+        Ok(()) => {
+            app.as_mut().set_katago_analysis_in_progress(false);
+
+            if report_cancelled {
+                app.as_mut()
+                    .set_katago_analysis_text(QString::from("Analysis cancelled"));
+            } else {
+                app.as_mut().set_katago_analysis_text(QString::default());
+            }
+
+            true
+        }
+
+        Err(error) => {
+            app.as_mut().rust_mut().katago_worker = None;
+            app.as_mut().set_katago_analysis_in_progress(false);
+
+            let message = format!("cancelling KataGo analysis: {error}");
+
+            app.as_mut()
+                .set_error_message(QString::from(message.clone()));
+
+            app.as_mut()
+                .set_katago_analysis_text(QString::from(format!("Analysis failed: {message}")));
+
+            false
+        }
+    }
+}
+
 impl ffi::BermudaApp {
     fn project_exists(&self, project_path: &QString) -> bool {
         let path = project_path.to_string();
@@ -1159,6 +1227,17 @@ impl ffi::BermudaApp {
     }
 
     fn show_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
+        let position_changed = self.as_ref().rust().move_number != move_number;
+
+        if position_changed && self.as_ref().rust().katago_analysis_in_progress {
+            /*
+             * Analysis belongs to the position on which it was requested.
+             * Navigation remains immediate: cancel obsolete work silently
+             * and do not start analysis for the newly displayed position.
+             */
+            let _ = cancel_katago_analysis_impl(self.as_mut(), false);
+        }
+
         self.as_mut().show_cached_position(move_number)
     }
 
@@ -1316,60 +1395,8 @@ impl ffi::BermudaApp {
         }
     }
 
-    fn cancel_katago_analysis(mut self: Pin<&mut Self>) -> bool {
-        self.as_mut().set_error_message(QString::default());
-
-        if !self.as_ref().rust().katago_analysis_in_progress {
-            return true;
-        }
-
-        /*
-         * Invalidate the current generation immediately. Any completion
-         * already queued for the old request will therefore be ignored.
-         */
-        let analysis_id = {
-            let mut rust = self.as_mut().rust_mut();
-
-            rust.katago_analysis_id = rust.katago_analysis_id.wrapping_add(1);
-            rust.katago_analysis_id
-        };
-
-        let send_result = match self.as_ref().rust().katago_worker.as_ref() {
-            Some(worker) => worker
-                .sender
-                .send(KataGoWorkerCommand::Cancel { analysis_id }),
-
-            None => {
-                self.as_mut().set_katago_analysis_in_progress(false);
-                self.as_mut()
-                    .set_katago_analysis_text(QString::from("Analysis cancelled"));
-                return true;
-            }
-        };
-
-        match send_result {
-            Ok(()) => {
-                self.as_mut().set_katago_analysis_in_progress(false);
-                self.as_mut()
-                    .set_katago_analysis_text(QString::from("Analysis cancelled"));
-                true
-            }
-
-            Err(error) => {
-                self.as_mut().rust_mut().katago_worker = None;
-                self.as_mut().set_katago_analysis_in_progress(false);
-
-                let message = format!("cancelling KataGo analysis: {error}");
-
-                self.as_mut()
-                    .set_error_message(QString::from(message.clone()));
-
-                self.as_mut()
-                    .set_katago_analysis_text(QString::from(format!("Analysis failed: {message}")));
-
-                false
-            }
-        }
+    fn cancel_katago_analysis(self: Pin<&mut Self>) -> bool {
+        cancel_katago_analysis_impl(self, true)
     }
 
     fn hypothetical_move_stones(
