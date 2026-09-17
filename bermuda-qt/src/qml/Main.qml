@@ -1723,6 +1723,72 @@ menuBar: MenuBar {
                 return true
             }
 
+            function adjustSearchArea() {
+                if (!investigatingSearch)
+                    return false
+
+                /*
+                 * patternLeft/patternTop may currently describe the
+                 * occurrence displayed in a result game.  Preserve the
+                 * geometry of the original query before clearing the
+                 * search results.
+                 */
+                const left = gameList.searchPatternLeft
+                const bottom = gameList.searchPatternBottom
+                const width = gameList.searchPatternWidth
+                const height = gameList.searchPatternHeight
+
+                const sourceGame = searchSourceGame
+                const sourceEditing = searchSourceEditingPosition
+                const sourceTransform = searchSourceViewTransform
+
+                previousSearchProjectPath = ""
+                investigationMode = "pattern"
+                comparingContinuations = false
+                comparisonStep = "A"
+
+                /*
+                 * restoreSearchSource consumes the backend snapshot.
+                 * That is intentional here: resizing starts a revised
+                 * search, whose Search action will snapshot the source
+                 * again through beginSearchSession().
+                 */
+                if (!gameController.restoreSearchSource()) {
+                    console.warn(gameController.error_message)
+                    return false
+                }
+
+                selectedGame = sourceGame
+                editingPosition = sourceEditing
+                applyLoadedPosition()
+
+                if (sourceTransform !== null)
+                    goBoard.setViewTransform(sourceTransform)
+
+                gameList.clearSearchResults()
+                clearMatchNavigation()
+
+                patternLeft = left
+                patternRight = left + width - 1
+                patternBottom =
+                    goBoard.boardSize - 1 - bottom
+                patternTop =
+                    patternBottom - height + 1
+
+                goBoard.setPatternSelection(
+                    patternLeft,
+                    patternTop,
+                    patternRight,
+                    patternBottom)
+
+                searchSourceGame = null
+                searchSourceEditingPosition = false
+                searchSourceViewTransform = null
+                goBoard.hoverValid = false
+
+                return true
+            }
+
             function beginNewSearch() {
                 previousSearchProjectPath = ""
                 investigationMode = "pattern"
@@ -2628,6 +2694,46 @@ menuBar: MenuBar {
                           }
                       }
 
+                      Item {
+                          visible: {
+                              const summary =
+                                  gameList.searchOutcomeSummary
+
+                              return !root.playingGame
+                                  && boardPane.investigatingSearch
+                                  && summary !== null
+                                  && gameList.nextMoveInPatternCount === 0
+                          }
+
+                          implicitWidth:
+                              adjustAreaButton.implicitWidth + 6
+                          implicitHeight:
+                              adjustAreaButton.implicitHeight + 6
+
+                          Rectangle {
+                              anchors.fill: parent
+                              radius: 6
+                              color: Kirigami.Theme.highlightColor
+                              opacity: 0.45
+                          }
+
+                          Button {
+                              id: adjustAreaButton
+
+                              anchors.centerIn: parent
+
+                              text: qsTr("Adjust area")
+                              highlighted: true
+
+                              ToolTip.visible: hovered
+                              ToolTip.text:
+                                  qsTr("Return to the source position and resize the current search area")
+
+                              onClicked:
+                                  boardPane.adjustSearchArea()
+                          }
+                      }
+
                       ToolButton {
                           visible: !root.playingGame
                                    && boardPane.canReturnInInvestigation
@@ -2858,11 +2964,28 @@ menuBar: MenuBar {
                           spacing: Kirigami.Units.largeSpacing * 2
 
                           Label {
+                              visible: {
+                                  const summary =
+                                      gameList.searchOutcomeSummary
+
+                                  return summary !== null
+                                      && Number(summary.games) > 0
+                                      && gameList.nextMoveInPatternCount === 0
+                              }
+
+                              text:
+                                  qsTr("No immediate continuation")
+                              color: "#287d78"
+                              font.bold: true
+                          }
+
+                          Label {
                               visible:
                                   goBoard.continuationPoints !== null
                                   && goBoard.continuationPoints.length > 0
-                                  && (!boardPane.showingContinuationComparison
-                                      || gameList.continuationFilterActive)
+                                  && (boardPane.comparingContinuations
+                                      || gameList.continuationFilterActive
+                                      || gameList.nextMoveInPatternCount > 0)
 
                               text: {
                                   if (boardPane.comparingContinuations) {
@@ -2891,7 +3014,7 @@ menuBar: MenuBar {
                                                       .selectedContinuationCoreY))
                                   }
 
-                                  return qsTr("● Choose continuation")
+                                  return qsTr("● Choose a continuation")
                               }
 
                               color: "#7d1e16"

@@ -120,7 +120,7 @@ Kirigami.AbstractCard {
         const games = Number(summary.games)
 
         if (games === 0)
-            return qsTr("0 games")
+            return qsTr("No matching games")
 
         const blackWins = Number(summary.blackWins)
         const whiteWins = Number(summary.whiteWins)
@@ -141,18 +141,35 @@ Kirigami.AbstractCard {
             .arg(whitePercent.toFixed(1))
     }
 
-    readonly property int nextMoveLocalCount: {
+    /*
+     * Count only immediate next moves that actually fall inside the
+     * rectangle selected by the user.  The continuation display also
+     * contains a margin around that rectangle, so its complete point
+     * list must not be treated as "local" evidence.
+     */
+    readonly property int nextMoveInPatternCount: {
         const distribution = nextMoveDistribution
 
         if (distribution === null
-                || distribution.points === undefined) {
+                || distribution.points === undefined
+                || searchPatternWidth <= 0
+                || searchPatternHeight <= 0) {
             return 0
         }
 
         let total = 0
 
-        for (const point of distribution.points)
-            total += point.count
+        for (const point of distribution.points) {
+            const x = Number(point.x)
+            const y = Number(point.y)
+
+            if (x >= 0
+                    && y >= 0
+                    && x < searchPatternWidth
+                    && y < searchPatternHeight) {
+                total += Number(point.count)
+            }
+        }
 
         return total
     }
@@ -2470,7 +2487,12 @@ Kirigami.AbstractCard {
             ColumnLayout {
                 anchors.centerIn: parent
                 spacing: Kirigami.Units.largeSpacing
-                visible: searchView.count === 0
+                visible:
+                    searchView.count === 0
+                    && (!root.searchHasRun
+                        || root.searchInProgress
+                        || searchModel.search_cancelled
+                        || searchModel.error_message.length > 0)
 
                 Kirigami.PlaceholderMessage {
                     Layout.alignment: Qt.AlignHCenter
