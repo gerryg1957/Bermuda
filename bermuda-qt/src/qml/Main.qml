@@ -1220,6 +1220,20 @@ menuBar: MenuBar {
         property var splitViewState
     }
 
+    Settings {
+        id: katagoSettings
+
+        location: StandardPaths.writableLocation(
+                      StandardPaths.ConfigLocation)
+                  + "/moyodb.ini"
+
+        category: "KataGo"
+
+        property string executable: ""
+        property string model: ""
+        property string config: ""
+    }
+
     Component.onCompleted: {
         if (uiSettings.splitViewState) {
             mainSplitView.restoreState(uiSettings.splitViewState)
@@ -2829,7 +2843,10 @@ menuBar: MenuBar {
                                       gameController
                                           .analyseCurrentPosition(
                                               uiSettings
-                                                  .katagoVisitBudget)
+                                                  .katagoVisitBudget,
+                                              katagoSettings.executable,
+                                              katagoSettings.model,
+                                              katagoSettings.config)
                                   }
                               }
 

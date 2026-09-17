@@ -151,7 +151,13 @@ mod ffi {
 
         #[qinvokable]
         #[cxx_name = "analyseCurrentPosition"]
-        fn analyse_current_position(self: Pin<&mut BermudaApp>, visit_budget: i32) -> bool;
+        fn analyse_current_position(
+            self: Pin<&mut BermudaApp>,
+            visit_budget: i32,
+            saved_executable: &QString,
+            saved_model: &QString,
+            saved_config: &QString,
+        ) -> bool;
 
         #[qinvokable]
         #[cxx_name = "cancelKataGoAnalysis"]
@@ -1309,7 +1315,13 @@ impl ffi::BermudaApp {
         self.as_mut().show_cached_position(move_number)
     }
 
-    fn analyse_current_position(mut self: Pin<&mut Self>, visit_budget: i32) -> bool {
+    fn analyse_current_position(
+        mut self: Pin<&mut Self>,
+        visit_budget: i32,
+        saved_executable: &QString,
+        saved_model: &QString,
+        saved_config: &QString,
+    ) -> bool {
         self.as_mut().set_error_message(QString::default());
 
         self.as_mut().set_katago_analysis_text(QString::default());
@@ -1368,11 +1380,12 @@ impl ffi::BermudaApp {
                 (position, f64::from(komi), move_number)
             };
 
-            let executable = required_katago_path("BERMUDA_KATAGO_EXECUTABLE")?;
+            let executable = katago_executable_path(saved_executable)?;
 
-            let model = required_katago_path("BERMUDA_KATAGO_MODEL")?;
+            let model = configured_katago_file("BERMUDA_KATAGO_MODEL", saved_model, "model")?;
 
-            let config = required_katago_path("BERMUDA_KATAGO_CONFIG")?;
+            let config =
+                configured_katago_file("BERMUDA_KATAGO_CONFIG", saved_config, "configuration")?;
 
             let working_directory = katago_working_directory()?;
 
@@ -1892,23 +1905,60 @@ fn new_played_source_locator() -> String {
     format!("played:{nanos}:{}:{sequence}", std::process::id())
 }
 
-fn required_katago_path(variable: &str) -> Result<PathBuf, String> {
-    let value = env::var_os(variable).ok_or_else(|| format!("{variable} is not set"))?;
+fn katago_environment_path(variable: &str) -> Result<Option<PathBuf>, String> {
+    let Some(value) = env::var_os(variable) else {
+        return Ok(None);
+    };
 
     if value.is_empty() {
         return Err(format!("{variable} is empty"));
     }
 
-    let path = PathBuf::from(value);
+    Ok(Some(PathBuf::from(value)))
+}
 
+fn validate_katago_file(path: PathBuf, source: &str) -> Result<PathBuf, String> {
     if !path.is_file() {
-        return Err(format!(
-            "{variable} does not name a file: {}",
-            path.display()
-        ));
+        return Err(format!("{source} does not name a file: {}", path.display()));
     }
 
     Ok(path)
+}
+
+fn katago_executable_path(saved_value: &QString) -> Result<PathBuf, String> {
+    if let Some(path) = katago_environment_path("BERMUDA_KATAGO_EXECUTABLE")? {
+        return validate_katago_file(path, "BERMUDA_KATAGO_EXECUTABLE");
+    }
+
+    let saved = saved_value.to_string();
+
+    if saved.trim().is_empty() {
+        /*
+         * A bare command name is intentional here.  Process startup will
+         * resolve it through PATH in the normal platform-specific way.
+         */
+        return Ok(PathBuf::from("katago"));
+    }
+
+    validate_katago_file(PathBuf::from(saved), "saved KataGo executable")
+}
+
+fn configured_katago_file(
+    variable: &str,
+    saved_value: &QString,
+    description: &str,
+) -> Result<PathBuf, String> {
+    if let Some(path) = katago_environment_path(variable)? {
+        return validate_katago_file(path, variable);
+    }
+
+    let saved = saved_value.to_string();
+
+    if saved.trim().is_empty() {
+        return Err(format!("KataGo {description} is not configured"));
+    }
+
+    validate_katago_file(PathBuf::from(saved), &format!("saved KataGo {description}"))
 }
 
 fn katago_working_directory() -> Result<PathBuf, String> {
