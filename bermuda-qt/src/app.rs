@@ -154,6 +154,7 @@ mod ffi {
         fn analyse_current_position(
             self: Pin<&mut BermudaApp>,
             visit_budget: i32,
+            analysis_komi: &QString,
             saved_executable: &QString,
             saved_model: &QString,
             saved_config: &QString,
@@ -1318,6 +1319,7 @@ impl ffi::BermudaApp {
     fn analyse_current_position(
         mut self: Pin<&mut Self>,
         visit_budget: i32,
+        analysis_komi: &QString,
         saved_executable: &QString,
         saved_model: &QString,
         saved_config: &QString,
@@ -1344,7 +1346,23 @@ impl ffi::BermudaApp {
             let visit_budget = u64::try_from(visit_budget)
                 .map_err(|_| "invalid KataGo visit budget".to_owned())?;
 
-            let (position, komi, move_number) = {
+            /*
+             * Analysis komi is deliberately separate from game metadata.
+             * The GUI normally starts with the recorded komi, but can
+             * supply an explicit assumption when the source has none or
+             * when the user wants to investigate another komi.
+             */
+            let komi_text = analysis_komi.to_string();
+            let komi = komi_text
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| "KataGo analysis komi must be a number, for example 6.5".to_owned())?;
+
+            if !komi.is_finite() {
+                return Err("KataGo analysis komi must be finite".to_owned());
+            }
+
+            let (position, move_number) = {
                 let self_ref = self.as_ref();
                 let rust = self_ref.rust();
 
@@ -1367,17 +1385,7 @@ impl ffi::BermudaApp {
                         )
                     })?;
 
-                let komi =
-                    document.komi.ok_or_else(|| {
-                        "the displayed position has no komi;                          KataGo analysis currently requires                          an explicit komi"
-                            .to_owned()
-                    })?;
-
-                if !komi.is_finite() {
-                    return Err("the displayed position has invalid komi".to_owned());
-                }
-
-                (position, f64::from(komi), move_number)
+                (position, move_number)
             };
 
             let executable = katago_executable_path(saved_executable)?;

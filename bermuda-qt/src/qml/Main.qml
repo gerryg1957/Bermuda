@@ -2218,7 +2218,9 @@ menuBar: MenuBar {
                             if (katagoPanel.analysisMoveNumber
                                     !== gameController.move_number
                                     || katagoPanel.analysisVisitBudget
-                                       !== uiSettings.katagoVisitBudget) {
+                                       !== uiSettings.katagoVisitBudget
+                                    || katagoPanel.analysisKomi
+                                       !== katagoKomiField.text) {
                                 return []
                             }
 
@@ -2795,6 +2797,18 @@ menuBar: MenuBar {
 
                       property int analysisMoveNumber: -1
                       property int analysisVisitBudget: -1
+                      property string analysisKomi: ""
+
+                      Connections {
+                          target: boardPane
+
+                          function onSelectedGameChanged() {
+                              katagoKomiField.text =
+                                  gameController.komi.length > 0
+                                  ? gameController.komi
+                                  : "6.5"
+                          }
+                      }
 
                       contentItem: ColumnLayout {
                           spacing: 4
@@ -2822,6 +2836,35 @@ menuBar: MenuBar {
                                       uiSettings.katagoVisitBudget = value
                               }
 
+                              Label {
+                                  text: qsTr("Komi:")
+                              }
+
+                              TextField {
+                                  id: katagoKomiField
+
+                                  Layout.preferredWidth:
+                                      Kirigami.Units.gridUnit * 4
+
+                                  text:
+                                      gameController.komi.length > 0
+                                      ? gameController.komi
+                                      : "6.5"
+
+                                  enabled:
+                                      !gameController
+                                          .katago_analysis_in_progress
+
+                                  inputMethodHints:
+                                      Qt.ImhFormattedNumbersOnly
+                              }
+
+                              Label {
+                                  visible: gameController.komi.length === 0
+                                  text: qsTr("(assumed)")
+                                  opacity: 0.7
+                              }
+
                               Button {
                                   text:
                                       gameController
@@ -2840,10 +2883,14 @@ menuBar: MenuBar {
                                       katagoPanel.analysisVisitBudget =
                                           uiSettings.katagoVisitBudget
 
+                                      katagoPanel.analysisKomi =
+                                          katagoKomiField.text
+
                                       gameController
                                           .analyseCurrentPosition(
                                               uiSettings
                                                   .katagoVisitBudget,
+                                              katagoKomiField.text,
                                               katagoSettings.executable,
                                               katagoSettings.model,
                                               katagoSettings.config)
@@ -2875,6 +2922,8 @@ menuBar: MenuBar {
                                      === gameController.move_number
                                   && katagoPanel.analysisVisitBudget
                                      === uiSettings.katagoVisitBudget
+                                  && katagoPanel.analysisKomi
+                                     === katagoKomiField.text
 
                               wrapMode: Text.NoWrap
                               elide: Text.ElideRight
