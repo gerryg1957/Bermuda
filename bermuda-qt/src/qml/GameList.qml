@@ -17,6 +17,7 @@ Kirigami.AbstractCard {
     property string databaseProjectPath: ""
     property string myGamesProjectPath: ""
     property bool showingMyGames: false
+    property alias currentTabIndex: mainTabs.currentIndex
     property bool removeSelectedMyGameEnabled: false
     property string currentSearchProjectPath: ""
     property bool databaseSearchHasRun: false
@@ -239,7 +240,11 @@ Kirigami.AbstractCard {
     property bool sortThirdAscending: true
 
     property bool whiteColumnFirst: false
-    readonly property int playerColumnWidth: 150
+    readonly property int playerColumnWidth: 135
+    readonly property int dateColumnWidth: 95
+    readonly property int resultColumnWidth: 60
+    readonly property int komiColumnWidth: 42
+    readonly property int eventColumnWidth: 240
 
     property string cataloguePlayer: ""
     property string catalogueVersus: ""
@@ -1380,7 +1385,13 @@ Kirigami.AbstractCard {
     anchors.fill: parent
     spacing: 0
 
+    /*
+     * The application owns the permanently visible browser tabs.
+     * Keep this existing TabBar as the state/controller for the
+     * catalogue and search-result bodies, but do not duplicate it.
+     */
     RowLayout {
+        visible: false
         Layout.fillWidth: true
         spacing: 0
 
@@ -1395,7 +1406,7 @@ Kirigami.AbstractCard {
             }
 
             TabButton {
-                text: qsTr("Game database")
+                text: qsTr("Professional games")
             }
 
             TabButton {
@@ -1403,7 +1414,7 @@ Kirigami.AbstractCard {
             }
 
             TabButton {
-                text: qsTr("Search results")
+                text: qsTr("Pattern results")
             }
         }
 
@@ -1598,9 +1609,28 @@ Kirigami.AbstractCard {
                             catalogueResultBox.currentIndex = 0
                         }
                     }
-                }
+                                    ToolButton {
+                        id: advancedSortButton
+
+                        text: checked
+                              ? qsTr("Hide advanced sort")
+                              : qsTr("Advanced sort…")
+
+                        checkable: true
+                        checked: false
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr(
+                                "Sort by several fields in sequence")
+                    }
+
+}
 
                 RowLayout {
+                    id: advancedSortRow
+                    visible: advancedSortButton.checked
+
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.smallSpacing
 
@@ -2036,6 +2066,7 @@ Kirigami.AbstractCard {
                       : qsTr("Black"))
 
         Layout.preferredWidth: root.playerColumnWidth
+        Layout.maximumWidth: root.playerColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -2078,6 +2109,7 @@ Kirigami.AbstractCard {
                       : qsTr("White"))
 
         Layout.preferredWidth: root.playerColumnWidth
+        Layout.maximumWidth: root.playerColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -2105,7 +2137,8 @@ Kirigami.AbstractCard {
                   "date",
                   qsTr("Date"))
 
-        Layout.preferredWidth: 105
+        Layout.preferredWidth: root.dateColumnWidth
+        Layout.maximumWidth: root.dateColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
 
@@ -2126,7 +2159,8 @@ Kirigami.AbstractCard {
 
     Label {
         text: qsTr("Result")
-        Layout.preferredWidth: 80
+        Layout.preferredWidth: root.resultColumnWidth
+        Layout.maximumWidth: root.resultColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
     }
@@ -2134,7 +2168,8 @@ Kirigami.AbstractCard {
     Label {
         text: qsTr("Komi")
 
-        Layout.preferredWidth: 60
+        Layout.preferredWidth: root.komiColumnWidth
+        Layout.maximumWidth: root.komiColumnWidth
         padding: Kirigami.Units.smallSpacing
         horizontalAlignment: Text.AlignHCenter
         font.bold: true
@@ -2142,7 +2177,8 @@ Kirigami.AbstractCard {
 
     Label {
         text: qsTr("Event")
-        Layout.fillWidth: true
+        Layout.preferredWidth: root.eventColumnWidth
+        Layout.maximumWidth: root.eventColumnWidth
         padding: Kirigami.Units.smallSpacing
         font.bold: true
     }
@@ -2181,6 +2217,7 @@ Kirigami.AbstractCard {
                               : qsTr("Black"))
 
                     Layout.preferredWidth: root.playerColumnWidth
+                    Layout.maximumWidth: root.playerColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
 
@@ -2230,6 +2267,7 @@ Kirigami.AbstractCard {
                               : qsTr("White"))
 
                     Layout.preferredWidth: root.playerColumnWidth
+                    Layout.maximumWidth: root.playerColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
 
@@ -2262,7 +2300,8 @@ Kirigami.AbstractCard {
                               "date",
                               qsTr("Date"))
 
-                    Layout.preferredWidth: 105
+                    Layout.preferredWidth: root.dateColumnWidth
+                    Layout.maximumWidth: root.dateColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
 
@@ -2287,7 +2326,8 @@ Kirigami.AbstractCard {
 
                 Label {
                     text: qsTr("Result")
-                    Layout.preferredWidth: 80
+                    Layout.preferredWidth: root.resultColumnWidth
+                    Layout.maximumWidth: root.resultColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
                 }
@@ -2325,7 +2365,8 @@ Kirigami.AbstractCard {
 
                 Label {
                     text: qsTr("Event")
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: root.eventColumnWidth
+                    Layout.maximumWidth: root.eventColumnWidth
                     padding: Kirigami.Units.smallSpacing
                     font.bold: true
                 }
@@ -2431,6 +2472,7 @@ Kirigami.AbstractCard {
                               ? searchRowDelegate.whitePlayer
                               : searchRowDelegate.blackPlayer
                         Layout.preferredWidth: root.playerColumnWidth
+                        Layout.maximumWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
@@ -2444,14 +2486,15 @@ Kirigami.AbstractCard {
                               ? searchRowDelegate.blackPlayer
                               : searchRowDelegate.whitePlayer
                         Layout.preferredWidth: root.playerColumnWidth
+                        Layout.maximumWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
 
                     Label {
                         text: searchRowDelegate.playedDate
-                        Layout.preferredWidth: 105
-                        Layout.maximumWidth: 105
+                        Layout.preferredWidth: root.dateColumnWidth
+                        Layout.maximumWidth: root.dateColumnWidth
                         elide: Text.ElideRight
                         clip: true
                         leftPadding: Kirigami.Units.smallSpacing
@@ -2459,8 +2502,8 @@ Kirigami.AbstractCard {
 
                     Label {
                         text: searchRowDelegate.result
-                        Layout.preferredWidth: 80
-                        Layout.maximumWidth: 80
+                        Layout.preferredWidth: root.resultColumnWidth
+                        Layout.maximumWidth: root.resultColumnWidth
                         elide: Text.ElideRight
                         clip: true
                         leftPadding: Kirigami.Units.smallSpacing
@@ -2474,12 +2517,22 @@ Kirigami.AbstractCard {
 
                     Label {
                         text: searchRowDelegate.event
-                        Layout.fillWidth: true
+                        Layout.preferredWidth: root.eventColumnWidth
+                        Layout.maximumWidth: root.eventColumnWidth
                         Layout.minimumWidth: 0
                         elide: Text.ElideRight
                         clip: true
                         leftPadding: Kirigami.Units.smallSpacing
                         rightPadding: Kirigami.Units.smallSpacing
+
+                        HoverHandler {
+                            id: searchEventHover
+                        }
+
+                        ToolTip.visible:
+                            searchEventHover.hovered
+                            && searchRowDelegate.event.length > 0
+                        ToolTip.text: searchRowDelegate.event
                     }
                 }
             }
@@ -2675,6 +2728,7 @@ Kirigami.AbstractCard {
                               ? rowDelegate.whitePlayer
                               : rowDelegate.blackPlayer
                         Layout.preferredWidth: root.playerColumnWidth
+                        Layout.maximumWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
@@ -2688,14 +2742,15 @@ Kirigami.AbstractCard {
                               ? rowDelegate.blackPlayer
                               : rowDelegate.whitePlayer
                         Layout.preferredWidth: root.playerColumnWidth
+                        Layout.maximumWidth: root.playerColumnWidth
                         elide: Text.ElideRight
                         leftPadding: Kirigami.Units.smallSpacing
                     }
 
                     Label {
                         text: rowDelegate.playedDate
-                        Layout.preferredWidth: 105
-                        Layout.maximumWidth: 105
+                        Layout.preferredWidth: root.dateColumnWidth
+                        Layout.maximumWidth: root.dateColumnWidth
                         elide: Text.ElideRight
                         clip: true
                         leftPadding: Kirigami.Units.smallSpacing
@@ -2703,8 +2758,8 @@ Kirigami.AbstractCard {
 
                     Label {
                         text: rowDelegate.result
-                        Layout.preferredWidth: 80
-                        Layout.maximumWidth: 80
+                        Layout.preferredWidth: root.resultColumnWidth
+                        Layout.maximumWidth: root.resultColumnWidth
                         elide: Text.ElideRight
                         clip: true
                         leftPadding: Kirigami.Units.smallSpacing
@@ -2712,18 +2767,29 @@ Kirigami.AbstractCard {
 
                     Label {
                         text: rowDelegate.komi
-                        Layout.preferredWidth: 60
+                        Layout.preferredWidth: root.komiColumnWidth
+                        Layout.maximumWidth: root.komiColumnWidth
                         horizontalAlignment: Text.AlignHCenter
                     }
 
                    Label {
                         text: rowDelegate.event
-                        Layout.fillWidth: true
+                        Layout.preferredWidth: root.eventColumnWidth
+                        Layout.maximumWidth: root.eventColumnWidth
                         Layout.minimumWidth: 0
                         elide: Text.ElideRight
                         clip: true
                         leftPadding: Kirigami.Units.smallSpacing
                         rightPadding: Kirigami.Units.smallSpacing
+
+                        HoverHandler {
+                            id: catalogueEventHover
+                        }
+
+                        ToolTip.visible:
+                            catalogueEventHover.hovered
+                            && rowDelegate.event.length > 0
+                        ToolTip.text: rowDelegate.event
                     }
                 }
             }

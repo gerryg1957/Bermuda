@@ -62,5 +62,5 @@ pub use search::{
     SearchEngine, SearchOccurrence, SearchPatternOutcome, SearchPatternSummaryOutcome,
     SearchPatternSummaryReportOutcome, SearchResult, SearchSummaryReport, SearchSummaryResult,
 };
-pub use sgf::{Collection, GameTree, Node, parse_collection};
+pub use sgf::{Collection, GameTree, Node, main_variation_comments, parse_collection};
 pub use sgf_writer::{SgfWriteError, write_game_record_sgf};

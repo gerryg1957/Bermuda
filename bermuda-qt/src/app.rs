@@ -17,9 +17,9 @@ use bermuda::{
     AnalysisOutcome, AnalysisRequest, AnalysisResult, AnalysisVertex, Board, Colour, GameRecord,
     KataGoConfiguration, KataGoWorker as CoreKataGoWorker, KataGoWorkerEvent, Metadata, Move,
     PositionOccurrence, PositionState, analysis_position_from_states, extract_main_variation,
-    importer::ImportOutcome, indexer::POSITION_INDEX_VERSION, parse_collection,
-    position_fingerprint, project::Project, project_manager::ProjectManager, replay_positions,
-    write_game_record_sgf,
+    importer::ImportOutcome, indexer::POSITION_INDEX_VERSION, main_variation_comments,
+    parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
+    replay_positions, write_game_record_sgf,
 };
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
@@ -53,6 +53,8 @@ mod ffi {
         #[qproperty(QString, black_player)]
         #[qproperty(QString, white_player)]
         #[qproperty(QString, komi)]
+        #[qproperty(QString, source_comment)]
+        #[qproperty(bool, has_source_comments)]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, katago_analysis_in_progress)]
         #[qproperty(QString, katago_analysis_text)]
@@ -142,6 +144,14 @@ mod ffi {
         fn restore_search_source(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "snapshotWorkspace"]
+        fn snapshot_workspace(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "swapWorkspace"]
+        fn swap_workspace(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "editPositionPoint"]
         fn edit_position_point(self: Pin<&mut BermudaApp>, x: i32, y: i32, tool: &QString) -> bool;
 
@@ -195,6 +205,7 @@ mod ffi {
 struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
+    source_comments: Vec<String>,
     editable: bool,
     playable: bool,
     finished: bool,
@@ -205,10 +216,17 @@ struct LoadedDocument {
     played_source_locator: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SearchSourceSnapshot {
     document: LoadedDocument,
     move_number: i32,
+}
+
+#[derive(Debug)]
+struct WorkspaceSnapshot {
+    document: Option<LoadedDocument>,
+    move_number: i32,
+    search_source_snapshot: Option<SearchSourceSnapshot>,
 }
 
 struct KataGoWorker {
@@ -249,6 +267,8 @@ pub struct BermudaAppRust {
     black_player: QString,
     white_player: QString,
     komi: QString,
+    source_comment: QString,
+    has_source_comments: bool,
     error_message: QString,
     katago_analysis_in_progress: bool,
     katago_analysis_text: QString,
@@ -257,6 +277,7 @@ pub struct BermudaAppRust {
     loaded_document: Option<LoadedDocument>,
     played_game_document: Option<LoadedDocument>,
     search_source_snapshot: Option<SearchSourceSnapshot>,
+    workspace_snapshot: Option<WorkspaceSnapshot>,
 
     katago_analysis_id: u64,
     katago_worker: Option<KataGoWorker>,
@@ -274,6 +295,8 @@ impl Default for BermudaAppRust {
             black_player: QString::default(),
             white_player: QString::default(),
             komi: QString::default(),
+            source_comment: QString::default(),
+            has_source_comments: false,
             error_message: QString::default(),
             katago_analysis_in_progress: false,
             katago_analysis_text: QString::default(),
@@ -282,6 +305,7 @@ impl Default for BermudaAppRust {
             loaded_document: None,
             played_game_document: None,
             search_source_snapshot: None,
+            workspace_snapshot: None,
 
             katago_analysis_id: 0,
             katago_worker: None,
@@ -964,6 +988,20 @@ impl ffi::BermudaApp {
                     snapshot.document.playable = false;
                 }
             }
+
+            if let Some(snapshot) = rust.workspace_snapshot.as_mut() {
+                if let Some(document) = snapshot.document.as_mut() {
+                    if document.playable {
+                        document.playable = false;
+                    }
+                }
+
+                if let Some(search_source) = snapshot.search_source_snapshot.as_mut() {
+                    if search_source.document.playable {
+                        search_source.document.playable = false;
+                    }
+                }
+            }
         }
 
         true
@@ -1211,6 +1249,90 @@ impl ffi::BermudaApp {
                 false
             }
         }
+    }
+
+
+    fn snapshot_workspace(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let snapshot = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            WorkspaceSnapshot {
+                document: rust.loaded_document.clone(),
+                move_number: rust.move_number,
+                search_source_snapshot: rust.search_source_snapshot.clone(),
+            }
+        };
+
+        self.as_mut().rust_mut().workspace_snapshot = Some(snapshot);
+        true
+    }
+
+    fn swap_workspace(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let parked = self.as_mut().rust_mut().workspace_snapshot.take();
+
+        let Some(parked) = parked else {
+            self.as_mut()
+                .set_error_message(QString::from("no other workspace is available"));
+            return false;
+        };
+
+        let active = {
+            let mut rust = self.as_mut().rust_mut();
+            let document = rust.loaded_document.take();
+
+            if let Some(played) = document
+                .as_ref()
+                .filter(|document| document.playable)
+                .cloned()
+            {
+                rust.played_game_document = Some(played);
+            }
+
+            let search_source_snapshot = rust.search_source_snapshot.take();
+
+            WorkspaceSnapshot {
+                document,
+                move_number: rust.move_number,
+                search_source_snapshot,
+            }
+        };
+
+        self.as_mut().rust_mut().workspace_snapshot = Some(active);
+
+        let WorkspaceSnapshot {
+            document,
+            move_number,
+            search_source_snapshot,
+        } = parked;
+
+        self.as_mut().rust_mut().search_source_snapshot = search_source_snapshot;
+
+        let Some(document) = document else {
+            self.as_mut().rust_mut().loaded_document = None;
+            self.as_mut().reset_position_display();
+            return true;
+        };
+
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
+
+        self.as_mut().rust_mut().loaded_document = Some(document);
+        self.as_mut().show_cached_position(move_number)
     }
 
     fn snapshot_search_source(mut self: Pin<&mut Self>) -> bool {
@@ -1710,9 +1832,12 @@ impl ffi::BermudaApp {
             let rust = self_ref.rust();
 
             match rust.loaded_document.as_ref() {
-                Some(document) => {
-                    position_data(&document.positions, &document.description, move_number)
-                }
+                Some(document) => position_data(
+                    &document.positions,
+                    &document.source_comments,
+                    &document.description,
+                    move_number,
+                ),
 
                 None => Err("no game is loaded".to_owned()),
             }
@@ -1730,6 +1855,9 @@ impl ffi::BermudaApp {
 
                 self.as_mut().set_last_move_x(position.last_move_x);
                 self.as_mut().set_last_move_y(position.last_move_y);
+                self.as_mut().set_source_comment(position.source_comment);
+                self.as_mut()
+                    .set_has_source_comments(position.has_source_comments);
 
                 true
             }
@@ -1752,12 +1880,16 @@ impl ffi::BermudaApp {
         self.as_mut().set_black_player(QString::default());
         self.as_mut().set_white_player(QString::default());
         self.as_mut().set_komi(QString::default());
+        self.as_mut().set_source_comment(QString::default());
+        self.as_mut().set_has_source_comments(false);
     }
 }
 
 struct LoadedPosition {
     board_size: i32,
     stones_json: QString,
+    source_comment: QString,
+    has_source_comments: bool,
     move_number: i32,
     move_count: i32,
     last_move_x: i32,
@@ -1787,6 +1919,7 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
     Ok(LoadedDocument {
         description: format!("game {game_id}"),
         positions,
+        source_comments: Vec::new(),
         editable: false,
         playable: false,
         finished: false,
@@ -1806,6 +1939,8 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
     let collection =
         parse_collection(&bytes).map_err(|error| format!("parsing {}: {error}", path.display()))?;
 
+    let source_comments = main_variation_comments(&collection);
+
     let record = extract_main_variation(&collection).map_err(|error| {
         format!(
             "extracting the main variation from {}: {error}",
@@ -1819,6 +1954,7 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
     Ok(LoadedDocument {
         description: format!("SGF {}", path.display()),
         positions,
+        source_comments,
         editable: false,
         playable: false,
         finished: false,
@@ -1839,6 +1975,7 @@ fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
     Ok(LoadedDocument {
         description: "untitled position".to_owned(),
         positions: vec![editable_position_state(board)],
+        source_comments: Vec::new(),
         editable: true,
         playable: false,
         finished: false,
@@ -1864,6 +2001,7 @@ fn new_game_document(
     Ok(LoadedDocument {
         description: "untitled game".to_owned(),
         positions: vec![editable_position_state(board)],
+        source_comments: Vec::new(),
         editable: false,
         playable: true,
         finished: false,
@@ -2399,6 +2537,7 @@ fn edit_document_position(
 
 fn position_data(
     positions: &[PositionState],
+    source_comments: &[String],
     document_description: &str,
     move_number: i32,
 ) -> Result<LoadedPosition, String> {
@@ -2413,6 +2552,13 @@ fn position_data(
      {move_count_usize} moves"
         )
     })?;
+
+    let source_comment = source_comments
+        .get(requested_move)
+        .map(String::as_str)
+        .unwrap_or("");
+
+    let has_source_comments = source_comments.iter().any(|comment| !comment.is_empty());
 
     let board_size = i32::from(position.board.size());
 
@@ -2438,6 +2584,8 @@ fn position_data(
     Ok(LoadedPosition {
         board_size,
         stones_json: board_stones_json(&position.board),
+        source_comment: QString::from(source_comment),
+        has_source_comments,
         move_number: current_move,
         move_count,
         last_move_x,

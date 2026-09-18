@@ -33,6 +33,57 @@ impl Node {
     }
 }
 
+/// Return source comments from the first/main SGF variation, aligned with
+/// displayed positions.
+///
+/// Entry zero belongs to the initial position. A comment in a move node
+/// belongs to the position after that move. A comment-only node belongs to
+/// the current position. Several comments applying to the same position are
+/// preserved in source order and separated by a blank line.
+///
+/// Comments are source annotations. They deliberately do not become part of
+/// the canonical GameRecord.
+pub fn main_variation_comments(collection: &Collection) -> Vec<String> {
+    let Some(tree) = collection.trees.first() else {
+        return Vec::new();
+    };
+
+    let mut comments = vec![String::new()];
+    let mut move_number = 0usize;
+    let mut branch = Some(tree);
+
+    while let Some(tree) = branch {
+        for node in &tree.sequence {
+            if node.first("B").is_some() || node.first("W").is_some() {
+                move_number += 1;
+                comments.push(String::new());
+            }
+
+            for comment in node.values("C") {
+                if comment.is_empty() {
+                    continue;
+                }
+
+                let target = &mut comments[move_number];
+
+                if !target.is_empty() {
+                    target.push_str("\n\n");
+                }
+
+                target.push_str(comment);
+            }
+        }
+
+        /*
+         * Match extract_main_variation(): SGF convention treats the first
+         * child variation as the main continuation.
+         */
+        branch = tree.variations.first();
+    }
+
+    comments
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SgfError {
     #[error("unexpected end of SGF input")]
@@ -217,5 +268,30 @@ mod tests {
 
         assert_eq!(root.first("CoPyright"), Some("test"));
         assert_eq!(root.first("SZ"), Some("19"));
+    }
+
+    #[test]
+    fn main_variation_comments_follow_displayed_positions() {
+        let collection = parse_collection(
+            br#"(;FF[4]GM[1]SZ[19]C[root comment]
+                 ;B[pd]C[after Black 1]
+                 ;C[more on Black 1]
+                 ;W[dd]C[after White 2]
+                 (;B[qp]C[first variation])
+                 (;B[pp]C[second variation]))"#,
+        )
+        .expect("commented SGF should parse");
+
+        let comments = main_variation_comments(&collection);
+
+        assert_eq!(
+            comments.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec![
+                "root comment",
+                "after Black 1\n\nmore on Black 1",
+                "after White 2",
+                "first variation",
+            ]
+        );
     }
 }

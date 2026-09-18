@@ -190,13 +190,17 @@ ApplicationWindow {
         const fileName = filePath.substring(
                            filePath.lastIndexOf("/") + 1)
 
+        if (!root.prepareStudyReplacement()) {
+            console.warn(gameController.error_message)
+            return
+        }
+
         root.playingGame = false
 
         if (gameController.loadSgf(filePath)) {
-            gameList.clearSearchResults()
+            root.finishStudyReplacement()
             boardPane.clearMatchNavigation()
             boardPane.resetPatternSelection()
-
             boardPane.editingPosition = false
 
             const blackPlayer = gameController.black_player
@@ -208,11 +212,15 @@ ApplicationWindow {
                 gameId: -1,
                 black: hasPlayerData
                        ? qsTr("(B) %1").arg(
-                             blackPlayer.length > 0 ? blackPlayer : qsTr("Black"))
+                             blackPlayer.length > 0
+                             ? blackPlayer
+                             : qsTr("Black"))
                        : qsTr("External SGF"),
                 white: hasPlayerData
                        ? qsTr("(W) %1").arg(
-                             whitePlayer.length > 0 ? whitePlayer : qsTr("White"))
+                             whitePlayer.length > 0
+                             ? whitePlayer
+                             : qsTr("White"))
                        : fileName,
                 gameDate: "",
                 result: "",
@@ -222,14 +230,18 @@ ApplicationWindow {
 
             boardPane.applyLoadedPosition()
         } else {
-            boardPane.selectedGame = null
+            const error = gameController.error_message
+            const rolledBack = root.cancelStudyReplacement()
 
-            goBoard.stones = []
-            goBoard.lastMoveX = -1
-            goBoard.lastMoveY = -1
-            goBoard.lastMoveNumber = 0
+            if (!rolledBack) {
+                boardPane.selectedGame = null
+                goBoard.stones = []
+                goBoard.lastMoveX = -1
+                goBoard.lastMoveY = -1
+                goBoard.lastMoveNumber = 0
+            }
 
-            console.warn(gameController.error_message)
+            console.warn(error)
         }
     }
 }
@@ -382,21 +394,28 @@ ApplicationWindow {
             const whiteName = whitePlayerField.text.trim()
             const komiText = komiField.text.trim()
 
+            if (!root.prepareStudyReplacement()) {
+                errorLabel.text = gameController.error_message
+                return
+            }
+
             if (!gameController.newGame(
                         19,
                         blackName,
                         whiteName,
                         komiText)) {
-                errorLabel.text = gameController.error_message
+                const error = gameController.error_message
+                root.cancelStudyReplacement()
+                errorLabel.text = error
                 return
             }
 
-            gameList.clearSearchResults()
             boardPane.clearMatchNavigation()
             boardPane.resetPatternSelection()
-
             boardPane.editingPosition = false
+
             root.playingGame = true
+            root.finishStudyReplacement()
             root.localGameSessionAvailable = true
             root.localGameStartedAt = new Date()
             root.localGameFinished = false
@@ -629,12 +648,12 @@ menuBar: MenuBar {
 
             Action {
                 text: qsTr("From &Game Database")
-                onTriggered: gameList.showCatalogue(false)
+                onTriggered: root.showBrowserTab(0)
             }
 
             Action {
                 text: qsTr("From &My Games")
-                onTriggered: gameList.showCatalogue(true)
+                onTriggered: root.showBrowserTab(1)
             }
         }
 
@@ -676,162 +695,51 @@ menuBar: MenuBar {
         }
     }
 
-    Menu {
-        title: qsTr("&My Games")
-
-        Action {
-            text: qsTr("&Show My Games")
-            onTriggered: gameList.showCatalogue(true)
-        }
-
-        MenuSeparator {}
-
-        Action {
-            text: qsTr("&Add Current Game")
-
-            /*
-             * For now, only completed live games are added.
-             */
-            enabled: root.playingGame
-                     && root.localGameFinished
-                     && !root.localGameAddedToMyGames
-
-            onTriggered:
-                root.addCurrentPlayedGameToMyGames()
-        }
-
-        Action {
-            text: qsTr("&Remove Selected Game…")
-            enabled: gameList.showingMyGames
-                     && gameList.removeSelectedMyGameEnabled
-
-            onTriggered:
-                gameList.removeSelectedMyGameRequested()
-        }
-    }
 
     Menu {
-        title: qsTr("Game &Database")
-
-        Action {
-            text: qsTr("&Show Game Database")
-            onTriggered: gameList.showCatalogue(false)
-        }
-
-        MenuSeparator {}
-
-        Action {
-            text: qsTr("&Add Games…")
-
-            enabled: root.projectPath.length > 0
-                     && !databaseOperation.in_progress
-
-            onTriggered: {
-                if (root.isManagedProjectPath(root.projectPath)) {
-                    databaseImportDialog.openManagedAdd(
-                        root.projectPath)
-                } else {
-                    databaseImportDialog.openAdd(
-                        root.projectPath)
-                }
-            }
-        }
-
-        Action {
-            text: qsTr("Manage Player &Names…")
-
-            enabled: root.projectPath.length > 0
-                     && !databaseOperation.in_progress
-
-            onTriggered:
-                playerIdentityDialog.openForProject(root.projectPath)
-        }
-
-        MenuSeparator {}
-
-        Menu {
-            title: qsTr("&Maintenance")
-
-            Action {
-                text: qsTr("&Current Operation…")
-
-                enabled: databaseOperation.in_progress
-                         || databaseOperation.stage.length > 0
-
-                onTriggered:
-                    databaseProgressDialog.open()
-            }
-
-            Action {
-                text: qsTr("&Cancel Current Operation")
-
-                enabled: databaseOperation.in_progress
-                         && !databaseOperation.cancel_requested
-
-                onTriggered: {
-                    databaseProgressDialog.open()
-                    databaseOperation.cancelOperation()
-                }
-            }
-
-            MenuSeparator {}
-
-            Action {
-                text: qsTr("&Open Another Database…")
-
-                enabled: !databaseOperation.in_progress
-
-                onTriggered: openDatabaseDialog.open()
-            }
-
-            Action {
-                text: qsTr("&Create Another Database…")
-
-                enabled: !databaseOperation.in_progress
-
-                onTriggered:
-                    databaseImportDialog.openCreate()
-            }
-
-            Action {
-                text: qsTr("&Update Position Index")
-
-                enabled: root.projectPath.length > 0
-                         && !databaseOperation.in_progress
-
-                onTriggered: {
-                    databaseOperation.clearStatus()
-
-                    if (databaseOperation.updatePositionIndex(
-                                root.projectPath)) {
-                        databaseProgressDialog.open()
-                    } else {
-                        databaseProgressDialog.open()
-                    }
-                }
-            }
-        }
-    }
-
-    Menu {
-        title: qsTr("&Pattern Search")
+        title: qsTr("&Pattern")
 
         Action {
             text: qsTr("&New Pattern")
 
             onTriggered: {
+                if (!root.prepareStudyReplacement()) {
+                    console.warn(gameController.error_message)
+                    return
+                }
+
                 root.playingGame = false
 
                 if (gameController.newPosition(19)) {
+                    root.finishStudyReplacement()
+
+                    /*
+                     * New Pattern is a genuinely fresh investigation.
+                     * The previous manually-created position is discarded
+                     * by newPosition(), and all evidence derived from its
+                     * search must be discarded as well.
+                     */
                     gameList.clearSearchResults()
                     boardPane.clearMatchNavigation()
                     boardPane.resetPatternSelection()
+
+                    boardPane.previousSearchProjectPath = ""
+                    boardPane.searchSourceGame = null
+                    boardPane.searchSourceEditingPosition = false
+                    boardPane.searchSourceViewTransform = null
+                    boardPane.investigationMode = "pattern"
+
+                    goBoard.influenceVisible = false
+                    katagoPanel.analysisMoveNumber = -1
+                    katagoPanel.analysisVisitBudget = -1
+                    katagoPanel.analysisKomi = ""
+
                     boardPane.editingPosition = true
                     boardPane.editTool = "black"
 
                     boardPane.selectedGame = {
                         gameId: -1,
-                        black: qsTr("Untitled position"),
+                        black: qsTr("Manual pattern"),
                         white: "",
                         gameDate: "",
                         result: "",
@@ -841,15 +749,19 @@ menuBar: MenuBar {
 
                     boardPane.applyLoadedPosition()
                 } else {
-                    boardPane.editingPosition = false
-                    boardPane.selectedGame = null
+                    const error = gameController.error_message
+                    const rolledBack = root.cancelStudyReplacement()
 
-                    goBoard.stones = []
-                    goBoard.lastMoveX = -1
-                    goBoard.lastMoveY = -1
-                    goBoard.lastMoveNumber = 0
+                    if (!rolledBack) {
+                        boardPane.editingPosition = false
+                        boardPane.selectedGame = null
+                        goBoard.stones = []
+                        goBoard.lastMoveX = -1
+                        goBoard.lastMoveY = -1
+                        goBoard.lastMoveNumber = 0
+                    }
 
-                    console.warn(gameController.error_message)
+                    console.warn(error)
                 }
             }
         }
@@ -865,6 +777,9 @@ menuBar: MenuBar {
                      && !boardPane.investigatingSearch
 
             onTriggered: {
+                root.showStudy()
+
+                boardPane.investigationMode = "pattern"
                 boardPane.selectingPattern = true
                 boardPane.clearMatchNavigation()
                 gameList.clearSearchResults()
@@ -876,8 +791,8 @@ menuBar: MenuBar {
             text:
                 gameList.searchHasRunFor(
                     gameList.databaseProjectPath)
-                ? qsTr("Game Database &Results")
-                : qsTr("Find Matches in Game &Database")
+                ? qsTr("Professional Games &Results")
+                : qsTr("Find Matches in &Professional Games")
 
             enabled: !root.playingGame
                      && !gameList.searchInProgress
@@ -955,39 +870,125 @@ menuBar: MenuBar {
     }
 
     Menu {
-        title: qsTr("&View")
+        title: qsTr("&Database")
 
-        enabled: boardPane.selectedGame !== null
-                 && !root.playingGame
+
 
         Action {
-            text: qsTr("&Influence")
-            checkable: true
-            checked: goBoard.influenceVisible
-            enabled: !root.playingGame
+            text: qsTr("&Add Games…")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
+
+            onTriggered: {
+                if (root.isManagedProjectPath(root.projectPath)) {
+                    databaseImportDialog.openManagedAdd(
+                        root.projectPath)
+                } else {
+                    databaseImportDialog.openAdd(
+                        root.projectPath)
+                }
+            }
+        }
+
+        Action {
+            text: qsTr("Manage Player &Names…")
+
+            enabled: root.projectPath.length > 0
+                     && !databaseOperation.in_progress
 
             onTriggered:
-                goBoard.influenceVisible = checked
+                playerIdentityDialog.openForProject(root.projectPath)
         }
 
         MenuSeparator {}
 
         Action {
-            text: qsTr("Flip &Left/Right")
-            enabled: !root.playingGame
-            onTriggered: goBoard.flipViewLeftRight()
+            text: qsTr("Add Current Game to &My Games")
+
+            /*
+             * For now, only completed live games are added.
+             */
+            enabled: root.playingGame
+                     && root.localGameFinished
+                     && !root.localGameAddedToMyGames
+
+            onTriggered:
+                root.addCurrentPlayedGameToMyGames()
         }
 
         Action {
-            text: qsTr("Flip &Top/Bottom")
-            enabled: !root.playingGame
-            onTriggered: goBoard.flipViewTopBottom()
+            text: qsTr("Remove Selected Game from My &Games…")
+            enabled: gameList.showingMyGames
+                     && gameList.removeSelectedMyGameEnabled
+
+            onTriggered:
+                gameList.removeSelectedMyGameRequested()
         }
 
-        Action {
-            text: qsTr("&Rotate 90° Counter-clockwise")
-            enabled: !root.playingGame
-            onTriggered: goBoard.rotateViewCounterClockwise()
+        MenuSeparator {}
+
+        Menu {
+            title: qsTr("&Maintenance")
+
+            Action {
+                text: qsTr("&Current Operation…")
+
+                enabled: databaseOperation.in_progress
+                         || databaseOperation.stage.length > 0
+
+                onTriggered:
+                    databaseProgressDialog.open()
+            }
+
+            Action {
+                text: qsTr("&Cancel Current Operation")
+
+                enabled: databaseOperation.in_progress
+                         && !databaseOperation.cancel_requested
+
+                onTriggered: {
+                    databaseProgressDialog.open()
+                    databaseOperation.cancelOperation()
+                }
+            }
+
+            MenuSeparator {}
+
+            Action {
+                text: qsTr("&Open Another Database…")
+
+                enabled: !databaseOperation.in_progress
+
+                onTriggered: openDatabaseDialog.open()
+            }
+
+            Action {
+                text: qsTr("&Create Another Database…")
+
+                enabled: !databaseOperation.in_progress
+
+                onTriggered:
+                    databaseImportDialog.openCreate()
+            }
+
+            Action {
+                text: qsTr("&Update Position Index")
+
+                enabled: root.projectPath.length > 0
+                         && !databaseOperation.in_progress
+
+                onTriggered: {
+                    databaseOperation.clearStatus()
+
+                    if (databaseOperation.updatePositionIndex(
+                                root.projectPath)) {
+                        databaseProgressDialog.open()
+                    } else {
+                        databaseProgressDialog.open()
+                    }
+                }
+            }
         }
     }
 
@@ -1002,6 +1003,310 @@ menuBar: MenuBar {
 }
 
     property bool playingGame: false
+
+    /*
+     * Browser and Study are mutually exclusive workspace modes.
+     *
+     * Browsing may show a board preview once a game is selected.
+     * Study gives the browser space to the board and Study inspector.
+     */
+    property bool browserExpanded: true
+    property bool studyWorkspaceActive: false
+    property bool patternResultsWorkspaceIsStudy: false
+    property int lastBrowserTabIndex: 0
+
+    property bool studyWorkspaceAvailable: false
+    property var parkedWorkspaceUi: null
+    property bool studyReplacementFromBrowser: false
+    property bool replacementHadStudyWorkspace: false
+
+    function captureWorkspaceUi() {
+        return {
+            selectedGame: boardPane.selectedGame,
+            editingPosition: boardPane.editingPosition,
+            editTool: boardPane.editTool,
+            alternateEditColour: boardPane.alternateEditColour,
+            selectingPattern: boardPane.selectingPattern,
+            patternLeft: boardPane.patternLeft,
+            patternTop: boardPane.patternTop,
+            patternRight: boardPane.patternRight,
+            patternBottom: boardPane.patternBottom,
+            matchOccurrences:
+                boardPane.matchOccurrences !== null
+                ? boardPane.matchOccurrences.slice(0)
+                : [],
+            matchIndex: boardPane.matchIndex,
+            matchWidth: boardPane.matchWidth,
+            matchHeight: boardPane.matchHeight,
+            showingMatchPosition: boardPane.showingMatchPosition,
+            searchSourceGame: boardPane.searchSourceGame,
+            searchSourceEditingPosition: boardPane.searchSourceEditingPosition,
+            searchSourceViewTransform: boardPane.searchSourceViewTransform,
+            previousSearchProjectPath: boardPane.previousSearchProjectPath,
+            investigationMode: boardPane.investigationMode,
+            comparingContinuations: boardPane.comparingContinuations,
+            comparisonStep: boardPane.comparisonStep,
+            playingGame: root.playingGame,
+            viewTransform: goBoard.currentViewTransform(),
+            continuationPoints:
+                goBoard.continuationPoints !== null
+                ? goBoard.continuationPoints.slice(0)
+                : [],
+            selectedContinuationX: goBoard.selectedContinuationX,
+            selectedContinuationY: goBoard.selectedContinuationY
+        }
+    }
+
+    function applyWorkspaceUi(state) {
+        if (state === null)
+            return
+
+        root.playingGame = state.playingGame
+        boardPane.selectedGame = state.selectedGame
+        boardPane.editingPosition = state.editingPosition
+        boardPane.editTool = state.editTool
+        boardPane.alternateEditColour = state.alternateEditColour
+        boardPane.patternLeft = state.patternLeft
+        boardPane.patternTop = state.patternTop
+        boardPane.patternRight = state.patternRight
+        boardPane.patternBottom = state.patternBottom
+        boardPane.matchOccurrences =
+            state.matchOccurrences !== undefined
+            ? state.matchOccurrences
+            : []
+        boardPane.matchIndex = state.matchIndex
+        boardPane.matchWidth = state.matchWidth
+        boardPane.matchHeight = state.matchHeight
+        boardPane.showingMatchPosition = state.showingMatchPosition
+        boardPane.searchSourceGame = state.searchSourceGame
+        boardPane.searchSourceEditingPosition = state.searchSourceEditingPosition
+        boardPane.searchSourceViewTransform = state.searchSourceViewTransform
+        boardPane.previousSearchProjectPath = state.previousSearchProjectPath
+        boardPane.comparingContinuations = state.comparingContinuations
+        boardPane.comparisonStep = state.comparisonStep
+        boardPane.investigationMode = state.investigationMode
+        boardPane.selectingPattern = state.selectingPattern
+
+        boardPane.applyLoadedPosition()
+
+        if (state.viewTransform !== null)
+            goBoard.setViewTransform(state.viewTransform)
+
+        if (state.patternLeft >= 0
+                && state.patternTop >= 0
+                && state.patternRight >= state.patternLeft
+                && state.patternBottom >= state.patternTop) {
+            goBoard.setPatternSelection(
+                state.patternLeft,
+                state.patternTop,
+                state.patternRight,
+                state.patternBottom)
+        } else {
+            goBoard.clearPatternSelection()
+        }
+
+        goBoard.continuationPoints =
+            state.continuationPoints !== undefined
+            ? state.continuationPoints
+            : []
+        goBoard.selectedContinuationX = state.selectedContinuationX
+        goBoard.selectedContinuationY = state.selectedContinuationY
+        goBoard.hoverValid = false
+    }
+
+    function exchangeWorkspaceContexts() {
+        if (root.parkedWorkspaceUi === null)
+            return false
+
+        const activeUi = root.captureWorkspaceUi()
+        const parkedUi = root.parkedWorkspaceUi
+
+        if (!gameController.swapWorkspace()) {
+            console.warn(gameController.error_message)
+            return false
+        }
+
+        root.parkedWorkspaceUi = activeUi
+        root.applyWorkspaceUi(parkedUi)
+        return true
+    }
+
+    function saveBrowserSplitState() {
+        uiSettings.browserSplitViewStateV3 = mainSplitView.saveState()
+    }
+
+    function prepareStudyReplacement() {
+        root.studyReplacementFromBrowser = false
+        root.replacementHadStudyWorkspace =
+            root.studyWorkspaceAvailable
+
+        /*
+         * If Study is already the active workspace, simply hide any
+         * results/browser pane before replacing the Study document.
+         */
+        if (root.studyWorkspaceActive) {
+            root.browserExpanded = false
+            return true
+        }
+
+        root.saveBrowserSplitState()
+
+        if (root.studyWorkspaceAvailable) {
+            if (!root.exchangeWorkspaceContexts())
+                return false
+        } else {
+            if (!gameController.snapshotWorkspace()) {
+                console.warn(gameController.error_message)
+                return false
+            }
+
+            root.parkedWorkspaceUi =
+                root.captureWorkspaceUi()
+            root.studyWorkspaceAvailable = true
+        }
+
+        root.studyWorkspaceActive = true
+        root.browserExpanded = false
+        root.studyReplacementFromBrowser = true
+        return true
+    }
+
+    function finishStudyReplacement() {
+        root.studyWorkspaceAvailable = true
+        root.studyWorkspaceActive = true
+        root.studyReplacementFromBrowser = false
+        root.replacementHadStudyWorkspace = false
+    }
+
+    function cancelStudyReplacement() {
+        if (!root.studyReplacementFromBrowser)
+            return false
+
+        if (!root.exchangeWorkspaceContexts()) {
+            root.studyReplacementFromBrowser = false
+            return false
+        }
+
+        const hadStudy =
+            root.replacementHadStudyWorkspace
+
+        root.studyWorkspaceActive = false
+        root.browserExpanded = true
+        root.studyWorkspaceAvailable = hadStudy
+
+        if (!hadStudy)
+            root.parkedWorkspaceUi = null
+
+        root.studyReplacementFromBrowser = false
+        root.replacementHadStudyWorkspace = false
+
+        Qt.callLater(function() {
+            if (uiSettings.browserSplitViewStateV3) {
+                mainSplitView.restoreState(
+                    uiSettings.browserSplitViewStateV3)
+            }
+        })
+
+        return true
+    }
+
+    function showStudy() {
+        /*
+         * Pattern results can be visible while the Study document remains
+         * active. In that case Study just hides the results pane; no
+         * workspace exchange is required.
+         */
+        if (root.studyWorkspaceActive) {
+            root.browserExpanded = false
+            return
+        }
+
+        root.saveBrowserSplitState()
+
+        if (root.studyWorkspaceAvailable) {
+            if (!root.exchangeWorkspaceContexts())
+                return
+        } else {
+            if (boardPane.selectedGame === null)
+                return
+
+            if (!gameController.snapshotWorkspace()) {
+                console.warn(gameController.error_message)
+                return
+            }
+
+            root.parkedWorkspaceUi =
+                root.captureWorkspaceUi()
+            root.studyWorkspaceAvailable = true
+        }
+
+        root.studyWorkspaceActive = true
+        root.browserExpanded = false
+    }
+
+    function showPatternResults() {
+        /*
+         * Pattern results are a pane, not a workspace.
+         *
+         * If existing results belong to the parked workspace, restore that
+         * workspace first. Merely showing the results pane must never replace
+         * the document that produced those results.
+         */
+        const haveSearchContext =
+            gameList.searchHasRun
+            || gameList.searchInProgress
+
+        if (haveSearchContext
+                && root.patternResultsWorkspaceIsStudy
+                   !== root.studyWorkspaceActive
+                && root.studyWorkspaceAvailable) {
+            if (!root.exchangeWorkspaceContexts())
+                return
+
+            root.studyWorkspaceActive =
+                !root.studyWorkspaceActive
+        }
+
+        root.browserExpanded = true
+        gameList.currentTabIndex = 2
+    }
+
+    function showBrowserTab(index) {
+        if (index === 2) {
+            root.showPatternResults()
+            return
+        }
+
+        let restoreBrowserSplit =
+            !root.browserExpanded
+
+        /*
+         * Professional games and My games are genuine Browser destinations.
+         * Leaving a Study-owned results pane therefore swaps back to the
+         * retained Browser document.
+         */
+        if (root.studyWorkspaceActive) {
+            if (!root.exchangeWorkspaceContexts())
+                return
+
+            root.studyWorkspaceActive = false
+            restoreBrowserSplit = true
+        }
+
+        root.browserExpanded = true
+        root.lastBrowserTabIndex = index
+        gameList.currentTabIndex = index
+
+        if (restoreBrowserSplit) {
+            Qt.callLater(function() {
+                if (uiSettings.browserSplitViewStateV3) {
+                    mainSplitView.restoreState(
+                        uiSettings.browserSplitViewStateV3)
+                }
+            })
+        }
+    }
+
     property bool localGameSessionAvailable: false
     property var localGameStartedAt: null
     property bool localGameFinished: false
@@ -1012,18 +1317,31 @@ menuBar: MenuBar {
         if (!root.localGameSessionAvailable)
             return false
 
-        if (!gameController.restorePlayedGame()) {
-            console.warn(gameController.error_message)
+        if (!root.studyWorkspaceActive
+                && root.studyWorkspaceAvailable
+                && root.parkedWorkspaceUi !== null
+                && root.parkedWorkspaceUi.playingGame === true) {
+            root.showStudy()
+            return root.studyWorkspaceActive && root.playingGame
+        }
+
+        if (!root.studyWorkspaceActive
+                && !root.prepareStudyReplacement()) {
             return false
         }
 
-        gameList.clearSearchResults()
-        gameList.clearCurrentCatalogueSelection()
+        if (!gameController.restorePlayedGame()) {
+            const error = gameController.error_message
+            root.cancelStudyReplacement()
+            console.warn(error)
+            return false
+        }
+
         boardPane.clearMatchNavigation()
         boardPane.resetPatternSelection()
         boardPane.editingPosition = false
-
         root.playingGame = true
+        root.finishStudyReplacement()
 
         const blackName = gameController.black_player
         const whiteName = gameController.white_player
@@ -1088,6 +1406,11 @@ menuBar: MenuBar {
         root.localGameFinished = false
         root.localGameResult = ""
         root.localGameAddedToMyGames = false
+
+        if (root.parkedWorkspaceUi !== null
+                && root.parkedWorkspaceUi.playingGame === true) {
+            root.parkedWorkspaceUi.playingGame = false
+        }
 
         /*
          * Closing the retained session must not blank an unrelated game
@@ -1217,7 +1540,7 @@ menuBar: MenuBar {
         property alias windowWidth: root.width
         property alias windowHeight: root.height
         property int katagoVisitBudget: 200
-        property var splitViewState
+        property var browserSplitViewStateV3
     }
 
     Settings {
@@ -1235,8 +1558,14 @@ menuBar: MenuBar {
     }
 
     Component.onCompleted: {
-        if (uiSettings.splitViewState) {
-            mainSplitView.restoreState(uiSettings.splitViewState)
+        /*
+         * Start with the user's previous Browser/Board proportions.
+         * A new installation has no saved state and therefore uses the
+         * preferred widths below.
+         */
+        if (uiSettings.browserSplitViewStateV3) {
+            mainSplitView.restoreState(
+                uiSettings.browserSplitViewStateV3)
         }
 
         /*
@@ -1268,15 +1597,105 @@ menuBar: MenuBar {
     }
 
     Component.onDestruction: {
-        uiSettings.splitViewState = mainSplitView.saveState()
+        /*
+         * A hidden browser has no useful split width to remember:
+         * showStudy() saved the browsing proportions before hiding it.
+         */
+        if (root.browserExpanded) {
+            uiSettings.browserSplitViewStateV3 =
+                mainSplitView.saveState()
+        }
+    }
+
+    RowLayout {
+        id: browserTabStrip
+
+        anchors {
+            left: parent.left
+            right: parent.right
+            top: parent.top
+            leftMargin: 6
+            rightMargin: 6
+            topMargin: 6
+        }
+
+        spacing: 0
+
+        TabButton {
+            text: qsTr("Professional games")
+            checkable: true
+            checked:
+                root.browserExpanded
+                && gameList.currentTabIndex === 0
+            onClicked: root.showBrowserTab(0)
+        }
+
+        TabButton {
+            text: qsTr("My games")
+            checkable: true
+            checked:
+                root.browserExpanded
+                && gameList.currentTabIndex === 1
+            onClicked: root.showBrowserTab(1)
+        }
+
+        TabButton {
+            text: qsTr("Pattern results")
+            checkable: true
+            checked:
+                root.browserExpanded
+                && gameList.currentTabIndex === 2
+            onClicked: root.showPatternResults()
+        }
+
+        TabButton {
+            text: qsTr("Study")
+            checkable: true
+
+            checked:
+                root.studyWorkspaceActive
+                && !root.browserExpanded
+
+            /*
+             * There is nothing useful to enter at initial startup.
+             * Once a game/position exists, Study becomes available.
+             * It remains enabled while active so it can always be
+             * toggled back to the previous browser tab.
+             */
+            enabled:
+                !root.browserExpanded
+                || root.studyWorkspaceAvailable
+                || boardPane.selectedGame !== null
+
+            onClicked: {
+                if (root.studyWorkspaceActive
+                        && !root.browserExpanded) {
+                    root.showBrowserTab(
+                        root.lastBrowserTabIndex)
+                } else {
+                    root.showStudy()
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+        }
     }
 
     SplitView {
         id: mainSplitView
 
         anchors {
-            fill: parent
-            margins: 6
+            left: parent.left
+            right: parent.right
+            top: browserTabStrip.bottom
+            bottom: parent.bottom
+
+            leftMargin: 6
+            rightMargin: 6
+            topMargin: 6
+            bottomMargin: 6
         }
 
         orientation: Qt.Horizontal
@@ -1284,6 +1703,8 @@ menuBar: MenuBar {
         // Database browser pane
         GameList {
             id: gameList
+
+            visible: root.browserExpanded
 
             databaseProjectPath: root.projectPath
             myGamesProjectPath: root.personalProjectPath
@@ -1385,8 +1806,1364 @@ menuBar: MenuBar {
         }
 
         // Board and game-details pane
+        /*
+         * Study material uses the space vacated by the browser rather than
+         * consuming board height. Keep a maximum of two principal panes on
+         * screen: Browser + Board, or Board + Study.
+         *
+         * Source comments are the first occupant of this pane. My notes and
+         * other study material can later share this same area rather than
+         * creating additional permanent panes.
+         */
+        /*
+         * Study is the inspector beside the goban.
+         *
+         * Goban + long move slider stay together on the right.
+         * Navigation, investigation, metadata, annotations
+         * and board-view controls live here.
+         */
+        Frame {
+            id: studyPane
+
+            visible:
+                !root.browserExpanded
+                && boardPane.selectedGame !== null
+
+            SplitView.minimumWidth: 360
+            SplitView.preferredWidth: 500
+            SplitView.maximumWidth: 700
+            SplitView.fillWidth: false
+
+            padding: Kirigami.Units.smallSpacing
+
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+
+                  Frame {
+                      id: gameDetailsFrame
+
+                    Layout.fillWidth: true
+
+                    Layout.minimumHeight:
+                        (boardPane.showingContinuationComparison
+                         ? continuationComparisonContent.implicitHeight
+                         : gameDetailsContent.implicitHeight)
+                        + gameDetailsFrame.topPadding
+                        + gameDetailsFrame.bottomPadding
+
+                    Layout.preferredHeight:
+                        Layout.minimumHeight
+                    Layout.maximumHeight:
+                        Layout.minimumHeight
+                    Layout.fillHeight: false
+
+                    padding: 5
+
+                    ColumnLayout {
+                        id: gameDetailsContent
+                        anchors.fill: parent
+                        spacing: 2
+                        visible: root.playingGame
+                                 || !boardPane.showingContinuationComparison
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Label {
+                                Layout.fillWidth: true
+
+                                text: {
+                                    if (boardPane.selectedGame) {
+                                        if (boardPane.selectedGame.white.length > 0) {
+                                            return qsTr("%1 — %2")
+                                                .arg(boardPane.selectedGame.black)
+                                                .arg(boardPane.selectedGame.white)
+                                        }
+
+                                        return boardPane.selectedGame.black
+                                    }
+
+                                    return gameList.searchResultsSelected
+                                        ? qsTr("No search result selected")
+                                        : ""
+                                }
+
+                                font.pixelSize: 16
+                                elide: Text.ElideRight
+                            }
+
+                            Label {
+                                visible: !root.playingGame
+                                         && boardPane.selectedGame !== null
+                                         && boardPane.selectedGame.komi.length > 0
+
+                                text: qsTr("Komi %1")
+                                      .arg(boardPane.selectedGame
+                                           ? boardPane.selectedGame.komi
+                                           : "")
+
+                                opacity: 0.75
+                                font.pixelSize: 14
+                            }
+                        }
+
+                        Label {
+                            visible: !root.playingGame
+                                     && (
+                                         (!boardPane.selectedGame
+                                          && gameList.searchResultsSelected)
+                                         || (boardPane.selectedGame
+                                             && (
+                                                 boardPane.selectedGame
+                                                     .gameDate.length > 0
+                                                 || boardPane.selectedGame
+                                                     .result.length > 0
+                                                 || boardPane.selectedGame
+                                                     .eventName.length > 0
+                                             ))
+                                     )
+                            Layout.fillWidth: true
+
+                            text: {
+                                if (!boardPane.selectedGame) {
+                                return gameList.searchResultsSelected
+                                ? qsTr("Run a search, then select a matching game")
+                                : ""
+                            }
+
+                                let details = []
+
+                                if (boardPane.selectedGame.gameDate.length > 0) {
+                                    details.push(
+                                                boardPane.selectedGame.gameDate)
+                                }
+
+                                if (boardPane.selectedGame.result.length > 0) {
+                                    details.push(
+                                                boardPane.selectedGame.result)
+                                }
+
+                                if (boardPane.selectedGame.eventName.length > 0) {
+                                    details.push(
+                                                boardPane.selectedGame.eventName)
+                                }
+
+                                return details.join(" · ")
+                            }
+
+                            color: palette.text
+                            opacity: 0.75
+                            font.pixelSize: 16
+                            elide: Text.ElideRight
+                        }
+
+                        RowLayout {
+                            visible: !root.playingGame
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            /*
+                             * Keep this row in the layout even when there is
+                             * no match. Removing it with visible:false changes
+                             * the game-details height and makes the Go board
+                             * shrink when a search-result game is selected.
+                             */
+                            enabled:
+                                boardPane.matchOccurrences.length > 0
+                            opacity: enabled ? 1 : 0
+
+                            ToolButton {
+                                text: qsTr("Previous Match")
+
+                                enabled: boardPane.matchIndex > 0
+
+                                onClicked: boardPane.showMatch(
+                                               boardPane.matchIndex - 1)
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+
+                                text: {
+                                    if (boardPane.matchIndex < 0
+                                            || boardPane.matchIndex
+                                               >= boardPane.matchOccurrences.length)
+                                        return ""
+
+                                    const occurrence =
+                                        boardPane.matchOccurrences[
+                                            boardPane.matchIndex]
+
+                                    const spanText =
+                                        boardPane.matchSpanText(occurrence)
+
+                                    if (boardPane.showingMatchPosition) {
+                                        return qsTr(
+                                                    "Match %1 of %2 · %3")
+                                            .arg(boardPane.matchIndex + 1)
+                                            .arg(
+                                                boardPane.matchOccurrences.length)
+                                            .arg(spanText)
+                                    }
+
+                                    return qsTr(
+                                                "Match %1 of %2 · %3 · viewing move %4")
+                                        .arg(boardPane.matchIndex + 1)
+                                        .arg(
+                                            boardPane.matchOccurrences.length)
+                                        .arg(spanText)
+                                        .arg(gameController.move_number)
+                                }
+
+                                horizontalAlignment:
+                                    Text.AlignHCenter
+
+                                elide: Text.ElideRight
+                            }
+
+                            ToolButton {
+                                text: qsTr("Return")
+
+                                visible:
+                                    !boardPane.showingMatchPosition
+                                    && boardPane.matchIndex >= 0
+
+                                onClicked:
+                                    boardPane.showMatch(
+                                        boardPane.matchIndex)
+
+                                ToolTip.visible: hovered
+
+                                ToolTip.text:
+                                    qsTr("Return to the matched position")
+                            }
+
+                            ToolButton {
+                                text: qsTr("Next Match")
+
+                                enabled:
+                                    boardPane.matchIndex >= 0
+                                    && boardPane.matchIndex
+                                       < boardPane.matchOccurrences.length - 1
+
+                                onClicked: boardPane.showMatch(
+                                               boardPane.matchIndex + 1)
+                            }
+                        }
+
+
+                    }
+
+                    ColumnLayout {
+                        id: continuationComparisonContent
+                        anchors.fill: parent
+                        spacing: 4
+                        visible: !root.playingGame
+                                 && boardPane.showingContinuationComparison
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Label {
+                                text: qsTr("A")
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 1.5
+                                Layout.alignment: Qt.AlignTop
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateA === null
+                                      ? ""
+                                      : gameList.comparisonCandidateA.coordinate
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 3
+                                Layout.alignment: Qt.AlignTop
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Label {
+                                    text: gameList.comparisonCandidateA === null
+                                          ? ""
+                                          : qsTr("%1 · %2")
+                                                .arg(
+                                                    gameList.appearanceCountText(
+                                                        gameList
+                                                            .comparisonCandidateA
+                                                            .count))
+                                                .arg(
+                                                    gameList.gameCountText(
+                                                        gameList
+                                                            .comparisonCandidateA
+                                                            .gameCount))
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    text: gameList.comparisonCandidateA === null
+                                          ? ""
+                                          : qsTr(
+                                              "Black %1 · White %2 · Draw %3 · Unknown %4")
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateA
+                                                        .blackWins)
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateA
+                                                        .whiteWins)
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateA
+                                                        .draws)
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateA
+                                                        .unknown)
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+                                    opacity: 0.85
+                                }
+                            }
+
+                            Button {
+                                text: qsTr("Show games")
+                                Layout.alignment: Qt.AlignTop
+
+                                onClicked:
+                                    gameList.showComparisonCandidate(
+                                        gameList.comparisonCandidateA)
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Label {
+                                text: qsTr("B")
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 1.5
+                                Layout.alignment: Qt.AlignTop
+                            }
+
+                            Label {
+                                text: gameList.comparisonCandidateB === null
+                                      ? ""
+                                      : gameList.comparisonCandidateB.coordinate
+                                font.bold: true
+                                Layout.preferredWidth:
+                                    Kirigami.Units.gridUnit * 3
+                                Layout.alignment: Qt.AlignTop
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Label {
+                                    text: gameList.comparisonCandidateB === null
+                                          ? ""
+                                          : qsTr("%1 · %2")
+                                                .arg(
+                                                    gameList.appearanceCountText(
+                                                        gameList
+                                                            .comparisonCandidateB
+                                                            .count))
+                                                .arg(
+                                                    gameList.gameCountText(
+                                                        gameList
+                                                            .comparisonCandidateB
+                                                            .gameCount))
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    text: gameList.comparisonCandidateB === null
+                                          ? ""
+                                          : qsTr(
+                                              "Black %1 · White %2 · Draw %3 · Unknown %4")
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateB
+                                                        .blackWins)
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateB
+                                                        .whiteWins)
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateB
+                                                        .draws)
+                                                .arg(
+                                                    gameList
+                                                        .comparisonCandidateB
+                                                        .unknown)
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+                                    opacity: 0.85
+                                }
+                            }
+
+                            Button {
+                                text: qsTr("Show games")
+                                Layout.alignment: Qt.AlignTop
+
+                                onClicked:
+                                    gameList.showComparisonCandidate(
+                                        gameList.comparisonCandidateB)
+                            }
+                        }
+
+                    }
+                }
+
+                Frame {
+                    id: sourceCommentSection
+
+                    visible:
+                        gameController.has_source_comments
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.minimumHeight:
+                        Kirigami.Units.gridUnit * 7
+                    Layout.preferredHeight:
+                        Kirigami.Units.gridUnit * 11
+                    Layout.maximumHeight:
+                        Kirigami.Units.gridUnit * 16
+
+                    contentItem: ColumnLayout {
+                        spacing:
+                            Kirigami.Units.smallSpacing
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Source comment")
+                            font.bold: true
+                        }
+
+                        Kirigami.Separator {
+                            Layout.fillWidth: true
+                        }
+
+                        ScrollView {
+                            id: sourceCommentScroll
+
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+
+                            TextArea {
+                                width:
+                                    sourceCommentScroll
+                                        .availableWidth
+
+                                text:
+                                    gameController
+                                        .source_comment.length > 0
+                                    ? gameController
+                                        .source_comment
+                                    : qsTr(
+                                        "No source comment at "
+                                        + "this position.")
+
+                                readOnly: true
+                                selectByMouse: true
+                                wrapMode: TextEdit.Wrap
+                                background: null
+
+                                opacity:
+                                    gameController
+                                        .source_comment.length > 0
+                                    ? 1.0
+                                    : 0.55
+
+                                font.italic:
+                                    gameController
+                                        .source_comment.length === 0
+                            }
+                        }
+                    }
+                }
+
+                Kirigami.Separator {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: implicitHeight
+                    Layout.maximumHeight: implicitHeight
+                }
+
+
+                RowLayout {
+                    id: positionEditControls
+
+                    visible:
+                        boardPane.editingPosition
+                        && !boardPane.selectingPattern
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: implicitHeight
+                    Layout.maximumHeight: implicitHeight
+                    Layout.leftMargin: 8
+                    Layout.rightMargin: 8
+                    spacing: 4
+
+                    Label {
+                        text: qsTr("Place:")
+                    }
+
+                    ToolButton {
+                        id: editBlackButton
+                        text: qsTr("Black")
+                        checkable: true
+                        checked: boardPane.editTool === "black"
+                        onClicked: boardPane.editTool = "black"
+                    }
+
+                    ToolButton {
+                        text: qsTr("White")
+                        checkable: true
+                        checked: boardPane.editTool === "white"
+                        onClicked: boardPane.editTool = "white"
+                    }
+
+                    ToolButton {
+                        text: qsTr("Alternate")
+                        checkable: true
+                        checked: boardPane.editTool === "alternate"
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Place Black and White alternately; next %1")
+                                .arg(
+                                    boardPane.alternateEditColour === "black"
+                                    ? qsTr("Black")
+                                    : qsTr("White"))
+
+                        onClicked: {
+                            boardPane.editTool = "alternate"
+                            boardPane.alternateEditColour = "black"
+                        }
+                    }
+
+                    ToolButton {
+                        text: qsTr("Erase")
+                        checkable: true
+                        checked: boardPane.editTool === "erase"
+                        onClicked: boardPane.editTool = "erase"
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                                 RowLayout {
+                                     id: patternInvestigationControls
+
+                                     Layout.fillWidth: true
+                                     visible: root.playingGame
+                                              || (boardPane.selectedGame !== null
+                                                  && boardPane.investigationMode === "pattern")
+
+                                     Layout.fillHeight: false
+                                     Layout.preferredHeight: implicitHeight
+                                     Layout.maximumHeight: implicitHeight
+
+                                     Layout.leftMargin: 8
+                                     Layout.rightMargin: 8
+                                     spacing: 4
+
+                                     Label {
+                                         visible: root.playingGame
+
+                                         text: root.localGameFinished
+                                               ? qsTr("Game finished — %1")
+                                                   .arg(root.localGameResult)
+                                               : qsTr("Move %1 — %2 to play")
+                                                   .arg(gameController.move_count + 1)
+                                                   .arg(gameController.move_count % 2 === 0
+                                                        ? qsTr("Black")
+                                                        : qsTr("White"))
+
+                                         font.bold: true
+                                     }
+
+                                     ToolButton {
+                                         visible: root.playingGame
+                                                  && !root.localGameFinished
+                                         text: qsTr("Pass")
+
+                                         onClicked: {
+                                             if (gameController.playGamePass()) {
+                                                 boardPane.applyLoadedPosition()
+                                             } else {
+                                                 console.warn(
+                                                             gameController.error_message)
+                                             }
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: root.playingGame
+                                                  && !root.localGameFinished
+                                         text: qsTr("Undo")
+                                         enabled: gameController.move_count > 0
+
+                                         onClicked: {
+                                             if (gameController.undoGameMove()) {
+                                                 boardPane.applyLoadedPosition()
+                                             } else {
+                                                 console.warn(
+                                                             gameController.error_message)
+                                             }
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: root.playingGame
+                                                  && !root.localGameFinished
+                                         text: qsTr("Resign")
+
+                                         onClicked: {
+                                             const result =
+                                                 gameController.resignGame()
+
+                                             if (result.length > 0) {
+                                                 root.localGameResult = result
+                                                 root.localGameFinished = true
+                                             } else {
+                                                 console.warn(
+                                                     gameController.error_message)
+                                             }
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: root.playingGame
+                                                  && !root.localGameFinished
+                                         text: qsTr("Finish Game")
+
+                                         onClicked: finishGameDialog.open()
+                                     }
+
+                                     Item {
+                                         visible: root.playingGame
+                                                  && root.localGameFinished
+
+                                         implicitWidth:
+                                             reviewPlayedGameButton.implicitWidth + 6
+                                         implicitHeight:
+                                             reviewPlayedGameButton.implicitHeight + 6
+
+                                         Rectangle {
+                                             anchors.fill: parent
+                                             radius: 6
+                                             color: Kirigami.Theme.highlightColor
+                                             opacity: 0.45
+                                         }
+
+                                         Button {
+                                             id: reviewPlayedGameButton
+
+                                             anchors.centerIn: parent
+
+                                             text: qsTr("Review game")
+                                             highlighted: true
+
+                                             onClicked: root.reviewPlayedGame()
+                                         }
+                                     }
+
+                                     Item {
+                                         visible: root.playingGame
+                                                  && root.localGameFinished
+
+                                         implicitWidth:
+                                             addToMyGamesButton.implicitWidth + 6
+                                         implicitHeight:
+                                             addToMyGamesButton.implicitHeight + 6
+
+                                         Rectangle {
+                                             anchors.fill: parent
+                                             radius: 6
+                                             color: Kirigami.Theme.highlightColor
+                                             opacity: addToMyGamesButton.enabled ? 0.45 : 0.0
+                                         }
+
+                                         Button {
+                                             id: addToMyGamesButton
+
+                                             anchors.centerIn: parent
+
+                                             text: root.localGameAddedToMyGames
+                                                   ? qsTr("Added to My Games")
+                                                   : qsTr("Add to My Games")
+
+                                             enabled: !root.localGameAddedToMyGames
+                                             highlighted: !root.localGameAddedToMyGames
+
+                                             onClicked:
+                                                 root.addCurrentPlayedGameToMyGames()
+                                         }
+                                     }
+
+                                     Item {
+                                         visible: root.playingGame
+                                                  && root.localGameFinished
+
+                                         implicitWidth:
+                                             savePlayedGameSgfButton.implicitWidth + 6
+                                         implicitHeight:
+                                             savePlayedGameSgfButton.implicitHeight + 6
+
+                                         Rectangle {
+                                             anchors.fill: parent
+                                             radius: 6
+                                             color: Kirigami.Theme.highlightColor
+                                             opacity: 0.45
+                                         }
+
+                                         Button {
+                                             id: savePlayedGameSgfButton
+
+                                             anchors.centerIn: parent
+
+                                             text: qsTr("Save SGF…")
+                                             highlighted: true
+
+                                             onClicked: root.openSaveSgfDialog()
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && !gameList.searchHasRun
+                                         text: qsTr("Select Pattern")
+                                         checkable: true
+
+                                             checked: boardPane.selectingPattern
+
+                                         onToggled: {
+                                             boardPane.selectingPattern = checked
+
+                                             if (checked) {
+                                                 boardPane.clearMatchNavigation()
+                                                 gameList.clearSearchResults()
+                                                 goBoard.hoverValid = false
+                                             }
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && !gameList.searchHasRun
+                                         text: qsTr("Clear Selection")
+                                         enabled: goBoard.patternSelectionValid
+
+                                         onClicked: boardPane.clearPatternSelection()
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && !gameList.searchHasRun
+                                         text: qsTr("Search Database")
+
+                                         enabled: goBoard.patternSelectionValid
+                                                  && boardPane.selectedGame !== null
+                                                  && gameList.databaseProjectPath.length > 0
+                                                  && !gameList.searchInProgress
+
+                                         onClicked:
+                                             boardPane.searchSelectedPattern(
+                                                 gameList.databaseProjectPath)
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && !gameList.searchHasRun
+                                         text: qsTr("Search My Games")
+
+                                         enabled: goBoard.patternSelectionValid
+                                                  && boardPane.selectedGame !== null
+                                                  && gameList.myGamesProjectPath.length > 0
+                                                  && !gameList.searchInProgress
+
+                                         onClicked:
+                                             boardPane.searchSelectedPattern(
+                                                 gameList.myGamesProjectPath)
+                                     }
+
+                                     ToolButton {
+                                         visible: boardPane.investigatingSearch
+                                                  && gameList.continuationFilterActive
+                                                  && !boardPane.comparingContinuations
+                                         text: qsTr("Clear filter")
+                                         onClicked: gameList.clearContinuationFilter()
+                                     }
+
+                                     ToolButton {
+                                         visible: boardPane.investigatingSearch
+                                                  && gameList.continuationCandidates.length >= 2
+
+                                         text: boardPane.comparingContinuations
+                                               ? qsTr("Cancel compare")
+                                               : boardPane.showingContinuationComparison
+                                                 ? qsTr("Clear comparison")
+                                                 : qsTr("Compare")
+
+                                         ToolTip.visible: hovered
+                                         ToolTip.text: boardPane.comparingContinuations
+                                                       ? qsTr("Stop choosing continuations to compare")
+                                                       : boardPane.showingContinuationComparison
+                                                         ? qsTr("Clear the continuation comparison")
+                                                         : qsTr("Compare two professional continuations")
+
+                                         onClicked: {
+                                             if (boardPane.comparingContinuations) {
+                                                 boardPane.cancelContinuationComparison()
+                                             } else if (boardPane.showingContinuationComparison) {
+                                                 gameList.comparisonCandidateA = null
+                                                 gameList.comparisonCandidateB = null
+                                             } else {
+                                                 boardPane.beginContinuationComparison()
+                                             }
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && boardPane.investigatingSearch
+                                                  && gameList.currentSearchProjectPath
+                                                     !== gameList.databaseProjectPath
+                                         text:
+                                             gameList.searchHasRunFor(
+                                                 gameList.databaseProjectPath)
+                                             ? qsTr("Database Results")
+                                             : qsTr("Search Database")
+
+                                         enabled: gameList.databaseProjectPath.length > 0
+                                                  && !gameList.searchInProgress
+
+                                         onClicked: {
+                                             boardPane.rememberSearchReturn(
+                                                 gameList.databaseProjectPath)
+
+                                             if (gameList.searchHasRunFor(
+                                                     gameList.databaseProjectPath)) {
+                                                 boardPane.showSamePatternResults(
+                                                     gameList.databaseProjectPath)
+                                             } else {
+                                                 boardPane.searchSamePatternIn(
+                                                     gameList.databaseProjectPath)
+                                             }
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && boardPane.investigatingSearch
+                                                  && gameList.currentSearchProjectPath
+                                                     !== gameList.myGamesProjectPath
+                                         text:
+                                             gameList.searchHasRunFor(
+                                                 gameList.myGamesProjectPath)
+                                             ? qsTr("My Games Results")
+                                             : qsTr("Search My Games")
+
+                                         enabled: gameList.myGamesProjectPath.length > 0
+                                                  && !gameList.searchInProgress
+
+                                         onClicked: {
+                                             boardPane.rememberSearchReturn(
+                                                 gameList.myGamesProjectPath)
+
+                                             if (gameList.searchHasRunFor(
+                                                     gameList.myGamesProjectPath)) {
+                                                 boardPane.showSamePatternResults(
+                                                     gameList.myGamesProjectPath)
+                                             } else {
+                                                 boardPane.searchSamePatternIn(
+                                                     gameList.myGamesProjectPath)
+                                             }
+                                         }
+                                     }
+
+                                     Item {
+                                         visible: {
+                                             const summary =
+                                                 gameList.searchOutcomeSummary
+
+                                             return !root.playingGame
+                                                 && boardPane.investigatingSearch
+                                                 && summary !== null
+                                                 && gameList.nextMoveInPatternCount === 0
+                                         }
+
+                                         implicitWidth:
+                                             adjustAreaButton.implicitWidth + 6
+                                         implicitHeight:
+                                             adjustAreaButton.implicitHeight + 6
+
+                                         Rectangle {
+                                             anchors.fill: parent
+                                             radius: 6
+                                             color: Kirigami.Theme.highlightColor
+                                             opacity: 0.45
+                                         }
+
+                                         Button {
+                                             id: adjustAreaButton
+
+                                             anchors.centerIn: parent
+
+                                             text: qsTr("Adjust area")
+                                             highlighted: true
+
+                                             ToolTip.visible: hovered
+                                             ToolTip.text:
+                                                 qsTr("Return to the source position and resize the current search area")
+
+                                             onClicked:
+                                                 boardPane.adjustSearchArea()
+                                         }
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && boardPane.canReturnInInvestigation
+                                         text: qsTr("Back")
+
+                                         ToolTip.visible: hovered
+                                         ToolTip.text:
+                                             qsTr("Return to the previous investigation step")
+
+                                         onClicked:
+                                             boardPane.returnToPreviousInvestigation()
+                                     }
+
+                                     ToolButton {
+                                         visible: !root.playingGame
+                                                  && boardPane.investigatingSearch
+                                         text: qsTr("New search")
+
+                                         onClicked: boardPane.beginNewSearch()
+                                     }
+
+                                     Item {
+                                         Layout.fillWidth: true
+                                     }
+
+                                 }
+
+                                 RowLayout {
+                                     id: patternStatusRow
+
+                                     Layout.fillWidth: true
+                                     Layout.fillHeight: false
+                                     Layout.preferredHeight: implicitHeight
+                                     Layout.maximumHeight: implicitHeight
+                                     visible:
+                                         !root.playingGame
+                                         && (
+                                             (boardPane.investigationMode
+                                                 === "pattern"
+                                                 && boardPane.investigatingSearch
+                                                 && gameList.searchOutcomeText.length > 0)
+                                             || (boardPane.investigationMode
+                                                 === "pattern"
+                                                 && boardPane.selectingPattern)
+                                             || (boardPane.editingPosition
+                                                 && boardPane.editTool
+                                                    === "alternate")
+                                         )
+                                     Layout.leftMargin: 8
+                                     Layout.rightMargin: 8
+                                     spacing: 4
+
+
+                                     Item {
+                                         Layout.fillWidth: true
+                                     }
+
+                                     RowLayout {
+                                         visible:
+                                             boardPane.investigationMode === "pattern"
+                                             && boardPane.investigatingSearch
+                                             && gameList.searchOutcomeText.length > 0
+
+                                         spacing: Kirigami.Units.largeSpacing * 2
+
+                                         Label {
+                                             visible: {
+                                                 const summary =
+                                                     gameList.searchOutcomeSummary
+
+                                                 return summary !== null
+                                                     && Number(summary.games) > 0
+                                                     && gameList.nextMoveInPatternCount === 0
+                                             }
+
+                                             text:
+                                                 qsTr("No immediate continuation")
+                                             color: "#287d78"
+                                             font.bold: true
+                                         }
+
+                                         Label {
+                                             visible:
+                                                 goBoard.continuationPoints !== null
+                                                 && goBoard.continuationPoints.length > 0
+                                                 && (boardPane.comparingContinuations
+                                                     || gameList.continuationFilterActive
+                                                     || gameList.nextMoveInPatternCount > 0)
+
+                                             text: {
+                                                 if (boardPane.comparingContinuations) {
+                                                     if (boardPane.comparisonStep === "A")
+                                                         return qsTr("● Choose A")
+
+                                                     if (gameList.comparisonCandidateA
+                                                             !== null) {
+                                                         return qsTr("A %1 · ● Choose B")
+                                                             .arg(
+                                                                 gameList
+                                                                     .comparisonCandidateA
+                                                                     .coordinate)
+                                                     }
+
+                                                     return qsTr("● Choose B")
+                                                 }
+
+                                                 if (gameList.continuationFilterActive) {
+                                                     return qsTr("● %1")
+                                                         .arg(
+                                                             gameList.goCoordinate(
+                                                                 gameList
+                                                                     .selectedContinuationX,
+                                                                 gameList
+                                                                     .selectedContinuationCoreY))
+                                                 }
+
+                                                 return qsTr("● Choose a continuation")
+                                             }
+
+                                             color: "#7d1e16"
+                                             font.bold: true
+                                         }
+
+                                         Label {
+                                             text: gameList.searchOutcomeText
+                                             font.bold: true
+                                         }
+                                     }
+
+                                     Item {
+                                         Layout.fillWidth: true
+                                     }
+
+
+
+
+                                     Label {
+                                         visible: !root.playingGame
+
+                                         text: {
+                                             if (boardPane.investigationMode === "pattern"
+                                                     && boardPane.selectingPattern)
+                                                 return qsTr("Drag over the board")
+
+                                             if (boardPane.editingPosition
+                                                     && boardPane.editTool === "alternate") {
+                                                 return qsTr("Next: %1")
+                                                     .arg(
+                                                         boardPane.alternateEditColour
+                                                             === "black"
+                                                         ? qsTr("Black")
+                                                         : qsTr("White"))
+                                             }
+
+                                             return ""
+                                         }
+
+                                         opacity: 0.75
+                                     }
+                                 }
+
+                RowLayout {
+                    id: studyAnalysisControls
+
+                    visible:
+                        !root.playingGame
+                        && boardPane.selectedGame !== null
+                        && !boardPane.editingPosition
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: implicitHeight
+                    Layout.maximumHeight: implicitHeight
+                    Layout.leftMargin: 8
+                    Layout.rightMargin: 8
+                    spacing: 4
+
+                    Label {
+                        text: qsTr("Analyse:")
+                    }
+
+                    Button {
+                        id: studyPatternSearchButton
+
+                        text: qsTr("Pattern Search")
+                        highlighted:
+                            boardPane.investigationMode === "pattern"
+
+                        onClicked: {
+                            if (boardPane.investigationMode === "pattern") {
+                                boardPane.selectingPattern = false
+                                boardPane.investigationMode = ""
+                            } else {
+                                boardPane.investigationMode = "pattern"
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("KataGo")
+                        highlighted:
+                            boardPane.investigationMode === "katago"
+
+                        onClicked: {
+                            boardPane.selectingPattern = false
+
+                            boardPane.investigationMode =
+                                boardPane.investigationMode === "katago"
+                                ? ""
+                                : "katago"
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+                                 Frame {
+                                     id: katagoPanel
+
+                                     Layout.fillWidth: true
+                                     Layout.leftMargin: 8
+                                     Layout.rightMargin: 8
+
+                                     visible: !root.playingGame
+                                              && boardPane.selectedGame !== null
+                                              && boardPane.investigationMode === "katago"
+
+                                     Layout.fillHeight: false
+                                     Layout.preferredHeight: implicitHeight
+                                     Layout.maximumHeight: implicitHeight
+
+                                     property int analysisMoveNumber: -1
+                                     property int analysisVisitBudget: -1
+                                     property string analysisKomi: ""
+
+                                     Connections {
+                                         target: boardPane
+
+                                         function onSelectedGameChanged() {
+                                             katagoKomiField.text =
+                                                 gameController.komi.length > 0
+                                                 ? gameController.komi
+                                                 : "6.5"
+                                         }
+                                     }
+
+                                     contentItem: ColumnLayout {
+                                         spacing: 4
+
+                                         RowLayout {
+                                             Layout.fillWidth: true
+                                             spacing: 6
+
+                                             Label {
+                                                 text: qsTr("Visit budget:")
+                                             }
+
+                                             SpinBox {
+                                                 id: katagoVisitBudgetSpinBox
+                                                 from: 10
+                                                 to: 100000
+                                                 stepSize: 50
+                                                 editable: true
+                                                 value: uiSettings.katagoVisitBudget
+                                                 enabled:
+                                                     !gameController
+                                                         .katago_analysis_in_progress
+
+                                                 onValueModified:
+                                                     uiSettings.katagoVisitBudget = value
+                                             }
+
+                                             Label {
+                                                 text: qsTr("Komi:")
+                                             }
+
+                                             TextField {
+                                                 id: katagoKomiField
+
+                                                 Layout.preferredWidth:
+                                                     Kirigami.Units.gridUnit * 4
+
+                                                 text:
+                                                     gameController.komi.length > 0
+                                                     ? gameController.komi
+                                                     : "6.5"
+
+                                                 enabled:
+                                                     !gameController
+                                                         .katago_analysis_in_progress
+
+                                                 inputMethodHints:
+                                                     Qt.ImhFormattedNumbersOnly
+                                             }
+
+                                             Label {
+                                                 visible: gameController.komi.length === 0
+                                                 text: qsTr("(assumed)")
+                                                 opacity: 0.7
+                                             }
+
+                                             Button {
+                                                 text:
+                                                     gameController
+                                                         .katago_analysis_in_progress
+                                                     ? qsTr("Analysing…")
+                                                     : qsTr("Analyse")
+
+                                                 enabled:
+                                                     !gameController
+                                                         .katago_analysis_in_progress
+
+                                                 onClicked: {
+                                                     katagoPanel.analysisMoveNumber =
+                                                         gameController.move_number
+
+                                                     katagoPanel.analysisVisitBudget =
+                                                         uiSettings.katagoVisitBudget
+
+                                                     katagoPanel.analysisKomi =
+                                                         katagoKomiField.text
+
+                                                     gameController
+                                                         .analyseCurrentPosition(
+                                                             uiSettings
+                                                                 .katagoVisitBudget,
+                                                             katagoKomiField.text,
+                                                             katagoSettings.executable,
+                                                             katagoSettings.model,
+                                                             katagoSettings.config)
+                                                 }
+                                             }
+
+                                             Button {
+                                                 text: qsTr("Cancel")
+                                                 visible:
+                                                     gameController
+                                                         .katago_analysis_in_progress
+
+                                                 onClicked:
+                                                     gameController.cancelKataGoAnalysis()
+                                             }
+                                         }
+
+                                         Item {
+                                             Layout.fillWidth: true
+                                         }
+
+                                         Label {
+                                             Layout.fillWidth: true
+
+                                             visible:
+                                                 gameController
+                                                     .katago_analysis_text.length > 0
+                                                 && katagoPanel.analysisMoveNumber
+                                                    === gameController.move_number
+                                                 && katagoPanel.analysisVisitBudget
+                                                    === uiSettings.katagoVisitBudget
+                                                 && katagoPanel.analysisKomi
+                                                    === katagoKomiField.text
+
+                                             wrapMode: Text.NoWrap
+                                             elide: Text.ElideRight
+                                             text:
+                                                 gameController.katago_analysis_text
+                                         }
+                                     }
+                                 }
+                RowLayout {
+                    id: studyDisplayControls
+
+                    visible:
+                        !root.playingGame
+                        && boardPane.selectedGame !== null
+                        && !boardPane.editingPosition
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: implicitHeight
+                    Layout.maximumHeight: implicitHeight
+                    Layout.leftMargin: 8
+                    Layout.rightMargin: 8
+                    spacing: 4
+
+                    Label {
+                        text: qsTr("View:")
+                    }
+
+                    Button {
+                        text: qsTr("Influence")
+                        checkable: true
+                        checked: goBoard.influenceVisible
+                        highlighted: checked
+
+                        onToggled:
+                            goBoard.influenceVisible = checked
+                    }
+
+
+
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
+
+
+
+                // closes the new gameDetailsFrame
+                Item {
+                    id: studyBottomSpacer
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                }
+            }
+        }
+
                 Pane {
             id: boardPane
+
+            visible: true
 
             property var selectedGame: null
 
@@ -1402,9 +3179,25 @@ menuBar: MenuBar {
                 if (!boardPane.beginSearchSession())
                     return false
 
+                /*
+                 * Capture every query input while the source workspace is
+                 * still active. Showing Pattern results must not alter them.
+                 */
+                const resultsBelongToStudy =
+                    root.studyWorkspaceActive
+
+                const boardSize =
+                    gameController.board_size
+
+                const stonesJson =
+                    gameController.stones_json
+
+                const left =
+                    boardPane.patternLeft
+
                 const width =
                     boardPane.patternRight
-                    - boardPane.patternLeft + 1
+                    - left + 1
 
                 const height =
                     boardPane.patternBottom
@@ -1418,13 +3211,18 @@ menuBar: MenuBar {
 
                 gameList.searchProject(
                     destinationProjectPath,
-                    gameController.board_size,
-                    gameController.stones_json,
-                    boardPane.patternLeft,
+                    boardSize,
+                    stonesJson,
+                    left,
                     bottom,
                     width,
                     height,
                     root.includeHandicapGames)
+
+                root.patternResultsWorkspaceIsStudy =
+                    resultsBelongToStudy
+
+                root.showPatternResults()
 
                 return true
             }
@@ -1481,6 +3279,8 @@ menuBar: MenuBar {
                     console.warn(gameController.error_message)
                     return false
                 }
+
+                root.showPatternResults()
 
                 return gameList.showSearchResults(
                     destinationProjectPath)
@@ -2165,8 +3965,14 @@ menuBar: MenuBar {
 
 
 
-            SplitView.minimumWidth: 420
-            SplitView.preferredWidth: 640
+            SplitView.minimumWidth:
+                Math.min(
+                    780,
+                    Math.max(
+                        420,
+                        mainSplitView.width
+                        - (root.browserExpanded ? 420 : 360)))
+            SplitView.preferredWidth: 780
 
             ColumnLayout {
                 anchors.fill: parent
@@ -2194,7 +4000,8 @@ menuBar: MenuBar {
                      * controls and game information below it remain visible.
                      */
                     Layout.preferredHeight: width
-                    Layout.minimumHeight: Kirigami.Units.gridUnit * 8
+                    Layout.minimumHeight:
+                        Kirigami.Units.gridUnit * 8
                     Layout.maximumHeight: width
 
                     padding: 4
@@ -2202,7 +4009,10 @@ menuBar: MenuBar {
                     GoBoard {
                         id: goBoard
 
-                        anchors.centerIn: parent
+
+                        anchors.right: parent.right
+                        anchors.rightMargin: boardFrame.rightPadding
+                        anchors.verticalCenter: parent.verticalCenter
 
                         width: Math.min(
                             boardFrame.availableWidth,
@@ -2215,6 +4025,9 @@ menuBar: MenuBar {
                          * remaining a separate non-clickable data source.
                          */
                         katagoCandidatePoints: {
+                            if (boardPane.investigationMode !== "katago")
+                                return []
+
                             if (katagoPanel.analysisMoveNumber
                                     !== gameController.move_number
                                     || katagoPanel.analysisVisitBudget
@@ -2316,1115 +4129,63 @@ menuBar: MenuBar {
                               boardPane.selectingPattern = false
                           }
                       }
-                  }
-
-                  RowLayout {
-                      Layout.fillWidth: true
-                      Layout.leftMargin: 8
-                      Layout.rightMargin: 8
-                      spacing: 6
-
-                      visible: !root.playingGame
-                               && boardPane.selectedGame !== null
-
-                      Button {
-                          text: qsTr("Pattern Search")
-                          highlighted:
-                              boardPane.investigationMode === "pattern"
-
-                          onClicked: {
-                              if (boardPane.investigationMode === "pattern") {
-                                  boardPane.selectingPattern = false
-                                  boardPane.investigationMode = ""
-                              } else {
-                                  boardPane.investigationMode = "pattern"
-                              }
-                          }
-                      }
-
-                      Button {
-                          text: qsTr("KataGo")
-                          highlighted:
-                              boardPane.investigationMode === "katago"
-
-                          onClicked: {
-                              if (boardPane.investigationMode === "katago") {
-                                  boardPane.investigationMode = ""
-                              } else {
-                                  /*
-                                   * Stop actively dragging a pattern, but
-                                   * preserve any existing rectangle/results
-                                   * so returning to Pattern Search restores
-                                   * the investigation.
-                                   */
-                                  boardPane.selectingPattern = false
-                                  boardPane.investigationMode = "katago"
-                              }
-                          }
-                      }
-
-                      Item {
-                          Layout.fillWidth: true
-                      }
-
-                      Button {
-                          text: qsTr("Influence")
-                          checkable: true
-                          checked: goBoard.influenceVisible
-                          highlighted: checked
-
-                          onToggled:
-                              goBoard.influenceVisible = checked
-                      }
-                  }
-
-                  RowLayout {
-                      id: patternInvestigationControls
-
-                      Layout.fillWidth: true
-                      visible: root.playingGame
-                               || (boardPane.selectedGame !== null
-                                   && boardPane.investigationMode === "pattern")
-
-                      Layout.minimumHeight:
-                          root.playingGame
-                          ? implicitHeight
-                          : boardPane.investigationBodyHeight
-
-                      Layout.leftMargin: 8
-                      Layout.rightMargin: 8
-                      spacing: 4
-
-                      Label {
-                          visible: root.playingGame
-
-                          text: root.localGameFinished
-                                ? qsTr("Game finished — %1")
-                                    .arg(root.localGameResult)
-                                : qsTr("Move %1 — %2 to play")
-                                    .arg(gameController.move_count + 1)
-                                    .arg(gameController.move_count % 2 === 0
-                                         ? qsTr("Black")
-                                         : qsTr("White"))
-
-                          font.bold: true
-                      }
-
-                      ToolButton {
-                          visible: root.playingGame
-                                   && !root.localGameFinished
-                          text: qsTr("Pass")
-
-                          onClicked: {
-                              if (gameController.playGamePass()) {
-                                  boardPane.applyLoadedPosition()
-                              } else {
-                                  console.warn(
-                                              gameController.error_message)
-                              }
-                          }
-                      }
-
-                      ToolButton {
-                          visible: root.playingGame
-                                   && !root.localGameFinished
-                          text: qsTr("Undo")
-                          enabled: gameController.move_count > 0
-
-                          onClicked: {
-                              if (gameController.undoGameMove()) {
-                                  boardPane.applyLoadedPosition()
-                              } else {
-                                  console.warn(
-                                              gameController.error_message)
-                              }
-                          }
-                      }
-
-                      ToolButton {
-                          visible: root.playingGame
-                                   && !root.localGameFinished
-                          text: qsTr("Resign")
-
-                          onClicked: {
-                              const result =
-                                  gameController.resignGame()
-
-                              if (result.length > 0) {
-                                  root.localGameResult = result
-                                  root.localGameFinished = true
-                              } else {
-                                  console.warn(
-                                      gameController.error_message)
-                              }
-                          }
-                      }
-
-                      ToolButton {
-                          visible: root.playingGame
-                                   && !root.localGameFinished
-                          text: qsTr("Finish Game")
-
-                          onClicked: finishGameDialog.open()
-                      }
-
-                      Item {
-                          visible: root.playingGame
-                                   && root.localGameFinished
-
-                          implicitWidth:
-                              reviewPlayedGameButton.implicitWidth + 6
-                          implicitHeight:
-                              reviewPlayedGameButton.implicitHeight + 6
-
-                          Rectangle {
-                              anchors.fill: parent
-                              radius: 6
-                              color: Kirigami.Theme.highlightColor
-                              opacity: 0.45
-                          }
-
-                          Button {
-                              id: reviewPlayedGameButton
-
-                              anchors.centerIn: parent
-
-                              text: qsTr("Review game")
-                              highlighted: true
-
-                              onClicked: root.reviewPlayedGame()
-                          }
-                      }
-
-                      Item {
-                          visible: root.playingGame
-                                   && root.localGameFinished
-
-                          implicitWidth:
-                              addToMyGamesButton.implicitWidth + 6
-                          implicitHeight:
-                              addToMyGamesButton.implicitHeight + 6
-
-                          Rectangle {
-                              anchors.fill: parent
-                              radius: 6
-                              color: Kirigami.Theme.highlightColor
-                              opacity: addToMyGamesButton.enabled ? 0.45 : 0.0
-                          }
-
-                          Button {
-                              id: addToMyGamesButton
-
-                              anchors.centerIn: parent
-
-                              text: root.localGameAddedToMyGames
-                                    ? qsTr("Added to My Games")
-                                    : qsTr("Add to My Games")
-
-                              enabled: !root.localGameAddedToMyGames
-                              highlighted: !root.localGameAddedToMyGames
-
-                              onClicked:
-                                  root.addCurrentPlayedGameToMyGames()
-                          }
-                      }
-
-                      Item {
-                          visible: root.playingGame
-                                   && root.localGameFinished
-
-                          implicitWidth:
-                              savePlayedGameSgfButton.implicitWidth + 6
-                          implicitHeight:
-                              savePlayedGameSgfButton.implicitHeight + 6
-
-                          Rectangle {
-                              anchors.fill: parent
-                              radius: 6
-                              color: Kirigami.Theme.highlightColor
-                              opacity: 0.45
-                          }
-
-                          Button {
-                              id: savePlayedGameSgfButton
-
-                              anchors.centerIn: parent
-
-                              text: qsTr("Save SGF…")
-                              highlighted: true
-
-                              onClicked: root.openSaveSgfDialog()
-                          }
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && !gameList.searchHasRun
-                          text: qsTr("Select Pattern")
-                          checkable: true
-
-                              checked: boardPane.selectingPattern
-
-                          onToggled: {
-                              boardPane.selectingPattern = checked
-
-                              if (checked) {
-                                  boardPane.clearMatchNavigation()
-                                  gameList.clearSearchResults()
-                                  goBoard.hoverValid = false
-                              }
-                          }
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && !gameList.searchHasRun
-                          text: qsTr("Clear Selection")
-                          enabled: goBoard.patternSelectionValid
-
-                          onClicked: boardPane.clearPatternSelection()
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && !gameList.searchHasRun
-                          text: qsTr("Search Database")
-
-                          enabled: goBoard.patternSelectionValid
-                                   && boardPane.selectedGame !== null
-                                   && gameList.databaseProjectPath.length > 0
-                                   && !gameList.searchInProgress
-
-                          onClicked:
-                              boardPane.searchSelectedPattern(
-                                  gameList.databaseProjectPath)
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && !gameList.searchHasRun
-                          text: qsTr("Search My Games")
-
-                          enabled: goBoard.patternSelectionValid
-                                   && boardPane.selectedGame !== null
-                                   && gameList.myGamesProjectPath.length > 0
-                                   && !gameList.searchInProgress
-
-                          onClicked:
-                              boardPane.searchSelectedPattern(
-                                  gameList.myGamesProjectPath)
-                      }
-
-                      ToolButton {
-                          visible: boardPane.investigatingSearch
-                                   && gameList.continuationFilterActive
-                                   && !boardPane.comparingContinuations
-                          text: qsTr("Clear filter")
-                          onClicked: gameList.clearContinuationFilter()
-                      }
-
-                      ToolButton {
-                          visible: boardPane.investigatingSearch
-                                   && gameList.continuationCandidates.length >= 2
-
-                          text: boardPane.comparingContinuations
-                                ? qsTr("Cancel compare")
-                                : boardPane.showingContinuationComparison
-                                  ? qsTr("Clear comparison")
-                                  : qsTr("Compare")
-
-                          ToolTip.visible: hovered
-                          ToolTip.text: boardPane.comparingContinuations
-                                        ? qsTr("Stop choosing continuations to compare")
-                                        : boardPane.showingContinuationComparison
-                                          ? qsTr("Clear the continuation comparison")
-                                          : qsTr("Compare two professional continuations")
-
-                          onClicked: {
-                              if (boardPane.comparingContinuations) {
-                                  boardPane.cancelContinuationComparison()
-                              } else if (boardPane.showingContinuationComparison) {
-                                  gameList.comparisonCandidateA = null
-                                  gameList.comparisonCandidateB = null
-                              } else {
-                                  boardPane.beginContinuationComparison()
-                              }
-                          }
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && boardPane.investigatingSearch
-                                   && gameList.currentSearchProjectPath
-                                      !== gameList.databaseProjectPath
-                          text:
-                              gameList.searchHasRunFor(
-                                  gameList.databaseProjectPath)
-                              ? qsTr("Database Results")
-                              : qsTr("Search Database")
-
-                          enabled: gameList.databaseProjectPath.length > 0
-                                   && !gameList.searchInProgress
-
-                          onClicked: {
-                              boardPane.rememberSearchReturn(
-                                  gameList.databaseProjectPath)
-
-                              if (gameList.searchHasRunFor(
-                                      gameList.databaseProjectPath)) {
-                                  boardPane.showSamePatternResults(
-                                      gameList.databaseProjectPath)
-                              } else {
-                                  boardPane.searchSamePatternIn(
-                                      gameList.databaseProjectPath)
-                              }
-                          }
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && boardPane.investigatingSearch
-                                   && gameList.currentSearchProjectPath
-                                      !== gameList.myGamesProjectPath
-                          text:
-                              gameList.searchHasRunFor(
-                                  gameList.myGamesProjectPath)
-                              ? qsTr("My Games Results")
-                              : qsTr("Search My Games")
-
-                          enabled: gameList.myGamesProjectPath.length > 0
-                                   && !gameList.searchInProgress
-
-                          onClicked: {
-                              boardPane.rememberSearchReturn(
-                                  gameList.myGamesProjectPath)
-
-                              if (gameList.searchHasRunFor(
-                                      gameList.myGamesProjectPath)) {
-                                  boardPane.showSamePatternResults(
-                                      gameList.myGamesProjectPath)
-                              } else {
-                                  boardPane.searchSamePatternIn(
-                                      gameList.myGamesProjectPath)
-                              }
-                          }
-                      }
-
-                      Item {
-                          visible: {
-                              const summary =
-                                  gameList.searchOutcomeSummary
-
-                              return !root.playingGame
-                                  && boardPane.investigatingSearch
-                                  && summary !== null
-                                  && gameList.nextMoveInPatternCount === 0
-                          }
-
-                          implicitWidth:
-                              adjustAreaButton.implicitWidth + 6
-                          implicitHeight:
-                              adjustAreaButton.implicitHeight + 6
-
-                          Rectangle {
-                              anchors.fill: parent
-                              radius: 6
-                              color: Kirigami.Theme.highlightColor
-                              opacity: 0.45
-                          }
-
-                          Button {
-                              id: adjustAreaButton
-
-                              anchors.centerIn: parent
-
-                              text: qsTr("Adjust area")
-                              highlighted: true
-
-                              ToolTip.visible: hovered
-                              ToolTip.text:
-                                  qsTr("Return to the source position and resize the current search area")
-
-                              onClicked:
-                                  boardPane.adjustSearchArea()
-                          }
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && boardPane.canReturnInInvestigation
-                          text: qsTr("Back")
-
-                          ToolTip.visible: hovered
-                          ToolTip.text:
-                              qsTr("Return to the previous investigation step")
-
-                          onClicked:
-                              boardPane.returnToPreviousInvestigation()
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                                   && boardPane.investigatingSearch
-                          text: qsTr("New search")
-
-                          onClicked: boardPane.beginNewSearch()
-                      }
-
-                      Item {
-                          Layout.fillWidth: true
-                      }
 
                   }
 
-                  Frame {
-                      id: katagoPanel
-
-                      Layout.fillWidth: true
-                      Layout.leftMargin: 8
-                      Layout.rightMargin: 8
-
-                      visible: !root.playingGame
-                               && boardPane.selectedGame !== null
-                               && boardPane.investigationMode === "katago"
-
-                      Layout.minimumHeight:
-                          boardPane.investigationBodyHeight
-                      Layout.preferredHeight:
-                          boardPane.investigationBodyHeight
-                      Layout.maximumHeight:
-                          boardPane.investigationBodyHeight
-
-                      property int analysisMoveNumber: -1
-                      property int analysisVisitBudget: -1
-                      property string analysisKomi: ""
-
-                      Connections {
-                          target: boardPane
-
-                          function onSelectedGameChanged() {
-                              katagoKomiField.text =
-                                  gameController.komi.length > 0
-                                  ? gameController.komi
-                                  : "6.5"
-                          }
-                      }
-
-                      contentItem: ColumnLayout {
-                          spacing: 4
-
-                          RowLayout {
-                              Layout.fillWidth: true
-                              spacing: 6
-
-                              Label {
-                                  text: qsTr("Visit budget:")
-                              }
-
-                              SpinBox {
-                                  id: katagoVisitBudgetSpinBox
-                                  from: 10
-                                  to: 100000
-                                  stepSize: 50
-                                  editable: true
-                                  value: uiSettings.katagoVisitBudget
-                                  enabled:
-                                      !gameController
-                                          .katago_analysis_in_progress
-
-                                  onValueModified:
-                                      uiSettings.katagoVisitBudget = value
-                              }
-
-                              Label {
-                                  text: qsTr("Komi:")
-                              }
-
-                              TextField {
-                                  id: katagoKomiField
-
-                                  Layout.preferredWidth:
-                                      Kirigami.Units.gridUnit * 4
-
-                                  text:
-                                      gameController.komi.length > 0
-                                      ? gameController.komi
-                                      : "6.5"
-
-                                  enabled:
-                                      !gameController
-                                          .katago_analysis_in_progress
-
-                                  inputMethodHints:
-                                      Qt.ImhFormattedNumbersOnly
-                              }
-
-                              Label {
-                                  visible: gameController.komi.length === 0
-                                  text: qsTr("(assumed)")
-                                  opacity: 0.7
-                              }
-
-                              Button {
-                                  text:
-                                      gameController
-                                          .katago_analysis_in_progress
-                                      ? qsTr("Analysing…")
-                                      : qsTr("Analyse")
-
-                                  enabled:
-                                      !gameController
-                                          .katago_analysis_in_progress
-
-                                  onClicked: {
-                                      katagoPanel.analysisMoveNumber =
-                                          gameController.move_number
-
-                                      katagoPanel.analysisVisitBudget =
-                                          uiSettings.katagoVisitBudget
-
-                                      katagoPanel.analysisKomi =
-                                          katagoKomiField.text
-
-                                      gameController
-                                          .analyseCurrentPosition(
-                                              uiSettings
-                                                  .katagoVisitBudget,
-                                              katagoKomiField.text,
-                                              katagoSettings.executable,
-                                              katagoSettings.model,
-                                              katagoSettings.config)
-                                  }
-                              }
-
-                              Button {
-                                  text: qsTr("Cancel")
-                                  visible:
-                                      gameController
-                                          .katago_analysis_in_progress
-
-                                  onClicked:
-                                      gameController.cancelKataGoAnalysis()
-                              }
-                          }
-
-                          Item {
-                              Layout.fillWidth: true
-                          }
-
-                          Label {
-                              Layout.fillWidth: true
-
-                              visible:
-                                  gameController
-                                      .katago_analysis_text.length > 0
-                                  && katagoPanel.analysisMoveNumber
-                                     === gameController.move_number
-                                  && katagoPanel.analysisVisitBudget
-                                     === uiSettings.katagoVisitBudget
-                                  && katagoPanel.analysisKomi
-                                     === katagoKomiField.text
-
-                              wrapMode: Text.NoWrap
-                              elide: Text.ElideRight
-                              text:
-                                  gameController.katago_analysis_text
-                          }
-                      }
-                  }
-
-                  Item {
-                      id: investigationHeightReserve
-
-                      visible: !root.playingGame
-                               && boardPane.selectedGame !== null
-                               && boardPane.investigationMode === ""
-
-                      Layout.fillWidth: true
-                      Layout.minimumHeight:
-                          boardPane.investigationBodyHeight
-                      Layout.preferredHeight:
-                          boardPane.investigationBodyHeight
-                  }
-
-                  RowLayout {
-                      Layout.fillWidth: true
-                      Layout.leftMargin: 8
-                      Layout.rightMargin: 8
-                      Layout.minimumHeight: editBlackButton.implicitHeight
-                      spacing: 4
-
-                      /*
-                       * This row is always reserved so that changing modes does
-                       * not resize the Go board. Position-edit controls occupy
-                       * the left side when applicable; board-view controls use
-                       * the same otherwise-unused horizontal space.
-                       */
-                      Label {
-                          visible: boardPane.editingPosition
-                                   && !boardPane.selectingPattern
-                          text: qsTr("Place:")
-                      }
-
-                      ToolButton {
-                          id: editBlackButton
-                          visible: boardPane.editingPosition
-                                   && !boardPane.selectingPattern
-                          text: qsTr("Black")
-                          checkable: true
-                          checked: boardPane.editTool === "black"
-
-                          onClicked: boardPane.editTool = "black"
-                      }
-
-                      ToolButton {
-                          visible: boardPane.editingPosition
-                                   && !boardPane.selectingPattern
-                          text: qsTr("White")
-                          checkable: true
-                          checked: boardPane.editTool === "white"
-
-                          onClicked: boardPane.editTool = "white"
-                      }
-
-                      ToolButton {
-                          visible: boardPane.editingPosition
-                                   && !boardPane.selectingPattern
-                          text: qsTr("Alternate")
-                          checkable: true
-                          checked: boardPane.editTool === "alternate"
-
-                          ToolTip.visible: hovered
-                          ToolTip.text:
-                              qsTr("Place Black and White alternately; next %1")
-                                  .arg(boardPane.alternateEditColour === "black"
-                                       ? qsTr("Black")
-                                       : qsTr("White"))
-
-                          onClicked: {
-                              boardPane.editTool = "alternate"
-                              boardPane.alternateEditColour = "black"
-                          }
-                      }
-
-                      ToolButton {
-                          visible: boardPane.editingPosition
-                                   && !boardPane.selectingPattern
-                          text: qsTr("Erase")
-                          checkable: true
-                          checked: boardPane.editTool === "erase"
-
-                          onClicked: boardPane.editTool = "erase"
-                      }
-
-                      Item {
-                          Layout.fillWidth: true
-                      }
-
-                      RowLayout {
-                          visible:
-                              boardPane.investigationMode === "pattern"
-                              && boardPane.investigatingSearch
-                              && gameList.searchOutcomeText.length > 0
-
-                          spacing: Kirigami.Units.largeSpacing * 2
-
-                          Label {
-                              visible: {
-                                  const summary =
-                                      gameList.searchOutcomeSummary
-
-                                  return summary !== null
-                                      && Number(summary.games) > 0
-                                      && gameList.nextMoveInPatternCount === 0
-                              }
-
-                              text:
-                                  qsTr("No immediate continuation")
-                              color: "#287d78"
-                              font.bold: true
-                          }
-
-                          Label {
-                              visible:
-                                  goBoard.continuationPoints !== null
-                                  && goBoard.continuationPoints.length > 0
-                                  && (boardPane.comparingContinuations
-                                      || gameList.continuationFilterActive
-                                      || gameList.nextMoveInPatternCount > 0)
-
-                              text: {
-                                  if (boardPane.comparingContinuations) {
-                                      if (boardPane.comparisonStep === "A")
-                                          return qsTr("● Choose A")
-
-                                      if (gameList.comparisonCandidateA
-                                              !== null) {
-                                          return qsTr("A %1 · ● Choose B")
-                                              .arg(
-                                                  gameList
-                                                      .comparisonCandidateA
-                                                      .coordinate)
-                                      }
-
-                                      return qsTr("● Choose B")
-                                  }
-
-                                  if (gameList.continuationFilterActive) {
-                                      return qsTr("● %1")
-                                          .arg(
-                                              gameList.goCoordinate(
-                                                  gameList
-                                                      .selectedContinuationX,
-                                                  gameList
-                                                      .selectedContinuationCoreY))
-                                  }
-
-                                  return qsTr("● Choose a continuation")
-                              }
-
-                              color: "#7d1e16"
-                              font.bold: true
-                          }
-
-                          Label {
-                              text: gameList.searchOutcomeText
-                              font.bold: true
-                          }
-                      }
-
-                      Item {
-                          Layout.fillWidth: true
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("↔")
-                          Layout.preferredWidth:
-                              Kirigami.Units.gridUnit * 2
-                          font.pixelSize:
-                              Kirigami.Units.gridUnit * 1.15
-
-                          ToolTip.visible: hovered
-                          ToolTip.text:
-                              qsTr("Flip board left to right")
-
-                          onClicked: goBoard.flipViewLeftRight()
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("↕")
-                          Layout.preferredWidth:
-                              Kirigami.Units.gridUnit * 2
-                          font.pixelSize:
-                              Kirigami.Units.gridUnit * 1.15
-
-                          ToolTip.visible: hovered
-                          ToolTip.text:
-                              qsTr("Flip board top to bottom")
-
-                          onClicked: goBoard.flipViewTopBottom()
-                      }
-
-                      ToolButton {
-                          visible: !root.playingGame
-                          text: qsTr("↺")
-                          Layout.preferredWidth:
-                              Kirigami.Units.gridUnit * 2
-                          font.pixelSize:
-                              Kirigami.Units.gridUnit * 1.15
-
-                          ToolTip.visible: hovered
-                          ToolTip.text:
-                              qsTr("Rotate board 90° counter-clockwise")
-
-                          onClicked:
-                              goBoard.rotateViewCounterClockwise()
-                      }
-
-                      Label {
-                          visible: !root.playingGame
-
-                          text: {
-                              if (boardPane.investigationMode === "pattern"
-                                      && boardPane.selectingPattern)
-                                  return qsTr("Drag over the board")
-
-                              if (boardPane.editingPosition
-                                      && boardPane.editTool === "alternate") {
-                                  return qsTr("Next: %1")
-                                      .arg(
-                                          boardPane.alternateEditColour
-                                              === "black"
-                                          ? qsTr("Black")
-                                          : qsTr("White"))
-                              }
-
-                              return ""
-                          }
-
-                          opacity: 0.75
-                      }
-                  }
-
-                  Frame {
-                      id: gameDetailsFrame
-
-                    Layout.fillWidth: true
-
-                    Layout.minimumHeight:
-                        (root.playingGame
-                         ? gameDetailsContent.implicitHeight
-                         : Math.max(
-                               gameDetailsContent.implicitHeight,
-                               continuationComparisonContent.implicitHeight))
-                        + gameDetailsFrame.topPadding
-                        + gameDetailsFrame.bottomPadding
-
-                    Layout.preferredHeight:
-                        Layout.minimumHeight
-
-                    padding: 5
-
-                    ColumnLayout {
-                        id: gameDetailsContent
-                        anchors.fill: parent
-                        spacing: 2
-                        visible: root.playingGame
-                                 || !boardPane.showingContinuationComparison
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Label {
-                                Layout.fillWidth: true
-
-                                text: {
-                                    if (boardPane.selectedGame) {
-                                        if (boardPane.selectedGame.white.length > 0) {
-                                            return qsTr("%1 — %2")
-                                                .arg(boardPane.selectedGame.black)
-                                                .arg(boardPane.selectedGame.white)
-                                        }
-
-                                        return boardPane.selectedGame.black
-                                    }
-
-                                    return gameList.searchResultsSelected
-                                        ? qsTr("No search result selected")
-                                        : ""
-                                }
-
-                                font.pixelSize: 16
-                                elide: Text.ElideRight
-                            }
-
-                            Label {
-                                visible: !root.playingGame
-                                         && boardPane.selectedGame !== null
-                                         && boardPane.selectedGame.komi.length > 0
-
-                                text: qsTr("Komi %1")
-                                      .arg(boardPane.selectedGame
-                                           ? boardPane.selectedGame.komi
-                                           : "")
-
-                                opacity: 0.75
-                                font.pixelSize: 14
-                            }
-                        }
-
-                        Label {
-                            visible: !root.playingGame
-                                     && (
-                                         (!boardPane.selectedGame
-                                          && gameList.searchResultsSelected)
-                                         || (boardPane.selectedGame
-                                             && (
-                                                 boardPane.selectedGame
-                                                     .gameDate.length > 0
-                                                 || boardPane.selectedGame
-                                                     .result.length > 0
-                                                 || boardPane.selectedGame
-                                                     .eventName.length > 0
-                                             ))
-                                     )
-                            Layout.fillWidth: true
-
-                            text: {
-                                if (!boardPane.selectedGame) {
-                                return gameList.searchResultsSelected
-                                ? qsTr("Run a search, then select a matching game")
-                                : ""
-                            }
-
-                                let details = []
-
-                                if (boardPane.selectedGame.gameDate.length > 0) {
-                                    details.push(
-                                                boardPane.selectedGame.gameDate)
-                                }
-
-                                if (boardPane.selectedGame.result.length > 0) {
-                                    details.push(
-                                                boardPane.selectedGame.result)
-                                }
-
-                                if (boardPane.selectedGame.eventName.length > 0) {
-                                    details.push(
-                                                boardPane.selectedGame.eventName)
-                                }
-
-                                return details.join(" · ")
-                            }
-
-                            color: palette.text
-                            opacity: 0.75
-                            font.pixelSize: 16
-                            elide: Text.ElideRight
-                        }
-
-                        RowLayout {
-                            visible: !root.playingGame
-                            Layout.fillWidth: true
-                            spacing: 4
-
-                            /*
-                             * Keep this row in the layout even when there is
-                             * no match. Removing it with visible:false changes
-                             * the game-details height and makes the Go board
-                             * shrink when a search-result game is selected.
-                             */
-                            enabled:
-                                boardPane.matchOccurrences.length > 0
-                            opacity: enabled ? 1 : 0
-
-                            ToolButton {
-                                text: qsTr("Previous Match")
-
-                                enabled: boardPane.matchIndex > 0
-
-                                onClicked: boardPane.showMatch(
-                                               boardPane.matchIndex - 1)
-                            }
-
-                            Label {
-                                Layout.fillWidth: true
-
-                                text: {
-                                    if (boardPane.matchIndex < 0
-                                            || boardPane.matchIndex
-                                               >= boardPane.matchOccurrences.length)
-                                        return ""
-
-                                    const occurrence =
-                                        boardPane.matchOccurrences[
-                                            boardPane.matchIndex]
-
-                                    const spanText =
-                                        boardPane.matchSpanText(occurrence)
-
-                                    if (boardPane.showingMatchPosition) {
-                                        return qsTr(
-                                                    "Match %1 of %2 · %3")
-                                            .arg(boardPane.matchIndex + 1)
-                                            .arg(
-                                                boardPane.matchOccurrences.length)
-                                            .arg(spanText)
-                                    }
-
-                                    return qsTr(
-                                                "Match %1 of %2 · %3 · viewing move %4")
-                                        .arg(boardPane.matchIndex + 1)
-                                        .arg(
-                                            boardPane.matchOccurrences.length)
-                                        .arg(spanText)
-                                        .arg(gameController.move_number)
-                                }
-
-                                horizontalAlignment:
-                                    Text.AlignHCenter
-
-                                elide: Text.ElideRight
-                            }
-
-                            ToolButton {
-                                text: qsTr("Return")
-
-                                visible:
-                                    !boardPane.showingMatchPosition
-                                    && boardPane.matchIndex >= 0
-
-                                onClicked:
-                                    boardPane.showMatch(
-                                        boardPane.matchIndex)
-
-                                ToolTip.visible: hovered
-
-                                ToolTip.text:
-                                    qsTr("Return to the matched position")
-                            }
-
-                            ToolButton {
-                                text: qsTr("Next Match")
-
-                                enabled:
-                                    boardPane.matchIndex >= 0
-                                    && boardPane.matchIndex
-                                       < boardPane.matchOccurrences.length - 1
-
-                                onClicked: boardPane.showMatch(
-                                               boardPane.matchIndex + 1)
-                            }
-                        }
-
-                        Slider {
-                            visible: !root.playingGame
-                                     && boardPane.selectedGame !== null
-    id: moveSlider
-
-    Layout.fillWidth: true
-
-    from: 0
-    to: Math.max(0, gameController.move_count)
-    value: gameController.move_number
-
-    stepSize: 1
-    snapMode: Slider.SnapAlways
-
-    enabled: boardPane.selectedGame
-             && gameController.move_count > 0
-
-    onMoved: {
-        const requestedMove = Math.round(value)
-
-        if (requestedMove !== gameController.move_number)
-            boardPane.showMove(requestedMove)
-    }
-
-    ToolTip.visible: hovered || pressed
-    ToolTip.text: qsTr("Move %1").arg(Math.round(value))
-}
-
-                        RowLayout {
-                            visible: !root.playingGame
-                                     && boardPane.selectedGame !== null
-                            Layout.fillWidth: true
-                            spacing: 4
-
-                            Label {
-                                text: qsTr("Moves:")
-                                font.bold: true
-                                opacity: 0.75
-                            }
+                ColumnLayout {
+                    id: moveNavigationStrip
+
+                    visible:
+                        !root.playingGame
+                        && boardPane.selectedGame !== null
+                        && gameController.move_count > 0
+
+                    /*
+                     * Keep game navigation physically attached to the
+                     * goban rather than stretching across the whole
+                     * board pane when the goban is height-limited.
+                     */
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: goBoard.width
+                    Layout.maximumWidth: goBoard.width
+                    Layout.leftMargin: 0
+                    Layout.rightMargin: 0
+                    Layout.bottomMargin: 4
+                    Layout.alignment: Qt.AlignRight
+                    spacing: 0
+
+                    Label {
+                        Layout.fillWidth: true
+
+                        text: qsTr("Move %1 of %2")
+                            .arg(gameController.move_number)
+                            .arg(gameController.move_count)
+
+                        horizontalAlignment: Text.AlignHCenter
+                        opacity: 0.75
+                    }
+
+                    Item {
+                        id: moveNavigationRow
+
+                        Layout.fillWidth: true
+                        Layout.preferredHeight:
+                            Math.max(
+                                leftMoveButtons.implicitHeight,
+                                rightMoveButtons.implicitHeight,
+                                moveSlider.implicitHeight)
+                        Layout.minimumHeight: Layout.preferredHeight
+
+                        Row {
+                            id: leftMoveButtons
+
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
 
                             ToolButton {
                                 text: "|<"
-                                enabled: boardPane.selectedGame
-                                         && gameController.move_number > 0
-
+                                enabled: gameController.move_number > 0
                                 onClicked: boardPane.showMove(0)
 
                                 ToolTip.visible: hovered
@@ -3433,8 +4194,7 @@ menuBar: MenuBar {
 
                             ToolButton {
                                 text: "<<"
-                                enabled: boardPane.selectedGame
-                                         && gameController.move_number > 0
+                                enabled: gameController.move_number > 0
 
                                 onClicked: boardPane.showMove(
                                                Math.max(
@@ -3448,8 +4208,7 @@ menuBar: MenuBar {
 
                             ToolButton {
                                 text: "<"
-                                enabled: boardPane.selectedGame
-                                         && gameController.move_number > 0
+                                enabled: gameController.move_number > 0
 
                                 onClicked: boardPane.showMove(
                                                gameController.move_number - 1)
@@ -3457,31 +4216,20 @@ menuBar: MenuBar {
                                 ToolTip.visible: hovered
                                 ToolTip.text: qsTr("Previous move")
                             }
+                        }
 
-                            Label {
-                                Layout.fillWidth: true
+                        Row {
+                            id: rightMoveButtons
 
-                                text: {
-                                    if (boardPane.editingPosition)
-                                        return qsTr("Editing position")
-
-                                    if (boardPane.selectedGame) {
-                                        return qsTr("Move %1 of %2")
-                                            .arg(gameController.move_number)
-                                            .arg(gameController.move_count)
-                                    }
-
-                                    return qsTr("Move 0 of 0")
-                                }
-
-                                horizontalAlignment: Text.AlignHCenter
-                            }
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
 
                             ToolButton {
                                 text: ">"
-                                enabled: boardPane.selectedGame
-                                         && gameController.move_number
-                                            < gameController.move_count
+                                enabled:
+                                    gameController.move_number
+                                    < gameController.move_count
 
                                 onClicked: boardPane.showMove(
                                                gameController.move_number + 1)
@@ -3492,9 +4240,9 @@ menuBar: MenuBar {
 
                             ToolButton {
                                 text: ">>"
-                                enabled: boardPane.selectedGame
-                                         && gameController.move_number
-                                            < gameController.move_count
+                                enabled:
+                                    gameController.move_number
+                                    < gameController.move_count
 
                                 onClicked: boardPane.showMove(
                                                Math.min(
@@ -3508,9 +4256,9 @@ menuBar: MenuBar {
 
                             ToolButton {
                                 text: ">|"
-                                enabled: boardPane.selectedGame
-                                         && gameController.move_number
-                                            < gameController.move_count
+                                enabled:
+                                    gameController.move_number
+                                    < gameController.move_count
 
                                 onClicked: boardPane.showMove(
                                                gameController.move_count)
@@ -3519,182 +4267,57 @@ menuBar: MenuBar {
                                 ToolTip.text: qsTr("Final position")
                             }
                         }
-                    }
 
-                    ColumnLayout {
-                        id: continuationComparisonContent
-                        anchors.fill: parent
-                        spacing: 4
-                        visible: !root.playingGame
-                                 && boardPane.showingContinuationComparison
+                        Slider {
+                            id: moveSlider
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Kirigami.Units.smallSpacing
+                            anchors.left: leftMoveButtons.right
+                            anchors.right: rightMoveButtons.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: 4
+                            anchors.rightMargin: 4
 
-                            Label {
-                                text: qsTr("A")
-                                font.bold: true
-                                Layout.preferredWidth:
-                                    Kirigami.Units.gridUnit * 1.5
-                                Layout.alignment: Qt.AlignTop
-                            }
+                            from: 0
+                            to: Math.max(
+                                    0,
+                                    gameController.move_count)
 
-                            Label {
-                                text: gameList.comparisonCandidateA === null
-                                      ? ""
-                                      : gameList.comparisonCandidateA.coordinate
-                                font.bold: true
-                                Layout.preferredWidth:
-                                    Kirigami.Units.gridUnit * 3
-                                Layout.alignment: Qt.AlignTop
-                            }
+                            value: gameController.move_number
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
+                            stepSize: 1
+                            snapMode: Slider.SnapAlways
 
-                                Label {
-                                    text: gameList.comparisonCandidateA === null
-                                          ? ""
-                                          : qsTr("%1 · %2")
-                                                .arg(
-                                                    gameList.appearanceCountText(
-                                                        gameList
-                                                            .comparisonCandidateA
-                                                            .count))
-                                                .arg(
-                                                    gameList.gameCountText(
-                                                        gameList
-                                                            .comparisonCandidateA
-                                                            .gameCount))
-                                    Layout.fillWidth: true
-                                    elide: Text.ElideRight
-                                }
+                            enabled:
+                                boardPane.selectedGame
+                                && gameController.move_count > 0
 
-                                Label {
-                                    text: gameList.comparisonCandidateA === null
-                                          ? ""
-                                          : qsTr(
-                                              "Black %1 · White %2 · Draw %3 · Unknown %4")
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateA
-                                                        .blackWins)
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateA
-                                                        .whiteWins)
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateA
-                                                        .draws)
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateA
-                                                        .unknown)
-                                    Layout.fillWidth: true
-                                    elide: Text.ElideRight
-                                    opacity: 0.85
+                            onMoved: {
+                                const requestedMove =
+                                    Math.round(value)
+
+                                if (requestedMove
+                                        !== gameController.move_number) {
+                                    boardPane.showMove(
+                                        requestedMove)
                                 }
                             }
 
-                            Button {
-                                text: qsTr("Show games")
-                                Layout.alignment: Qt.AlignTop
+                            ToolTip.visible:
+                                hovered || pressed
 
-                                onClicked:
-                                    gameList.showComparisonCandidate(
-                                        gameList.comparisonCandidateA)
-                            }
+                            ToolTip.text:
+                                qsTr("Move %1")
+                                    .arg(Math.round(value))
                         }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Kirigami.Units.smallSpacing
-
-                            Label {
-                                text: qsTr("B")
-                                font.bold: true
-                                Layout.preferredWidth:
-                                    Kirigami.Units.gridUnit * 1.5
-                                Layout.alignment: Qt.AlignTop
-                            }
-
-                            Label {
-                                text: gameList.comparisonCandidateB === null
-                                      ? ""
-                                      : gameList.comparisonCandidateB.coordinate
-                                font.bold: true
-                                Layout.preferredWidth:
-                                    Kirigami.Units.gridUnit * 3
-                                Layout.alignment: Qt.AlignTop
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                Label {
-                                    text: gameList.comparisonCandidateB === null
-                                          ? ""
-                                          : qsTr("%1 · %2")
-                                                .arg(
-                                                    gameList.appearanceCountText(
-                                                        gameList
-                                                            .comparisonCandidateB
-                                                            .count))
-                                                .arg(
-                                                    gameList.gameCountText(
-                                                        gameList
-                                                            .comparisonCandidateB
-                                                            .gameCount))
-                                    Layout.fillWidth: true
-                                    elide: Text.ElideRight
-                                }
-
-                                Label {
-                                    text: gameList.comparisonCandidateB === null
-                                          ? ""
-                                          : qsTr(
-                                              "Black %1 · White %2 · Draw %3 · Unknown %4")
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateB
-                                                        .blackWins)
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateB
-                                                        .whiteWins)
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateB
-                                                        .draws)
-                                                .arg(
-                                                    gameList
-                                                        .comparisonCandidateB
-                                                        .unknown)
-                                    Layout.fillWidth: true
-                                    elide: Text.ElideRight
-                                    opacity: 0.85
-                                }
-                            }
-
-                            Button {
-                                text: qsTr("Show games")
-                                Layout.alignment: Qt.AlignTop
-
-                                onClicked:
-                                    gameList.showComparisonCandidate(
-                                        gameList.comparisonCandidateB)
-                            }
-                        }
-
                     }
-                } // closes the new gameDetailsFrame
+                }
+
+
 
 
             } // surrounding ColumnLayout
         } // boardPane
+
     } // mainSplitView
+
 } // ApplicationWindow
