@@ -3345,7 +3345,6 @@ Label {
 
 
             property string annotationTool: ""
-            property var studyAnnotationsByPosition: ({})
             property int pendingStudyLabelX: -1
             property int pendingStudyLabelY: -1
 
@@ -3354,157 +3353,21 @@ Label {
                     annotationTool === tool ? "" : tool
             }
 
-            function annotationDocumentKey() {
-                if (selectedGame === null)
-                    return "none"
-
-                const gameId =
-                    selectedGame.gameId === undefined
-                    ? -1
-                    : Number(selectedGame.gameId)
-
-                const black =
-                    selectedGame.black === undefined
-                    ? ""
-                    : String(selectedGame.black)
-
-                const white =
-                    selectedGame.white === undefined
-                    ? ""
-                    : String(selectedGame.white)
-
-                const date =
-                    selectedGame.gameDate === undefined
-                    ? ""
-                    : String(selectedGame.gameDate)
-
-                return String(gameId)
-                       + "|" + black
-                       + "|" + white
-                       + "|" + date
-            }
-
-            function annotationPositionKey() {
-                const node =
-                    Number(gameController.sgf_tree_current_node)
-
-                const position =
-                    node >= 0
-                    ? "node:" + String(node)
-                    : "move:" + String(gameController.move_number)
-
-                return annotationDocumentKey() + "|" + position
-            }
-
-            function annotationsForCurrentPosition() {
-                const marks =
-                    studyAnnotationsByPosition[annotationPositionKey()]
-
-                return marks === undefined
-                       ? []
-                       : marks.slice()
-            }
-
-            function setAnnotationsForCurrentPosition(marks) {
-                const next = ({})
-
-                for (const key in studyAnnotationsByPosition)
-                    next[key] = studyAnnotationsByPosition[key]
-
-                const key = annotationPositionKey()
-
-                if (marks.length === 0)
-                    delete next[key]
-                else
-                    next[key] = marks
-
-                studyAnnotationsByPosition = next
-                refreshBoardMarkup()
-            }
-
-            function studyLetter(index) {
-                let value = index + 1
-                let text = ""
-
-                while (value > 0) {
-                    value -= 1
-                    text =
-                        String.fromCharCode(
-                            65 + (value % 26))
-                        + text
-                    value = Math.floor(value / 26)
-                }
-
-                return text
-            }
-
-            function renderedStudyAnnotations() {
-                const marks = annotationsForCurrentPosition()
-                const rendered = []
-                let letterIndex = 0
-
-                for (const mark of marks) {
-                    if (mark.kind === "letter") {
-                        rendered.push({
-                            "type": "label",
-                            "x": Number(mark.x),
-                            "y": Number(mark.y),
-                            "text": studyLetter(letterIndex)
-                        })
-                        letterIndex += 1
-                        continue
-                    }
-
-                    if (mark.kind === "number"
-                            || mark.kind === "label") {
-                        rendered.push({
-                            "type": "label",
-                            "x": Number(mark.x),
-                            "y": Number(mark.y),
-                            "text": String(mark.text)
-                        })
-                        continue
-                    }
-
-                    rendered.push({
-                        "type": String(mark.kind),
-                        "x": Number(mark.x),
-                        "y": Number(mark.y)
-                    })
-                }
-
-                return rendered
-            }
-
             function sourceBoardMarkup() {
                 try {
                     return JSON.parse(
-                        gameController.board_markup_json)
+                        gameController.studyBoardMarkupJson(
+                            gameController.move_number))
                 } catch (error) {
                     console.warn(
-                        "Could not parse SGF board markup:",
+                        "Could not parse Study board markup:",
                         error)
                     return []
                 }
             }
 
             function refreshBoardMarkup() {
-                goBoard.markup =
-                    sourceBoardMarkup().concat(
-                        renderedStudyAnnotations())
-            }
-
-            function studyAnnotationIndexAt(marks, x, y) {
-                for (let index = 0;
-                     index < marks.length;
-                     ++index) {
-                    if (Number(marks[index].x) === x
-                            && Number(marks[index].y) === y) {
-                        return index
-                    }
-                }
-
-                return -1
+                goBoard.markup = sourceBoardMarkup()
             }
 
             function annotatePoint(x, y) {
@@ -3512,17 +3375,6 @@ Label {
 
                 if (tool.length === 0)
                     return false
-
-                const marks = annotationsForCurrentPosition()
-                const existingIndex =
-                    studyAnnotationIndexAt(marks, x, y)
-
-                if (existingIndex >= 0
-                        && marks[existingIndex].kind === tool) {
-                    marks.splice(existingIndex, 1)
-                    setAnnotationsForCurrentPosition(marks)
-                    return true
-                }
 
                 if (tool === "label") {
                     pendingStudyLabelX = x
@@ -3547,20 +3399,17 @@ Label {
                     text = String(moveNumber)
                 }
 
-                if (existingIndex >= 0)
-                    marks.splice(existingIndex, 1)
-
-                const mark = {
-                    "kind": tool,
-                    "x": x,
-                    "y": y
+                if (!gameController.setStudyAnnotation(
+                        gameController.move_number,
+                        x,
+                        y,
+                        tool,
+                        text)) {
+                    console.warn(gameController.error_message)
+                    return false
                 }
 
-                if (tool === "number")
-                    mark.text = text
-
-                marks.push(mark)
-                setAnnotationsForCurrentPosition(marks)
+                refreshBoardMarkup()
                 return true
             }
 
@@ -3577,27 +3426,20 @@ Label {
                     return
                 }
 
-                const marks = annotationsForCurrentPosition()
-                const existingIndex =
-                    studyAnnotationIndexAt(
-                        marks,
+                if (!gameController.setStudyAnnotation(
+                        gameController.move_number,
                         pendingStudyLabelX,
-                        pendingStudyLabelY)
-
-                if (existingIndex >= 0)
-                    marks.splice(existingIndex, 1)
-
-                marks.push({
-                    "kind": "label",
-                    "x": pendingStudyLabelX,
-                    "y": pendingStudyLabelY,
-                    "text": label
-                })
+                        pendingStudyLabelY,
+                        "label",
+                        label)) {
+                    console.warn(gameController.error_message)
+                    return
+                }
 
                 pendingStudyLabelX = -1
                 pendingStudyLabelY = -1
 
-                setAnnotationsForCurrentPosition(marks)
+                refreshBoardMarkup()
             }
 
             function cancelPendingStudyLabel() {

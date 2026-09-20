@@ -29,6 +29,7 @@ pub mod replay;
 pub mod search;
 pub mod sgf;
 pub mod sgf_writer;
+pub mod study_document;
 pub mod study_tree;
 
 mod game_date;
@@ -64,5 +65,9 @@ pub use search::{
     SearchPatternSummaryReportOutcome, SearchResult, SearchSummaryReport, SearchSummaryResult,
 };
 pub use sgf::{Collection, GameTree, Node, main_variation_comments, parse_collection};
-pub use sgf_writer::{SgfWriteError, write_game_record_sgf};
+pub use sgf_writer::{SgfWriteError, write_collection_sgf, write_game_record_sgf};
+pub use study_document::{
+    STUDY_DOCUMENT_VERSION, STUDY_METADATA_PROPERTY, StudyAnnotation, StudyAnnotationKind,
+    StudyDocumentError, StudyDocumentMetadata, StudyOrigin,
+};
 pub use study_tree::{StudyMarkup, StudyMarkupKind, StudyTree, StudyTreeNode, build_study_tree};

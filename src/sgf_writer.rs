@@ -1,6 +1,7 @@
 use crate::{
     board::{Colour, MAX_BOARD_SIZE},
     game::{GameRecord, SetupStone},
+    sgf::{Collection, GameTree, Node},
 };
 use thiserror::Error;
 
@@ -203,11 +204,76 @@ fn escape_sgf_value(value: &str) -> String {
     escaped
 }
 
+/// Serialise an already parsed SGF collection without reducing it to
+/// Bermuda's canonical GameRecord.
+///
+/// Study documents need this because comments, variations, board markup and
+/// private Bermuda metadata all live outside GameRecord.
+#[must_use]
+pub fn write_collection_sgf(collection: &Collection) -> String {
+    let mut output = String::new();
+
+    for tree in &collection.trees {
+        write_collection_tree(&mut output, tree);
+    }
+
+    output.push('\n');
+    output
+}
+
+fn write_collection_tree(output: &mut String, tree: &GameTree) {
+    output.push('(');
+
+    for node in &tree.sequence {
+        write_collection_node(output, node);
+    }
+
+    for variation in &tree.variations {
+        write_collection_tree(output, variation);
+    }
+
+    output.push(')');
+}
+
+fn write_collection_node(output: &mut String, node: &Node) {
+    output.push(';');
+
+    for (identifier, values) in &node.properties {
+        if values.is_empty() {
+            continue;
+        }
+
+        output.push_str(identifier);
+
+        for value in values {
+            output.push('[');
+            output.push_str(&escape_sgf_value(value));
+            output.push(']');
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::{Metadata, Move, extract_main_variation, parse_collection};
+
+    #[test]
+    fn collection_round_trip_preserves_variations_comments_and_markup() {
+        let original = crate::parse_collection(
+            br#"(;FF[4]GM[1]SZ[19]C[root]LB[dd:A][pp:B]TR[qq]
+                 ;B[pd]C[move one]
+                 (;W[dd]C[first branch]SQ[cc])
+                 (;W[pp]C[second branch]CR[rr]))"#,
+        )
+        .expect("parse source SGF");
+
+        let written = write_collection_sgf(&original);
+        let restored = crate::parse_collection(written.as_bytes()).expect("reparse written SGF");
+
+        assert_eq!(restored, original);
+    }
 
     #[test]
     fn game_record_round_trip_preserves_all_supported_data() {

@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::{
+    collections::HashSet,
     env,
     fmt::Write as _,
     fs,
@@ -14,13 +15,14 @@ use std::{
 };
 
 use bermuda::{
-    AnalysisOutcome, AnalysisRequest, AnalysisResult, AnalysisVertex, Board, Colour, GameRecord,
-    KataGoConfiguration, KataGoWorker as CoreKataGoWorker, KataGoWorkerEvent, Metadata, Move,
-    PositionOccurrence, PositionState, StudyMarkupKind, StudyTree, analysis_position_from_states,
+    AnalysisOutcome, AnalysisRequest, AnalysisResult, AnalysisVertex, Board, Collection, Colour,
+    GameRecord, KataGoConfiguration, KataGoWorker as CoreKataGoWorker, KataGoWorkerEvent, Metadata,
+    Move, PositionOccurrence, PositionState, SetupStone, StudyAnnotationKind,
+    StudyDocumentMetadata, StudyMarkupKind, StudyOrigin, StudyTree, analysis_position_from_states,
     build_study_tree, extract_main_variation, importer::ImportOutcome,
     indexer::POSITION_INDEX_VERSION, main_variation_comments, parse_collection,
     position_fingerprint, project::Project, project_manager::ProjectManager, replay_positions,
-    write_game_record_sgf,
+    write_collection_sgf, write_game_record_sgf,
 };
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
@@ -28,11 +30,13 @@ use directories::ProjectDirs;
 
 const PERSONAL_PROJECT_NAME: &str = "My Games";
 const PERSONAL_PROJECT_DIRECTORY: &str = "personal-corpus";
+const STUDY_LIBRARY_DIRECTORY: &str = "study-library";
 
 const PLAYED_GAME_SOURCE_NAME: &str = "Bermuda";
 const PLAYED_GAME_SOURCE_VERSION: &str = "play-v1";
 
 static PLAYED_GAME_LOCATOR_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static STUDY_DOCUMENT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cxx_qt::bridge]
 mod ffi {
@@ -72,6 +76,10 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "personalProjectPath"]
         fn personal_project_path(self: &BermudaApp) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "studyLibraryPath"]
+        fn study_library_path(self: &BermudaApp) -> QString;
 
         #[qinvokable]
         #[cxx_name = "ensurePersonalProject"]
@@ -168,6 +176,21 @@ mod ffi {
         fn stone_move_number(self: Pin<&mut BermudaApp>, move_number: i32, x: i32, y: i32) -> i32;
 
         #[qinvokable]
+        #[cxx_name = "studyBoardMarkupJson"]
+        fn study_board_markup_json(self: &BermudaApp, move_number: i32) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "setStudyAnnotation"]
+        fn set_study_annotation(
+            self: Pin<&mut BermudaApp>,
+            move_number: i32,
+            x: i32,
+            y: i32,
+            tool: &QString,
+            text: &QString,
+        ) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "showSgfNode"]
         fn show_sgf_node(self: Pin<&mut BermudaApp>, node_id: i32) -> bool;
 
@@ -214,11 +237,29 @@ mod ffi {
 }
 
 #[derive(Debug, Clone)]
+struct StudyDocumentState {
+    metadata: StudyDocumentMetadata,
+    collection: Option<Collection>,
+    library_path: Option<PathBuf>,
+}
+
+impl StudyDocumentState {
+    fn new(origin: StudyOrigin) -> Self {
+        Self {
+            metadata: StudyDocumentMetadata::new(origin),
+            collection: None,
+            library_path: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
     source_comments: Vec<String>,
     study_tree: Option<StudyTree>,
+    study: StudyDocumentState,
     editable: bool,
     playable: bool,
     finished: bool,
@@ -766,6 +807,13 @@ impl ffi::BermudaApp {
 
     fn personal_project_path(&self) -> QString {
         match personal_project_root() {
+            Ok(path) => QString::from(path.to_string_lossy().as_ref()),
+            Err(_) => QString::default(),
+        }
+    }
+
+    fn study_library_path(&self) -> QString {
+        match study_library_root() {
             Ok(path) => QString::from(path.to_string_lossy().as_ref()),
             Err(_) => QString::default(),
         }
@@ -1509,6 +1557,50 @@ impl ffi::BermudaApp {
         -1
     }
 
+    fn study_board_markup_json(&self, move_number: i32) -> QString {
+        let json = self
+            .rust()
+            .loaded_document
+            .as_ref()
+            .map(|document| render_study_board_markup_json(document, move_number))
+            .unwrap_or_else(|| "[]".to_owned());
+
+        QString::from(json)
+    }
+
+    fn set_study_annotation(
+        mut self: Pin<&mut Self>,
+        move_number: i32,
+        x: i32,
+        y: i32,
+        tool: &QString,
+        text: &QString,
+    ) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let tool = tool.to_string();
+        let text = text.to_string();
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => {
+                    update_study_annotation(document, move_number, x, y, &tool, &text)
+                }
+                None => Err("no Study document is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(()) => true,
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
     fn show_sgf_node(mut self: Pin<&mut Self>, node_id: i32) -> bool {
         self.as_mut().set_error_message(QString::default());
 
@@ -2167,6 +2259,400 @@ fn activate_study_tree_node(document: &mut LoadedDocument, node_id: usize) -> Re
         .map_err(|_| "selected SGF move is too large for the Qt interface".to_owned())
 }
 
+fn study_document_state_from_collection(
+    collection: &Collection,
+    path: &Path,
+) -> Result<StudyDocumentState, String> {
+    let metadata = StudyDocumentMetadata::from_collection(collection).map_err(|error| {
+        format!(
+            "reading Bermuda Study metadata from {}: {error}",
+            path.display()
+        )
+    })?;
+
+    match metadata {
+        Some(metadata) => Ok(StudyDocumentState {
+            metadata,
+            collection: Some(collection.clone()),
+            library_path: Some(path.to_path_buf()),
+        }),
+
+        None => Ok(StudyDocumentState {
+            metadata: StudyDocumentMetadata::new(StudyOrigin::ExternalSgf {
+                path: path.to_string_lossy().into_owned(),
+            }),
+            collection: Some(collection.clone()),
+            library_path: None,
+        }),
+    }
+}
+
+fn study_library_root() -> Result<PathBuf, String> {
+    let project_dirs = ProjectDirs::from("org", "Bermuda", "Bermuda")
+        .ok_or_else(|| "could not determine the per-user Bermuda data directory".to_owned())?;
+
+    Ok(project_dirs.data_local_dir().join(STUDY_LIBRARY_DIRECTORY))
+}
+
+fn new_study_library_path() -> Result<PathBuf, String> {
+    let root = study_library_root()?;
+
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("creating Study Library {}: {error}", root.display()))?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("reading system clock for Study Library: {error}"))?
+        .as_nanos();
+
+    let sequence = STUDY_DOCUMENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+
+    Ok(root.join(format!("study-{timestamp}-{sequence}.sgf")))
+}
+
+fn study_game_record(document: &LoadedDocument) -> Result<GameRecord, String> {
+    let initial = document
+        .positions
+        .first()
+        .ok_or_else(|| "the Study document has no position".to_owned())?;
+
+    let board_size = initial.board.size();
+    let point_count = u16::from(board_size) * u16::from(board_size);
+    let mut setup = Vec::new();
+
+    for point in 0..point_count {
+        if let Some(colour) = initial.board.colour_at(point) {
+            setup.push(SetupStone::Add { colour, point });
+        }
+    }
+
+    let mut moves = Vec::with_capacity(document.positions.len().saturating_sub(1));
+
+    for (index, position) in document.positions.iter().enumerate().skip(1) {
+        let mv = position
+            .last_move
+            .ok_or_else(|| format!("Study position {index} has no recorded move"))?;
+
+        moves.push(mv);
+    }
+
+    Ok(GameRecord {
+        board_size,
+        metadata: Metadata {
+            black_player: document.black_player.clone(),
+            white_player: document.white_player.clone(),
+            date: None,
+            event: None,
+            result: document.result.clone(),
+            komi: document.komi,
+            handicap: None,
+        },
+        setup,
+        moves,
+    })
+}
+
+fn study_collection(document: &LoadedDocument) -> Result<Collection, String> {
+    if let Some(collection) = &document.study.collection {
+        return Ok(collection.clone());
+    }
+
+    let record = study_game_record(document)?;
+    let sgf =
+        write_game_record_sgf(&record).map_err(|error| format!("creating Study SGF: {error}"))?;
+
+    parse_collection(sgf.as_bytes())
+        .map_err(|error| format!("parsing generated Study SGF: {error}"))
+}
+
+fn persist_study_document(document: &mut LoadedDocument) -> Result<(), String> {
+    let mut collection = study_collection(document)?;
+
+    document
+        .study
+        .metadata
+        .apply_to_collection(&mut collection)
+        .map_err(|error| format!("preparing Bermuda Study metadata: {error}"))?;
+
+    let sgf = write_collection_sgf(&collection);
+
+    let first_save = document.study.library_path.is_none();
+
+    let path = match &document.study.library_path {
+        Some(path) => path.clone(),
+        None => new_study_library_path()?,
+    };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("creating {}: {error}", parent.display()))?;
+    }
+
+    fs::write(&path, sgf)
+        .map_err(|error| format!("writing Study document {}: {error}", path.display()))?;
+
+    document.study.collection = Some(collection);
+    document.study.library_path = Some(path.clone());
+
+    if first_save {
+        eprintln!("Saved Study Library document: {}", path.display());
+    }
+
+    Ok(())
+}
+
+fn study_location(
+    document: &LoadedDocument,
+    slider_move_number: i32,
+) -> Result<(Option<usize>, usize, usize), String> {
+    let position_index = usize::try_from(slider_move_number)
+        .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+    if document.positions.get(position_index).is_none() {
+        return Err(format!(
+            "Study move {slider_move_number} is outside the loaded variation"
+        ));
+    }
+
+    let node_id = document
+        .study_tree
+        .as_ref()
+        .and_then(|tree| tree.active_path.get(position_index))
+        .copied();
+
+    Ok((node_id, position_index, position_index))
+}
+
+fn qml_study_point(
+    document: &LoadedDocument,
+    position_index: usize,
+    x: i32,
+    y: i32,
+) -> Result<u16, String> {
+    let position = document
+        .positions
+        .get(position_index)
+        .ok_or_else(|| "Study position is not available".to_owned())?;
+
+    let qml_x = u8::try_from(x).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+    let qml_y = u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+    let core_y = qml_y_to_core(position.board.size(), qml_y)?;
+
+    position
+        .board
+        .point(qml_x, core_y)
+        .map_err(|error| error.to_string())
+}
+
+fn study_annotation_kind(tool: &str, text: &str) -> Result<StudyAnnotationKind, String> {
+    match tool {
+        "cross" => Ok(StudyAnnotationKind::Cross),
+        "triangle" => Ok(StudyAnnotationKind::Triangle),
+        "circle" => Ok(StudyAnnotationKind::Circle),
+        "square" => Ok(StudyAnnotationKind::Square),
+        "letter" => Ok(StudyAnnotationKind::Letter),
+
+        "number" => {
+            let move_number = text
+                .parse::<u32>()
+                .map_err(|_| format!("invalid Study move-number label {text:?}"))?;
+
+            Ok(StudyAnnotationKind::MoveNumber { move_number })
+        }
+
+        "label" => {
+            let text = text.trim();
+
+            if text.is_empty() {
+                return Err("Study label must not be empty".to_owned());
+            }
+
+            Ok(StudyAnnotationKind::Label {
+                text: text.to_owned(),
+            })
+        }
+
+        other => Err(format!("unknown Study annotation tool {other:?}")),
+    }
+}
+
+fn update_study_annotation(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    x: i32,
+    y: i32,
+    tool: &str,
+    text: &str,
+) -> Result<(), String> {
+    let (node_id, move_number, position_index) = study_location(document, slider_move_number)?;
+
+    let point = qml_study_point(document, position_index, x, y)?;
+
+    /*
+     * Markup that came from the source SGF is evidence belonging to that
+     * source document.  Study annotations may coexist with the source
+     * analysis, but must not replace or obscure an existing source mark at
+     * the same point.
+     */
+    if let (Some(tree), Some(node_id)) = (&document.study_tree, node_id)
+        && let Some(node) = tree.nodes.get(node_id)
+        && node.markup.iter().any(|mark| mark.point == point)
+    {
+        return Err("source SGF markup at this point is read-only".to_owned());
+    }
+
+    let kind = study_annotation_kind(tool, text)?;
+
+    let previous = document.study.clone();
+
+    document
+        .study
+        .metadata
+        .set_annotation(node_id, move_number, point, kind);
+
+    if let Err(error) = persist_study_document(document) {
+        document.study = previous;
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn looks_like_study_letter(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_uppercase())
+}
+
+fn study_letter(mut index: usize) -> String {
+    index += 1;
+    let mut characters = Vec::new();
+
+    while index > 0 {
+        index -= 1;
+        characters.push((b'A' + (index % 26) as u8) as char);
+        index /= 26;
+    }
+
+    characters.iter().rev().collect()
+}
+
+fn render_study_board_markup_json(document: &LoadedDocument, slider_move_number: i32) -> String {
+    let Ok((node_id, move_number, position_index)) = study_location(document, slider_move_number)
+    else {
+        return "[]".to_owned();
+    };
+
+    let Some(position) = document.positions.get(position_index) else {
+        return "[]".to_owned();
+    };
+
+    let board_size = u16::from(position.board.size());
+
+    let source_json = match node_id {
+        Some(node_id) => i32::try_from(node_id)
+            .ok()
+            .map(|node_id| study_markup_json(document.study_tree.as_ref(), node_id))
+            .unwrap_or_else(|| "[]".to_owned()),
+
+        None => "[]".to_owned(),
+    };
+
+    let mut rendered =
+        serde_json::from_str::<Vec<serde_json::Value>>(&source_json).unwrap_or_default();
+
+    let mut reserved_labels = HashSet::new();
+
+    if let (Some(tree), Some(node_id)) = (&document.study_tree, node_id)
+        && let Some(node) = tree.nodes.get(node_id)
+    {
+        for mark in &node.markup {
+            if let StudyMarkupKind::Label(text) = &mark.kind
+                && looks_like_study_letter(text)
+            {
+                reserved_labels.insert(text.clone());
+            }
+        }
+    }
+
+    for annotation in document.study.metadata.annotations_at(node_id, move_number) {
+        if let StudyAnnotationKind::Label { text } = &annotation.kind
+            && looks_like_study_letter(text)
+        {
+            reserved_labels.insert(text.clone());
+        }
+    }
+
+    let mut letter_index = 0usize;
+
+    for annotation in document.study.metadata.annotations_at(node_id, move_number) {
+        let x = annotation.point % board_size;
+        let core_y = annotation.point / board_size;
+        let y = core_y_to_qml(board_size, core_y);
+
+        let value = match &annotation.kind {
+            StudyAnnotationKind::Cross => serde_json::json!({
+                "type": "cross",
+                "x": x,
+                "y": y,
+            }),
+
+            StudyAnnotationKind::Triangle => serde_json::json!({
+                "type": "triangle",
+                "x": x,
+                "y": y,
+            }),
+
+            StudyAnnotationKind::Circle => serde_json::json!({
+                "type": "circle",
+                "x": x,
+                "y": y,
+            }),
+
+            StudyAnnotationKind::Square => serde_json::json!({
+                "type": "square",
+                "x": x,
+                "y": y,
+            }),
+
+            StudyAnnotationKind::MoveNumber { move_number } => serde_json::json!({
+                "type": "label",
+                "x": x,
+                "y": y,
+                "text": move_number.to_string(),
+            }),
+
+            StudyAnnotationKind::Label { text } => serde_json::json!({
+                "type": "label",
+                "x": x,
+                "y": y,
+                "text": text,
+            }),
+
+            StudyAnnotationKind::Letter => {
+                let text = loop {
+                    let candidate = study_letter(letter_index);
+                    letter_index += 1;
+
+                    if reserved_labels.insert(candidate.clone()) {
+                        break candidate;
+                    }
+                };
+
+                serde_json::json!({
+                    "type": "label",
+                    "x": x,
+                    "y": y,
+                    "text": text,
+                })
+            }
+        };
+
+        rendered.push(value);
+    }
+
+    serde_json::to_string(&rendered).unwrap_or_else(|_| "[]".to_owned())
+}
+
 fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument, String> {
     let project = ProjectManager::new()
         .open(Path::new(project_path))
@@ -2192,6 +2678,10 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         positions,
         source_comments: Vec::new(),
         study_tree: None,
+        study: StudyDocumentState::new(StudyOrigin::ProjectGame {
+            project_path: project_path.to_owned(),
+            game_id,
+        }),
         editable: false,
         playable: false,
         finished: false,
@@ -2210,6 +2700,8 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
 
     let collection =
         parse_collection(&bytes).map_err(|error| format!("parsing {}: {error}", path.display()))?;
+
+    let study = study_document_state_from_collection(&collection, path)?;
 
     let source_comments = main_variation_comments(&collection);
 
@@ -2244,6 +2736,7 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
         positions,
         source_comments,
         study_tree: Some(study_tree),
+        study,
         editable: false,
         playable: false,
         finished: false,
@@ -2266,6 +2759,9 @@ fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
         positions: vec![editable_position_state(board)],
         source_comments: Vec::new(),
         study_tree: None,
+        study: StudyDocumentState::new(StudyOrigin::Detached {
+            description: "untitled position".to_owned(),
+        }),
         editable: true,
         playable: false,
         finished: false,
@@ -2293,6 +2789,9 @@ fn new_game_document(
         positions: vec![editable_position_state(board)],
         source_comments: Vec::new(),
         study_tree: None,
+        study: StudyDocumentState::new(StudyOrigin::Detached {
+            description: "untitled game".to_owned(),
+        }),
         editable: false,
         playable: true,
         finished: false,
