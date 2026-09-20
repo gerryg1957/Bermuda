@@ -185,7 +185,7 @@ pub fn replay(record: &GameRecord) -> Result<Board, GameError> {
     }
     Ok(board)
 }
-fn move_coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
+pub(crate) fn move_coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
     if value.is_empty()
         || (size <= 19 && value.eq_ignore_ascii_case("tt"))
         || (size == 19 && value.eq_ignore_ascii_case("yy"))
@@ -196,7 +196,7 @@ fn move_coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
     coordinate(value, size)
 }
 
-fn coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
+pub(crate) fn coordinate(value: &str, size: u8) -> Result<Option<u16>, GameError> {
     if value.is_empty() {
         return Ok(None);
     }

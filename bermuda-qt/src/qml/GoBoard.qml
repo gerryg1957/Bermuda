@@ -11,10 +11,12 @@ Item {
 
         property int boardSize: 19
     property var stones: []
+    property var markup: []
     property var continuationPoints: []
     property var katagoCandidatePoints: []
 
     onKatagoCandidatePointsChanged: boardCanvas.requestPaint()
+    onMarkupChanged: boardCanvas.requestPaint()
 
     property int viewA: 1
     property int viewB: 0
@@ -637,6 +639,7 @@ Item {
             drawContinuationMap(ctx, left, top, spacing)
             drawKataGoCandidateMap(ctx, left, top, spacing)
             drawStones(ctx, left, top, spacing)
+            drawBoardMarkup(ctx, left, top, spacing)
             drawPatternSelection(ctx, left, top, spacing)
             drawLastMoveNumber(ctx, left, top, spacing)
             drawHoverMarker(ctx, left, top, spacing)
@@ -1024,6 +1027,131 @@ Item {
             }
 
             ctx.restore()
+        }
+
+        function stoneAt(boardX, boardY) {
+            for (const stone of root.stones) {
+                if (Number(stone.x) === boardX
+                        && Number(stone.y) === boardY) {
+                    return stone
+                }
+            }
+
+            return null
+        }
+
+        function drawBoardMarkup(ctx, left, top, spacing) {
+            if (root.markup === null || root.markup.length === 0)
+                return
+
+            const radius = spacing * 0.30
+            const strokeWidth = Math.max(1.5, spacing * 0.055)
+
+            for (const mark of root.markup) {
+                const boardX = Number(mark.x)
+                const boardY = Number(mark.y)
+                const viewPoint =
+                    root.boardToViewPoint(boardX, boardY)
+
+                const x = left + viewPoint.x * spacing
+                const y = top + viewPoint.y * spacing
+                const stone = stoneAt(boardX, boardY)
+
+                let markColor = root.lineColor
+
+                if (stone !== null) {
+                    markColor =
+                        stone.color === "black"
+                            ? "#ffffff"
+                            : "#111111"
+                }
+
+                ctx.save()
+                ctx.strokeStyle = markColor
+                ctx.fillStyle = markColor
+                ctx.lineWidth = strokeWidth
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+
+                if (mark.type === "label") {
+                    if (stone === null) {
+                        ctx.fillStyle = root.boardColor
+                        ctx.beginPath()
+                        ctx.arc(
+                            x,
+                            y,
+                            Math.max(radius * 0.92,
+                                     spacing * 0.24),
+                            0,
+                            Math.PI * 2)
+                        ctx.fill()
+                        ctx.fillStyle = markColor
+                    }
+
+                    ctx.font =
+                        "bold "
+                        + Math.max(10, spacing * 0.42)
+                        + "px sans-serif"
+                    ctx.textAlign = "center"
+                    ctx.textBaseline = "middle"
+                    ctx.fillText(String(mark.text), x, y)
+
+                    ctx.restore()
+                    continue
+                }
+
+                if (mark.type === "triangle") {
+                    const triangleRadius = radius * 1.08
+
+                    ctx.beginPath()
+                    ctx.moveTo(x, y - triangleRadius)
+                    ctx.lineTo(
+                        x - triangleRadius * 0.90,
+                        y + triangleRadius * 0.58)
+                    ctx.lineTo(
+                        x + triangleRadius * 0.90,
+                        y + triangleRadius * 0.58)
+                    ctx.closePath()
+                    ctx.stroke()
+                } else if (mark.type === "square") {
+                    const half = radius * 0.80
+                    ctx.strokeRect(
+                        x - half,
+                        y - half,
+                        half * 2,
+                        half * 2)
+                } else if (mark.type === "circle") {
+                    ctx.beginPath()
+                    ctx.arc(
+                        x,
+                        y,
+                        radius * 0.82,
+                        0,
+                        Math.PI * 2)
+                    ctx.stroke()
+                } else if (mark.type === "cross") {
+                    const half = radius * 0.82
+
+                    ctx.beginPath()
+                    ctx.moveTo(x - half, y - half)
+                    ctx.lineTo(x + half, y + half)
+                    ctx.moveTo(x + half, y - half)
+                    ctx.lineTo(x - half, y + half)
+                    ctx.stroke()
+                } else if (mark.type === "selected") {
+                    ctx.globalAlpha = 0.72
+                    ctx.beginPath()
+                    ctx.arc(
+                        x,
+                        y,
+                        radius * 0.72,
+                        0,
+                        Math.PI * 2)
+                    ctx.fill()
+                }
+
+                ctx.restore()
+            }
         }
 
         function drawStones(ctx, left, top, spacing) {

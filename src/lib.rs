@@ -29,6 +29,7 @@ pub mod replay;
 pub mod search;
 pub mod sgf;
 pub mod sgf_writer;
+pub mod study_tree;
 
 mod game_date;
 
@@ -64,3 +65,4 @@ pub use search::{
 };
 pub use sgf::{Collection, GameTree, Node, main_variation_comments, parse_collection};
 pub use sgf_writer::{SgfWriteError, write_game_record_sgf};
+pub use study_tree::{StudyMarkup, StudyMarkupKind, StudyTree, StudyTreeNode, build_study_tree};

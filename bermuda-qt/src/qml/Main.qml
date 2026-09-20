@@ -627,6 +627,46 @@ ApplicationWindow {
         }
     }
 
+
+    Dialog {
+        id: studyLabelDialog
+
+        title: qsTr("Board label")
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onAccepted:
+            boardPane.commitPendingStudyLabel(studyLabelField.text)
+
+        onRejected:
+            boardPane.cancelPendingStudyLabel()
+
+        onOpened: {
+            studyLabelField.selectAll()
+            studyLabelField.forceActiveFocus()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 6
+
+            Label {
+                text: qsTr("Label text:")
+            }
+
+            TextField {
+                id: studyLabelField
+
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+                placeholderText: qsTr("Text")
+
+                onAccepted: {
+                    if (text.trim().length > 0)
+                        studyLabelDialog.accept()
+                }
+            }
+        }
+    }
+
 menuBar: MenuBar {
     Menu {
         title: qsTr("&Game")
@@ -1754,6 +1794,23 @@ menuBar: MenuBar {
                 if (!game.fromSearchResults)
                     gameList.clearSearchResults()
 
+                /*
+                 * My Games is a review collection rather than a browsing
+                 * catalogue. Opening one of its ordinary rows should make
+                 * that game the Study document immediately.
+                 *
+                 * Search-result rows deliberately stay in the existing
+                 * Pattern Results workflow.
+                 */
+                const openMyGameInStudy =
+                    gameList.showingMyGames
+                    && game.fromSearchResults !== true
+
+                if (openMyGameInStudy
+                        && !root.prepareStudyReplacement()) {
+                    return
+                }
+
                 boardPane.clearMatchNavigation()
                 boardPane.resetPatternSelection()
                 boardPane.editingPosition = false
@@ -1791,7 +1848,13 @@ menuBar: MenuBar {
                     } else {
                         boardPane.applyLoadedPosition()
                     }
+
+                    if (openMyGameInStudy)
+                        root.finishStudyReplacement()
                 } else {
+                    if (openMyGameInStudy)
+                        root.cancelStudyReplacement()
+
                     goBoard.stones = []
                     goBoard.lastMoveX = -1
                     goBoard.lastMoveY = -1
@@ -2262,11 +2325,13 @@ menuBar: MenuBar {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
+                            contentWidth: availableWidth
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                             TextArea {
                                 width:
-                                    sourceCommentScroll
-                                        .availableWidth
+                                    sourceCommentScroll.availableWidth
+                                implicitWidth: 0
 
                                 text:
                                     gameController
@@ -2279,7 +2344,7 @@ menuBar: MenuBar {
 
                                 readOnly: true
                                 selectByMouse: true
-                                wrapMode: TextEdit.Wrap
+                                wrapMode: TextEdit.WordWrap
                                 background: null
 
                                 opacity:
@@ -2369,6 +2434,21 @@ menuBar: MenuBar {
                     }
                 }
 
+Label {
+    id: finishedPlayedGameStatus
+
+    visible: root.playingGame
+             && root.localGameFinished
+    Layout.fillWidth: true
+    Layout.leftMargin: 8
+    Layout.rightMargin: 8
+
+    text: qsTr("Game finished — %1")
+              .arg(root.localGameResult)
+
+    font.bold: true
+}
+
                                  RowLayout {
                                      id: patternInvestigationControls
 
@@ -2387,11 +2467,9 @@ menuBar: MenuBar {
 
                                      Label {
                                          visible: root.playingGame
+                                                  && !root.localGameFinished
 
-                                         text: root.localGameFinished
-                                               ? qsTr("Game finished — %1")
-                                                   .arg(root.localGameResult)
-                                               : qsTr("Move %1 — %2 to play")
+                                         text: qsTr("Move %1 — %2 to play")
                                                    .arg(gameController.move_count + 1)
                                                    .arg(gameController.move_count % 2 === 0
                                                         ? qsTr("Black")
@@ -3143,10 +3221,108 @@ menuBar: MenuBar {
 
 
 
+                    Button {
+                        text: qsTr("↔")
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Flip board left to right")
+
+                        onClicked:
+                            goBoard.flipViewLeftRight()
+                    }
+
+                    Button {
+                        text: qsTr("↕")
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Flip board top to bottom")
+
+                        onClicked:
+                            goBoard.flipViewTopBottom()
+                    }
+
+                    Button {
+                        text: qsTr("↺")
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Rotate board 90° counter-clockwise")
+
+                        onClicked:
+                            goBoard.rotateViewCounterClockwise()
+                    }
+
                     Item {
                         Layout.fillWidth: true
                     }
                 }
+
+                RowLayout {
+                    id: studyMarkupControls
+
+                    visible:
+                        !root.playingGame
+                        && boardPane.selectedGame !== null
+                        && !boardPane.editingPosition
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: implicitHeight
+                    Layout.maximumHeight: implicitHeight
+                    Layout.leftMargin: 8
+                    Layout.rightMargin: 8
+                    spacing: 4
+
+                    Label {
+                        text: qsTr("Annotate:")
+                    }
+
+                    ComboBox {
+                        id: studyMarkupToolSelector
+
+                        Layout.preferredWidth:
+                            Kirigami.Units.gridUnit * 9
+                        Layout.maximumWidth:
+                            Kirigami.Units.gridUnit * 11
+
+                        model: [
+                            { "text": qsTr("None"), "tool": "" },
+                            { "text": qsTr("Cross"), "tool": "cross" },
+                            { "text": qsTr("Triangle"), "tool": "triangle" },
+                            { "text": qsTr("Circle"), "tool": "circle" },
+                            { "text": qsTr("Square"), "tool": "square" },
+                            { "text": qsTr("Letter"), "tool": "letter" },
+                            { "text": qsTr("Number"), "tool": "number" },
+                            { "text": qsTr("Label"), "tool": "label" }
+                        ]
+
+                        textRole: "text"
+
+                        currentIndex: {
+                            for (let index = 0;
+                                 index < model.length;
+                                 ++index) {
+                                if (model[index].tool
+                                        === boardPane.annotationTool) {
+                                    return index
+                                }
+                            }
+
+                            return 0
+                        }
+
+                        onActivated:
+                            boardPane.annotationTool =
+                                model[index].tool
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+                }
+
 
 
 
@@ -3166,6 +3342,268 @@ menuBar: MenuBar {
             visible: true
 
             property var selectedGame: null
+
+
+            property string annotationTool: ""
+            property var studyAnnotationsByPosition: ({})
+            property int pendingStudyLabelX: -1
+            property int pendingStudyLabelY: -1
+
+            function toggleAnnotationTool(tool) {
+                annotationTool =
+                    annotationTool === tool ? "" : tool
+            }
+
+            function annotationDocumentKey() {
+                if (selectedGame === null)
+                    return "none"
+
+                const gameId =
+                    selectedGame.gameId === undefined
+                    ? -1
+                    : Number(selectedGame.gameId)
+
+                const black =
+                    selectedGame.black === undefined
+                    ? ""
+                    : String(selectedGame.black)
+
+                const white =
+                    selectedGame.white === undefined
+                    ? ""
+                    : String(selectedGame.white)
+
+                const date =
+                    selectedGame.gameDate === undefined
+                    ? ""
+                    : String(selectedGame.gameDate)
+
+                return String(gameId)
+                       + "|" + black
+                       + "|" + white
+                       + "|" + date
+            }
+
+            function annotationPositionKey() {
+                const node =
+                    Number(gameController.sgf_tree_current_node)
+
+                const position =
+                    node >= 0
+                    ? "node:" + String(node)
+                    : "move:" + String(gameController.move_number)
+
+                return annotationDocumentKey() + "|" + position
+            }
+
+            function annotationsForCurrentPosition() {
+                const marks =
+                    studyAnnotationsByPosition[annotationPositionKey()]
+
+                return marks === undefined
+                       ? []
+                       : marks.slice()
+            }
+
+            function setAnnotationsForCurrentPosition(marks) {
+                const next = ({})
+
+                for (const key in studyAnnotationsByPosition)
+                    next[key] = studyAnnotationsByPosition[key]
+
+                const key = annotationPositionKey()
+
+                if (marks.length === 0)
+                    delete next[key]
+                else
+                    next[key] = marks
+
+                studyAnnotationsByPosition = next
+                refreshBoardMarkup()
+            }
+
+            function studyLetter(index) {
+                let value = index + 1
+                let text = ""
+
+                while (value > 0) {
+                    value -= 1
+                    text =
+                        String.fromCharCode(
+                            65 + (value % 26))
+                        + text
+                    value = Math.floor(value / 26)
+                }
+
+                return text
+            }
+
+            function renderedStudyAnnotations() {
+                const marks = annotationsForCurrentPosition()
+                const rendered = []
+                let letterIndex = 0
+
+                for (const mark of marks) {
+                    if (mark.kind === "letter") {
+                        rendered.push({
+                            "type": "label",
+                            "x": Number(mark.x),
+                            "y": Number(mark.y),
+                            "text": studyLetter(letterIndex)
+                        })
+                        letterIndex += 1
+                        continue
+                    }
+
+                    if (mark.kind === "number"
+                            || mark.kind === "label") {
+                        rendered.push({
+                            "type": "label",
+                            "x": Number(mark.x),
+                            "y": Number(mark.y),
+                            "text": String(mark.text)
+                        })
+                        continue
+                    }
+
+                    rendered.push({
+                        "type": String(mark.kind),
+                        "x": Number(mark.x),
+                        "y": Number(mark.y)
+                    })
+                }
+
+                return rendered
+            }
+
+            function sourceBoardMarkup() {
+                try {
+                    return JSON.parse(
+                        gameController.board_markup_json)
+                } catch (error) {
+                    console.warn(
+                        "Could not parse SGF board markup:",
+                        error)
+                    return []
+                }
+            }
+
+            function refreshBoardMarkup() {
+                goBoard.markup =
+                    sourceBoardMarkup().concat(
+                        renderedStudyAnnotations())
+            }
+
+            function studyAnnotationIndexAt(marks, x, y) {
+                for (let index = 0;
+                     index < marks.length;
+                     ++index) {
+                    if (Number(marks[index].x) === x
+                            && Number(marks[index].y) === y) {
+                        return index
+                    }
+                }
+
+                return -1
+            }
+
+            function annotatePoint(x, y) {
+                const tool = annotationTool
+
+                if (tool.length === 0)
+                    return false
+
+                const marks = annotationsForCurrentPosition()
+                const existingIndex =
+                    studyAnnotationIndexAt(marks, x, y)
+
+                if (existingIndex >= 0
+                        && marks[existingIndex].kind === tool) {
+                    marks.splice(existingIndex, 1)
+                    setAnnotationsForCurrentPosition(marks)
+                    return true
+                }
+
+                if (tool === "label") {
+                    pendingStudyLabelX = x
+                    pendingStudyLabelY = y
+                    studyLabelField.text = ""
+                    studyLabelDialog.open()
+                    return true
+                }
+
+                let text = ""
+
+                if (tool === "number") {
+                    const moveNumber =
+                        gameController.stoneMoveNumber(
+                            gameController.move_number,
+                            x,
+                            y)
+
+                    if (moveNumber < 0)
+                        return false
+
+                    text = String(moveNumber)
+                }
+
+                if (existingIndex >= 0)
+                    marks.splice(existingIndex, 1)
+
+                const mark = {
+                    "kind": tool,
+                    "x": x,
+                    "y": y
+                }
+
+                if (tool === "number")
+                    mark.text = text
+
+                marks.push(mark)
+                setAnnotationsForCurrentPosition(marks)
+                return true
+            }
+
+            function commitPendingStudyLabel(text) {
+                const label = text.trim()
+
+                if (label.length === 0) {
+                    cancelPendingStudyLabel()
+                    return
+                }
+
+                if (pendingStudyLabelX < 0
+                        || pendingStudyLabelY < 0) {
+                    return
+                }
+
+                const marks = annotationsForCurrentPosition()
+                const existingIndex =
+                    studyAnnotationIndexAt(
+                        marks,
+                        pendingStudyLabelX,
+                        pendingStudyLabelY)
+
+                if (existingIndex >= 0)
+                    marks.splice(existingIndex, 1)
+
+                marks.push({
+                    "kind": "label",
+                    "x": pendingStudyLabelX,
+                    "y": pendingStudyLabelY,
+                    "text": label
+                })
+
+                pendingStudyLabelX = -1
+                pendingStudyLabelY = -1
+
+                setAnnotationsForCurrentPosition(marks)
+            }
+
+            function cancelPendingStudyLabel() {
+                pendingStudyLabelX = -1
+                pendingStudyLabelY = -1
+            }
 
             function searchSelectedPattern(destinationProjectPath) {
                 if (destinationProjectPath.length === 0)
@@ -3841,6 +4279,7 @@ menuBar: MenuBar {
                 goBoard.stones = JSON.parse(
                             gameController.stones_json)
 
+                boardPane.refreshBoardMarkup()
                 goBoard.lastMoveX = gameController.last_move_x
                 goBoard.lastMoveY = gameController.last_move_y
                 goBoard.lastMoveNumber = gameController.move_number
@@ -4006,6 +4445,433 @@ menuBar: MenuBar {
 
                     padding: 4
 
+                    Frame {
+                        id: sgfTreeFrame
+
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+
+                        width:
+                            Math.max(
+                                0,
+                                goBoard.x
+                                - Kirigami.Units.smallSpacing)
+
+                        visible:
+                            gameController.sgf_tree_json !== "[]"
+                            && width >= Kirigami.Units.gridUnit * 8
+
+                        padding: 4
+                        clip: true
+
+                        contentItem: ColumnLayout {
+                            spacing: 2
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Game tree")
+                                font.bold: true
+                            }
+
+                            Flickable {
+                                id: sgfTreeFlick
+
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection:
+                                    Flickable.HorizontalAndVerticalFlick
+
+                                contentWidth:
+                                    Math.max(
+                                        width,
+                                        sgfTreeCanvas.treeWidth)
+
+                                contentHeight:
+                                    Math.max(
+                                        height,
+                                        sgfTreeCanvas.treeHeight)
+
+                                ScrollBar.vertical: ScrollBar {
+                                    policy:
+                                        sgfTreeFlick.contentHeight
+                                            > sgfTreeFlick.height
+                                        ? ScrollBar.AlwaysOn
+                                        : ScrollBar.AsNeeded
+                                }
+
+                                ScrollBar.horizontal: ScrollBar {
+                                    policy:
+                                        sgfTreeFlick.contentWidth
+                                            > sgfTreeFlick.width
+                                        ? ScrollBar.AlwaysOn
+                                        : ScrollBar.AsNeeded
+                                }
+
+                                Canvas {
+                                    id: sgfTreeCanvas
+
+                                    property var nodes: {
+                                        try {
+                                            return JSON.parse(
+                                                gameController
+                                                    .sgf_tree_json)
+                                        } catch (error) {
+                                            return []
+                                        }
+                                    }
+
+                                    property int currentNode:
+                                        gameController
+                                            .sgf_tree_current_node
+
+                                    property real rowSpacing: 24
+                                    property real laneSpacing: 30
+
+                                    property int maxRow: {
+                                        let result = 0
+
+                                        for (const node of nodes) {
+                                            result = Math.max(
+                                                result,
+                                                Number(node.row))
+                                        }
+
+                                        return result
+                                    }
+
+                                    property int maxLane: {
+                                        let result = 0
+
+                                        for (const node of nodes) {
+                                            result = Math.max(
+                                                result,
+                                                Number(node.lane))
+                                        }
+
+                                        return result
+                                    }
+
+                                    property real treeWidth:
+                                        44
+                                        + (maxLane + 1)
+                                          * laneSpacing
+
+                                    property real treeHeight:
+                                        44
+                                        + (maxRow + 1)
+                                          * rowSpacing
+
+                                    width:
+                                        Math.max(
+                                            sgfTreeFlick.width,
+                                            treeWidth)
+
+                                    height:
+                                        Math.max(
+                                            sgfTreeFlick.height,
+                                            treeHeight)
+
+                                    function nodeX(node) {
+                                        return 22
+                                               + Number(node.lane)
+                                                 * laneSpacing
+                                    }
+
+                                    function nodeY(node) {
+                                        return 22
+                                               + Number(node.row)
+                                                 * rowSpacing
+                                    }
+
+                                    function nodeById(id) {
+                                        for (const node of nodes) {
+                                            if (Number(node.id)
+                                                    === Number(id)) {
+                                                return node
+                                            }
+                                        }
+
+                                        return null
+                                    }
+
+                                    function nodeAt(x, y) {
+                                        let nearest = null
+                                        let nearestDistance = 11
+
+                                        for (const node of nodes) {
+                                            const dx =
+                                                x - nodeX(node)
+                                            const dy =
+                                                y - nodeY(node)
+                                            const distance =
+                                                Math.sqrt(
+                                                    dx * dx
+                                                    + dy * dy)
+
+                                            if (distance
+                                                    < nearestDistance) {
+                                                nearest = node
+                                                nearestDistance =
+                                                    distance
+                                            }
+                                        }
+
+                                        return nearest
+                                    }
+
+                                    function ensureCurrentVisible() {
+                                        const node =
+                                            nodeById(currentNode)
+
+                                        if (node === null)
+                                            return
+
+                                        const x = nodeX(node)
+                                        const y = nodeY(node)
+                                        const margin = 36
+
+                                        if (y - margin
+                                                < sgfTreeFlick
+                                                    .contentY) {
+                                            sgfTreeFlick.contentY =
+                                                Math.max(
+                                                    0,
+                                                    y - margin)
+                                        } else if (
+                                            y + margin
+                                            > sgfTreeFlick.contentY
+                                              + sgfTreeFlick.height) {
+                                            sgfTreeFlick.contentY =
+                                                Math.min(
+                                                    Math.max(
+                                                        0,
+                                                        sgfTreeFlick
+                                                            .contentHeight
+                                                        - sgfTreeFlick
+                                                            .height),
+                                                    y + margin
+                                                    - sgfTreeFlick
+                                                        .height)
+                                        }
+
+                                        if (x - margin
+                                                < sgfTreeFlick
+                                                    .contentX) {
+                                            sgfTreeFlick.contentX =
+                                                Math.max(
+                                                    0,
+                                                    x - margin)
+                                        } else if (
+                                            x + margin
+                                            > sgfTreeFlick.contentX
+                                              + sgfTreeFlick.width) {
+                                            sgfTreeFlick.contentX =
+                                                Math.min(
+                                                    Math.max(
+                                                        0,
+                                                        sgfTreeFlick
+                                                            .contentWidth
+                                                        - sgfTreeFlick
+                                                            .width),
+                                                    x + margin
+                                                    - sgfTreeFlick
+                                                        .width)
+                                        }
+                                    }
+
+                                    onNodesChanged: {
+                                        requestPaint()
+                                        Qt.callLater(
+                                            ensureCurrentVisible)
+                                    }
+
+                                    onCurrentNodeChanged: {
+                                        requestPaint()
+                                        Qt.callLater(
+                                            ensureCurrentVisible)
+                                    }
+
+                                    onWidthChanged:
+                                        requestPaint()
+
+                                    onHeightChanged:
+                                        requestPaint()
+
+                                    onPaint: {
+                                        const ctx =
+                                            getContext("2d")
+
+                                        ctx.reset()
+
+                                        ctx.globalAlpha = 0.35
+                                        ctx.strokeStyle =
+                                            Kirigami.Theme
+                                                .textColor
+                                        ctx.lineWidth = 1.5
+
+                                        for (const node of nodes) {
+                                            if (node.parent === null
+                                                    || node.parent
+                                                       === undefined) {
+                                                continue
+                                            }
+
+                                            const parent =
+                                                nodeById(node.parent)
+
+                                            if (parent === null)
+                                                continue
+
+                                            const parentX =
+                                                nodeX(parent)
+                                            const parentY =
+                                                nodeY(parent)
+                                            const x = nodeX(node)
+                                            const y = nodeY(node)
+
+                                            ctx.beginPath()
+                                            ctx.moveTo(
+                                                parentX,
+                                                parentY)
+                                            ctx.lineTo(
+                                                parentX,
+                                                y)
+                                            ctx.lineTo(
+                                                x,
+                                                y)
+                                            ctx.stroke()
+                                        }
+
+                                        ctx.globalAlpha = 1.0
+
+                                        for (const node of nodes) {
+                                            const x = nodeX(node)
+                                            const y = nodeY(node)
+                                            const current =
+                                                Number(node.id)
+                                                === currentNode
+
+                                            if (current) {
+                                                ctx.strokeStyle =
+                                                    Kirigami.Theme
+                                                        .highlightColor
+                                                ctx.lineWidth = 3
+                                                ctx.beginPath()
+                                                ctx.arc(
+                                                    x,
+                                                    y,
+                                                    8,
+                                                    0,
+                                                    Math.PI * 2)
+                                                ctx.stroke()
+                                            }
+
+                                            ctx.lineWidth = 1.5
+                                            ctx.strokeStyle =
+                                                Kirigami.Theme
+                                                    .textColor
+
+                                            if (node.colour
+                                                    === "black") {
+                                                ctx.fillStyle =
+                                                    "#202020"
+                                            } else if (
+                                                node.colour
+                                                === "white") {
+                                                ctx.fillStyle =
+                                                    "#f5f5f5"
+                                            } else {
+                                                ctx.fillStyle =
+                                                    Kirigami.Theme
+                                                        .backgroundColor
+                                            }
+
+                                            ctx.beginPath()
+                                            ctx.arc(
+                                                x,
+                                                y,
+                                                5.5,
+                                                0,
+                                                Math.PI * 2)
+                                            ctx.fill()
+                                            ctx.stroke()
+
+                                            if (node.hasComment) {
+                                                ctx.fillStyle =
+                                                    Kirigami.Theme
+                                                        .highlightColor
+                                                ctx.beginPath()
+                                                ctx.arc(
+                                                    x + 7,
+                                                    y - 7,
+                                                    2.5,
+                                                    0,
+                                                    Math.PI * 2)
+                                                ctx.fill()
+                                            }
+
+                                            if (node.branchPoint
+                                                    || current) {
+                                                ctx.fillStyle =
+                                                    Kirigami.Theme
+                                                        .textColor
+                                                ctx.font =
+                                                    "11px sans-serif"
+                                                ctx.textAlign =
+                                                    "left"
+                                                ctx.textBaseline =
+                                                    "middle"
+                                                ctx.fillText(
+                                                    Number(
+                                                        node
+                                                            .moveNumber)
+                                                        .toString(),
+                                                    x + 11,
+                                                    y)
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        preventStealing: false
+
+                                        onClicked:
+                                            function(mouse) {
+                                                const node =
+                                                    sgfTreeCanvas
+                                                        .nodeAt(
+                                                            mouse.x,
+                                                            mouse.y)
+
+                                                if (node === null)
+                                                    return
+
+                                                boardPane
+                                                    .clearContinuationMap()
+
+                                                if (gameController
+                                                        .showSgfNode(
+                                                            Number(
+                                                                node.id))) {
+                                                    boardPane
+                                                        .applyLoadedPosition()
+                                                } else {
+                                                    console.warn(
+                                                        gameController
+                                                            .error_message)
+                                                }
+                                            }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     GoBoard {
                         id: goBoard
 
@@ -4077,6 +4943,11 @@ menuBar: MenuBar {
                                                   gameController.error_message)
                                   }
 
+                                  return
+                              }
+
+                              if (boardPane.annotationTool.length > 0) {
+                                  boardPane.annotatePoint(x, y)
                                   return
                               }
 

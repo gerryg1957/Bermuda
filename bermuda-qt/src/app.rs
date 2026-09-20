@@ -16,10 +16,11 @@ use std::{
 use bermuda::{
     AnalysisOutcome, AnalysisRequest, AnalysisResult, AnalysisVertex, Board, Colour, GameRecord,
     KataGoConfiguration, KataGoWorker as CoreKataGoWorker, KataGoWorkerEvent, Metadata, Move,
-    PositionOccurrence, PositionState, analysis_position_from_states, extract_main_variation,
-    importer::ImportOutcome, indexer::POSITION_INDEX_VERSION, main_variation_comments,
-    parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
-    replay_positions, write_game_record_sgf,
+    PositionOccurrence, PositionState, StudyMarkupKind, StudyTree, analysis_position_from_states,
+    build_study_tree, extract_main_variation, importer::ImportOutcome,
+    indexer::POSITION_INDEX_VERSION, main_variation_comments, parse_collection,
+    position_fingerprint, project::Project, project_manager::ProjectManager, replay_positions,
+    write_game_record_sgf,
 };
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
@@ -55,6 +56,9 @@ mod ffi {
         #[qproperty(QString, komi)]
         #[qproperty(QString, source_comment)]
         #[qproperty(bool, has_source_comments)]
+        #[qproperty(QString, sgf_tree_json)]
+        #[qproperty(i32, sgf_tree_current_node)]
+        #[qproperty(QString, board_markup_json)]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, katago_analysis_in_progress)]
         #[qproperty(QString, katago_analysis_text)]
@@ -160,6 +164,14 @@ mod ffi {
         fn show_position(self: Pin<&mut BermudaApp>, move_number: i32) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "stoneMoveNumber"]
+        fn stone_move_number(self: Pin<&mut BermudaApp>, move_number: i32, x: i32, y: i32) -> i32;
+
+        #[qinvokable]
+        #[cxx_name = "showSgfNode"]
+        fn show_sgf_node(self: Pin<&mut BermudaApp>, node_id: i32) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "analyseCurrentPosition"]
         fn analyse_current_position(
             self: Pin<&mut BermudaApp>,
@@ -206,6 +218,7 @@ struct LoadedDocument {
     description: String,
     positions: Vec<PositionState>,
     source_comments: Vec<String>,
+    study_tree: Option<StudyTree>,
     editable: bool,
     playable: bool,
     finished: bool,
@@ -269,6 +282,9 @@ pub struct BermudaAppRust {
     komi: QString,
     source_comment: QString,
     has_source_comments: bool,
+    sgf_tree_json: QString,
+    sgf_tree_current_node: i32,
+    board_markup_json: QString,
     error_message: QString,
     katago_analysis_in_progress: bool,
     katago_analysis_text: QString,
@@ -297,6 +313,9 @@ impl Default for BermudaAppRust {
             komi: QString::default(),
             source_comment: QString::default(),
             has_source_comments: false,
+            sgf_tree_json: QString::from("[]"),
+            sgf_tree_current_node: -1,
+            board_markup_json: QString::from("[]"),
             error_message: QString::default(),
             katago_analysis_in_progress: false,
             katago_analysis_text: QString::default(),
@@ -1251,7 +1270,6 @@ impl ffi::BermudaApp {
         }
     }
 
-
     fn snapshot_workspace(mut self: Pin<&mut Self>) -> bool {
         self.as_mut().set_error_message(QString::default());
 
@@ -1436,6 +1454,100 @@ impl ffi::BermudaApp {
         }
 
         self.as_mut().show_cached_position(move_number)
+    }
+
+    fn stone_move_number(self: Pin<&mut Self>, move_number: i32, x: i32, y: i32) -> i32 {
+        let Ok(position_index) = usize::try_from(move_number) else {
+            return -1;
+        };
+
+        let Ok(qml_x) = u8::try_from(x) else {
+            return -1;
+        };
+
+        let Ok(qml_y) = u8::try_from(y) else {
+            return -1;
+        };
+
+        let self_ref = self.as_ref();
+        let rust = self_ref.rust();
+
+        let Some(document) = rust.loaded_document.as_ref() else {
+            return -1;
+        };
+
+        let Some(current_position) = document.positions.get(position_index) else {
+            return -1;
+        };
+
+        let board_size = current_position.board.size();
+
+        if qml_x >= board_size || qml_y >= board_size {
+            return -1;
+        }
+
+        let Ok(core_y) = qml_y_to_core(board_size, qml_y) else {
+            return -1;
+        };
+
+        let point = u16::from(core_y) * u16::from(board_size) + u16::from(qml_x);
+
+        let Some(current_colour) = current_position.board.colour_at(point) else {
+            return -1;
+        };
+
+        for position in document.positions[..=position_index].iter().rev() {
+            let Some(mv) = position.last_move else {
+                continue;
+            };
+
+            if mv.point == Some(point) && mv.colour == current_colour {
+                return i32::try_from(position.occurrence.move_number).unwrap_or(-1);
+            }
+        }
+
+        -1
+    }
+
+    fn show_sgf_node(mut self: Pin<&mut Self>, node_id: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let node_id = match usize::try_from(node_id) {
+            Ok(node_id) => node_id,
+
+            Err(_) => {
+                self.as_mut()
+                    .set_error_message(QString::from("invalid SGF tree node"));
+                return false;
+            }
+        };
+
+        let current_tree_node = self.as_ref().rust().sgf_tree_current_node;
+        let requested_tree_node = i32::try_from(node_id).unwrap_or(i32::MAX);
+
+        if current_tree_node != requested_tree_node
+            && self.as_ref().rust().katago_analysis_in_progress
+        {
+            let _ = cancel_katago_analysis_impl(self.as_mut(), false);
+        }
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => activate_study_tree_node(document, node_id),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(move_number) => self.as_mut().show_cached_position(move_number),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
     }
 
     fn analyse_current_position(
@@ -1827,44 +1939,65 @@ impl ffi::BermudaApp {
     fn show_cached_position(mut self: Pin<&mut Self>, move_number: i32) -> bool {
         self.as_mut().set_error_message(QString::default());
 
-        let result = {
+        let result: Result<(LoadedPosition, String, i32, String), String> = (|| {
             let self_ref = self.as_ref();
             let rust = self_ref.rust();
 
-            match rust.loaded_document.as_ref() {
-                Some(document) => position_data(
-                    &document.positions,
-                    &document.source_comments,
-                    &document.description,
-                    move_number,
-                ),
+            let document = rust
+                .loaded_document
+                .as_ref()
+                .ok_or_else(|| "no game is loaded".to_owned())?;
 
-                None => Err("no game is loaded".to_owned()),
-            }
-        };
+            let position = position_data(
+                &document.positions,
+                &document.source_comments,
+                &document.description,
+                move_number,
+            )?;
+
+            let current_tree_node = document
+                .study_tree
+                .as_ref()
+                .and_then(|tree| {
+                    usize::try_from(move_number)
+                        .ok()
+                        .and_then(|index| tree.active_path.get(index))
+                })
+                .and_then(|node_id| i32::try_from(*node_id).ok())
+                .unwrap_or(-1);
+
+            let markup_json = study_markup_json(document.study_tree.as_ref(), current_tree_node);
+
+            Ok((
+                position,
+                study_tree_json(document.study_tree.as_ref()),
+                current_tree_node,
+                markup_json,
+            ))
+        })();
 
         match result {
-            Ok(position) => {
+            Ok((position, tree_json, current_tree_node, markup_json)) => {
                 self.as_mut().set_board_size(position.board_size);
-
                 self.as_mut().set_stones_json(position.stones_json);
-
                 self.as_mut().set_move_number(position.move_number);
-
                 self.as_mut().set_move_count(position.move_count);
-
                 self.as_mut().set_last_move_x(position.last_move_x);
                 self.as_mut().set_last_move_y(position.last_move_y);
                 self.as_mut().set_source_comment(position.source_comment);
                 self.as_mut()
                     .set_has_source_comments(position.has_source_comments);
 
+                self.as_mut().set_sgf_tree_json(QString::from(tree_json));
+                self.as_mut().set_sgf_tree_current_node(current_tree_node);
+                self.as_mut()
+                    .set_board_markup_json(QString::from(markup_json));
+
                 true
             }
 
             Err(error) => {
                 self.as_mut().set_error_message(QString::from(error));
-
                 false
             }
         }
@@ -1882,6 +2015,9 @@ impl ffi::BermudaApp {
         self.as_mut().set_komi(QString::default());
         self.as_mut().set_source_comment(QString::default());
         self.as_mut().set_has_source_comments(false);
+        self.as_mut().set_sgf_tree_json(QString::from("[]"));
+        self.as_mut().set_sgf_tree_current_node(-1);
+        self.as_mut().set_board_markup_json(QString::from("[]"));
     }
 }
 
@@ -1894,6 +2030,141 @@ struct LoadedPosition {
     move_count: i32,
     last_move_x: i32,
     last_move_y: i32,
+}
+
+fn study_tree_json(tree: Option<&StudyTree>) -> String {
+    let Some(tree) = tree else {
+        return "[]".to_owned();
+    };
+
+    let nodes = tree
+        .nodes
+        .iter()
+        .map(|node| {
+            let colour = match node.move_colour {
+                Some(Colour::Black) => "black",
+                Some(Colour::White) => "white",
+                None => "root",
+            };
+
+            serde_json::json!({
+                "id": node.id,
+                "parent": node.parent,
+                "row": node.row,
+                "lane": node.lane,
+                "moveNumber": node.position.occurrence.move_number,
+                "colour": colour,
+                "hasComment": !node.comment.is_empty(),
+                "branchPoint": node.children.len() > 1,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".to_owned())
+}
+
+fn study_markup_json(tree: Option<&StudyTree>, node_id: i32) -> String {
+    let Some(tree) = tree else {
+        return "[]".to_owned();
+    };
+
+    let Ok(node_id) = usize::try_from(node_id) else {
+        return "[]".to_owned();
+    };
+
+    let Some(node) = tree.nodes.get(node_id) else {
+        return "[]".to_owned();
+    };
+
+    let size = u16::from(node.position.board.size());
+
+    let marks = node
+        .markup
+        .iter()
+        .map(|mark| {
+            let x = mark.point % size;
+            let core_y = mark.point / size;
+            let y = core_y_to_qml(size, core_y);
+
+            match &mark.kind {
+                StudyMarkupKind::Label(text) => serde_json::json!({
+                    "type": "label",
+                    "x": x,
+                    "y": y,
+                    "text": text,
+                }),
+                StudyMarkupKind::Triangle => serde_json::json!({
+                    "type": "triangle",
+                    "x": x,
+                    "y": y,
+                }),
+                StudyMarkupKind::Square => serde_json::json!({
+                    "type": "square",
+                    "x": x,
+                    "y": y,
+                }),
+                StudyMarkupKind::Circle => serde_json::json!({
+                    "type": "circle",
+                    "x": x,
+                    "y": y,
+                }),
+                StudyMarkupKind::Cross => serde_json::json!({
+                    "type": "cross",
+                    "x": x,
+                    "y": y,
+                }),
+                StudyMarkupKind::Selected => serde_json::json!({
+                    "type": "selected",
+                    "x": x,
+                    "y": y,
+                }),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string(&marks).unwrap_or_else(|_| "[]".to_owned())
+}
+
+fn activate_study_tree_node(document: &mut LoadedDocument, node_id: usize) -> Result<i32, String> {
+    let (path, selected_index, positions, comments) = {
+        let tree = document
+            .study_tree
+            .as_ref()
+            .ok_or_else(|| "the loaded document has no SGF game tree".to_owned())?;
+
+        let path = tree
+            .path_through(node_id)
+            .ok_or_else(|| format!("SGF tree node {node_id} does not exist"))?;
+
+        let selected_index = path
+            .iter()
+            .position(|candidate| *candidate == node_id)
+            .ok_or_else(|| "selected SGF node is not on its own replay path".to_owned())?;
+
+        let positions = path
+            .iter()
+            .map(|id| tree.nodes[*id].position.clone())
+            .collect::<Vec<_>>();
+
+        let comments = path
+            .iter()
+            .map(|id| tree.nodes[*id].comment.clone())
+            .collect::<Vec<_>>();
+
+        (path, selected_index, positions, comments)
+    };
+
+    document.positions = positions;
+    document.source_comments = comments;
+
+    document
+        .study_tree
+        .as_mut()
+        .expect("Study tree was checked above")
+        .active_path = path;
+
+    i32::try_from(selected_index)
+        .map_err(|_| "selected SGF move is too large for the Qt interface".to_owned())
 }
 
 fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument, String> {
@@ -1920,6 +2191,7 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
         description: format!("game {game_id}"),
         positions,
         source_comments: Vec::new(),
+        study_tree: None,
         editable: false,
         playable: false,
         finished: false,
@@ -1941,6 +2213,13 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
 
     let source_comments = main_variation_comments(&collection);
 
+    let study_tree = build_study_tree(&collection).map_err(|error| {
+        format!(
+            "building the Study game tree from {}: {error}",
+            path.display()
+        )
+    })?;
+
     let record = extract_main_variation(&collection).map_err(|error| {
         format!(
             "extracting the main variation from {}: {error}",
@@ -1951,10 +2230,20 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
     let positions = replay_positions(&record)
         .map_err(|error| format!("replaying {}: {error}", path.display()))?;
 
+    if study_tree.main_path.len() != positions.len() {
+        return Err(format!(
+            "Study tree for {} has {} main-line positions, but replay has {}",
+            path.display(),
+            study_tree.main_path.len(),
+            positions.len(),
+        ));
+    }
+
     Ok(LoadedDocument {
         description: format!("SGF {}", path.display()),
         positions,
         source_comments,
+        study_tree: Some(study_tree),
         editable: false,
         playable: false,
         finished: false,
@@ -1976,6 +2265,7 @@ fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {
         description: "untitled position".to_owned(),
         positions: vec![editable_position_state(board)],
         source_comments: Vec::new(),
+        study_tree: None,
         editable: true,
         playable: false,
         finished: false,
@@ -2002,6 +2292,7 @@ fn new_game_document(
         description: "untitled game".to_owned(),
         positions: vec![editable_position_state(board)],
         source_comments: Vec::new(),
+        study_tree: None,
         editable: false,
         playable: true,
         finished: false,
