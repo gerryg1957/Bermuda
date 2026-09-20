@@ -13,6 +13,7 @@ fn main() {
     )
     .file("src/app.rs")
     .file("src/database_operation_model.rs")
+    .file("src/joseki_model.rs")
     .file("src/game_list_model.rs")
     .file("src/player_identity_model.rs")
     .build();

@@ -102,6 +102,15 @@ mod ffi {
         fn load_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "loadJosekiStudy"]
+        fn load_joseki_study(
+            self: Pin<&mut BermudaApp>,
+            sgf_path: &QString,
+            node_id: &QString,
+            current_move_count: i32,
+        ) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "savePlayedGameSgf"]
         fn save_played_game_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
 
@@ -966,6 +975,71 @@ impl ffi::BermudaApp {
         self.as_mut().rust_mut().loaded_document = Some(document);
 
         self.as_mut().show_cached_position(0)
+    }
+
+    fn load_joseki_study(
+        mut self: Pin<&mut Self>,
+        sgf_path: &QString,
+        node_id: &QString,
+        current_move_count: i32,
+    ) -> bool {
+        let path = sgf_path.to_string();
+        let node_id = node_id.to_string();
+
+        let played_document = {
+            let self_ref = self.as_ref();
+            let rust = self_ref.rust();
+
+            rust.loaded_document
+                .as_ref()
+                .filter(|document| document.playable)
+                .cloned()
+        };
+
+        if let Some(document) = played_document {
+            self.as_mut().rust_mut().played_game_document = Some(document);
+        }
+
+        let document = match load_joseki_study_document(&path, &node_id) {
+            Ok(document) => document,
+
+            Err(error) => {
+                self.as_mut().rust_mut().loaded_document = None;
+                self.as_mut().reset_position_display();
+                self.as_mut().set_error_message(QString::from(error));
+                return false;
+            }
+        };
+
+        let requested_move = match usize::try_from(current_move_count) {
+            Ok(move_number) if move_number < document.positions.len() => current_move_count,
+
+            _ => {
+                self.as_mut().rust_mut().loaded_document = None;
+                self.as_mut().reset_position_display();
+                self.as_mut().set_error_message(QString::from(format!(
+                    "OGS joseki position {node_id} has no move {current_move_count}"
+                )));
+                return false;
+            }
+        };
+
+        self.as_mut().set_black_player(QString::from(
+            document.black_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_white_player(QString::from(
+            document.white_player.clone().unwrap_or_default(),
+        ));
+        self.as_mut().set_komi(QString::from(
+            document
+                .komi
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ));
+
+        self.as_mut().rust_mut().loaded_document = Some(document);
+
+        self.as_mut().show_cached_position(requested_move)
     }
 
     fn save_played_game_sgf(mut self: Pin<&mut Self>, sgf_path: &QString) -> bool {
@@ -2990,6 +3064,18 @@ fn load_sgf_document(sgf_path: &str) -> Result<LoadedDocument, String> {
         komi: record.metadata.komi,
         played_source_locator: None,
     })
+}
+
+fn load_joseki_study_document(sgf_path: &str, node_id: &str) -> Result<LoadedDocument, String> {
+    let mut document = load_sgf_document(sgf_path)?;
+
+    let description = format!("OGS Joseki Explorer · position {node_id}");
+
+    document.description = description.clone();
+    document.study.metadata = StudyDocumentMetadata::new(StudyOrigin::Detached { description });
+    document.study.library_path = None;
+
+    Ok(document)
 }
 
 fn new_position_document(board_size: i32) -> Result<LoadedDocument, String> {

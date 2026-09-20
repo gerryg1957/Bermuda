@@ -1458,6 +1458,97 @@ Item {
                     continue
 
                 /*
+                 * OGS Joseki Explorer candidates carry an explicit move
+                 * category and variation label. Preserve that information
+                 * rather than flattening every candidate into the ordinary
+                 * professional-continuation circle.
+                 */
+                if (point.category !== undefined
+                        && String(point.category).length > 0) {
+                    const category =
+                        String(point.category).toUpperCase()
+
+                    let categoryColour = "#666666"
+                    let radiusScale = 0.31
+                    let textColour = "#ffffff"
+
+                    if (category === "IDEAL") {
+                        categoryColour = "#008300"
+                        radiusScale = 0.43
+                    } else if (category === "GOOD") {
+                        categoryColour = "#436600"
+                        radiusScale = 0.36
+                    } else if (category === "TRICK") {
+                        categoryColour = "#e0c900"
+                        radiusScale = 0.34
+                        textColour = "#111111"
+                    } else if (category === "MISTAKE") {
+                        categoryColour = "#b3001e"
+                        radiusScale = 0.30
+                    } else if (category === "QUESTION") {
+                        categoryColour = "#00a7c4"
+                        radiusScale = 0.32
+                        textColour = "#111111"
+                    }
+
+                    const radius = spacing * radiusScale
+                    const viewPoint =
+                        root.boardToViewPoint(
+                            Number(point.x),
+                            Number(point.y))
+
+                    const x = left + viewPoint.x * spacing
+                    const y = top + viewPoint.y * spacing
+
+                    ctx.save()
+
+                    ctx.globalAlpha =
+                        category === "IDEAL"
+                        ? 0.33
+                        : category === "GOOD"
+                          ? 0.25
+                          : 0.22
+
+                    ctx.fillStyle = categoryColour
+                    ctx.beginPath()
+                    ctx.arc(x, y, radius, 0, Math.PI * 2)
+                    ctx.fill()
+
+                    ctx.globalAlpha = 1.0
+                    ctx.strokeStyle = categoryColour
+                    ctx.lineWidth =
+                        category === "IDEAL"
+                        ? Math.max(2.0, spacing * 0.075)
+                        : Math.max(1.35, spacing * 0.055)
+
+                    ctx.beginPath()
+                    ctx.arc(x, y, radius, 0, Math.PI * 2)
+                    ctx.stroke()
+
+                    let markerText =
+                        point.label === undefined
+                        ? ""
+                        : String(point.label)
+
+                    if (markerText === "_")
+                        markerText = "–"
+
+                    if (markerText.length > 0) {
+                        ctx.fillStyle = textColour
+                        ctx.font =
+                            "bold "
+                            + Math.max(10, spacing * 0.38)
+                            + "px sans-serif"
+                        ctx.textAlign = "center"
+                        ctx.textBaseline = "middle"
+                        ctx.fillText(markerText, x, y)
+                    }
+
+                    ctx.restore()
+                    continue
+                }
+
+                /*
                  * Circle area grows approximately with frequency while
                  * keeping uncommon professional continuations visible.
                  */

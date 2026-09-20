@@ -1,6 +1,7 @@
 mod app;
 mod database_operation_model;
 mod game_list_model;
+mod joseki_model;
 mod player_identity_model;
 mod search_result_model;
 use bermuda::Board;

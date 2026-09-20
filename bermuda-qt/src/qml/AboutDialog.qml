@@ -75,6 +75,26 @@ Dialog {
         }
 
         Label {
+            text: qsTr("Joseki source")
+            font.bold: true
+        }
+
+        Label {
+            Layout.fillWidth: true
+
+            text: qsTr(
+                "The Joseki Library reads current community-curated "
+                + "positions from the OGS Joseki Explorer at "
+                + "Online-Go.com. Positions are fetched on demand and "
+                + "cached locally for offline reuse; Bermuda does not "
+                + "bundle an OGS database snapshot. OGS user "
+                + "contributions are made available under "
+                + "CC BY-NC-SA 3.0.")
+
+            wrapMode: Text.WordWrap
+        }
+
+        Label {
             text: qsTr("Project")
             font.bold: true
         }
@@ -95,6 +115,14 @@ Dialog {
 
                 onClicked:
                     Qt.openUrlExternally("https://db.u-go.net/")
+            }
+
+            Button {
+                text: qsTr("OGS Joseki Explorer")
+
+                onClicked:
+                    Qt.openUrlExternally(
+                        "https://online-go.com/joseki/")
             }
 
             Item {
