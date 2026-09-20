@@ -173,6 +173,68 @@ ApplicationWindow {
       }
   }
 
+  function openStudySgfPath(filePath, displayName, sourceName) {
+      if (!root.prepareStudyReplacement()) {
+          console.warn(gameController.error_message)
+          return false
+      }
+
+      root.playingGame = false
+
+      if (gameController.loadSgf(filePath)) {
+          root.finishStudyReplacement()
+          boardPane.clearMatchNavigation()
+          boardPane.resetPatternSelection()
+          boardPane.editingPosition = false
+
+          const blackPlayer = gameController.black_player
+          const whitePlayer = gameController.white_player
+          const hasPlayerData = blackPlayer.length > 0
+                                || whitePlayer.length > 0
+          const fallbackSource =
+              sourceName !== undefined && sourceName.length > 0
+              ? sourceName
+              : qsTr("External SGF")
+
+          boardPane.selectedGame = {
+              gameId: -1,
+              black: hasPlayerData
+                     ? qsTr("(B) %1").arg(
+                           blackPlayer.length > 0
+                           ? blackPlayer
+                           : qsTr("Black"))
+                     : fallbackSource,
+              white: hasPlayerData
+                     ? qsTr("(W) %1").arg(
+                           whitePlayer.length > 0
+                           ? whitePlayer
+                           : qsTr("White"))
+                     : displayName,
+              gameDate: "",
+              result: "",
+              eventName: "",
+              komi: gameController.komi
+          }
+
+          boardPane.applyLoadedPosition()
+          return true
+      }
+
+      const error = gameController.error_message
+      const rolledBack = root.cancelStudyReplacement()
+
+      if (!rolledBack) {
+          boardPane.selectedGame = null
+          goBoard.stones = []
+          goBoard.lastMoveX = -1
+          goBoard.lastMoveY = -1
+          goBoard.lastMoveNumber = 0
+      }
+
+      console.warn(error)
+      return false
+  }
+
   FileDialog {
     id: openSgfDialog
 
@@ -190,61 +252,269 @@ ApplicationWindow {
         const fileName = filePath.substring(
                            filePath.lastIndexOf("/") + 1)
 
-        if (!root.prepareStudyReplacement()) {
-            console.warn(gameController.error_message)
-            return
-        }
-
-        root.playingGame = false
-
-        if (gameController.loadSgf(filePath)) {
-            root.finishStudyReplacement()
-            boardPane.clearMatchNavigation()
-            boardPane.resetPatternSelection()
-            boardPane.editingPosition = false
-
-            const blackPlayer = gameController.black_player
-            const whitePlayer = gameController.white_player
-            const hasPlayerData = blackPlayer.length > 0
-                                  || whitePlayer.length > 0
-
-            boardPane.selectedGame = {
-                gameId: -1,
-                black: hasPlayerData
-                       ? qsTr("(B) %1").arg(
-                             blackPlayer.length > 0
-                             ? blackPlayer
-                             : qsTr("Black"))
-                       : qsTr("External SGF"),
-                white: hasPlayerData
-                       ? qsTr("(W) %1").arg(
-                             whitePlayer.length > 0
-                             ? whitePlayer
-                             : qsTr("White"))
-                       : fileName,
-                gameDate: "",
-                result: "",
-                eventName: "",
-                komi: gameController.komi
-            }
-
-            boardPane.applyLoadedPosition()
-        } else {
-            const error = gameController.error_message
-            const rolledBack = root.cancelStudyReplacement()
-
-            if (!rolledBack) {
-                boardPane.selectedGame = null
-                goBoard.stones = []
-                goBoard.lastMoveX = -1
-                goBoard.lastMoveY = -1
-                goBoard.lastMoveNumber = 0
-            }
-
-            console.warn(error)
-        }
+        root.openStudySgfPath(
+            filePath,
+            fileName,
+            qsTr("External SGF"))
     }
-}
+  }
+
+  Dialog {
+      id: studyLibraryDialog
+
+      title: qsTr("Study Library")
+      modal: true
+      focus: true
+
+      width: Math.min(
+          root.width - Kirigami.Units.gridUnit * 4,
+          Kirigami.Units.gridUnit * 48)
+      height: Math.min(
+          root.height - Kirigami.Units.gridUnit * 4,
+          Kirigami.Units.gridUnit * 32)
+
+      x: Math.round((root.width - width) / 2)
+      y: Math.round((root.height - height) / 2)
+
+      property var entries: []
+      property int selectedIndex: -1
+      property var pendingDeleteEntry: null
+
+      function refreshEntries() {
+          let parsed = []
+
+          try {
+              parsed = JSON.parse(
+                  gameController.studyLibraryEntriesJson())
+          } catch (error) {
+              console.warn(
+                  "Could not decode Study Library catalogue: "
+                  + error)
+          }
+
+          entries = parsed
+          selectedIndex = -1
+          studyLibraryList.currentIndex = -1
+      }
+
+      function details(entry) {
+          const parts = []
+
+          if (entry.date.length > 0)
+              parts.push(entry.date)
+
+          if (entry.event.length > 0)
+              parts.push(entry.event)
+
+          if (entry.result.length > 0)
+              parts.push(entry.result)
+
+          if (entry.annotationCount === 1)
+              parts.push(qsTr("1 annotation"))
+          else if (entry.annotationCount > 1)
+              parts.push(
+                  qsTr("%1 annotations")
+                      .arg(entry.annotationCount))
+
+          if (entry.modifiedMillis > 0) {
+              const saved = new Date(
+                  Number(entry.modifiedMillis))
+
+              parts.push(
+                  qsTr("Saved %1")
+                      .arg(Qt.formatDateTime(
+                          saved,
+                          "yyyy-MM-dd hh:mm")))
+          }
+
+          if (entry.origin.length > 0)
+              parts.push(entry.origin)
+
+          return parts.join(" · ")
+      }
+
+      function openSelected() {
+          if (selectedIndex < 0
+                  || selectedIndex >= entries.length) {
+              return
+          }
+
+          const entry = entries[selectedIndex]
+
+          if (root.openStudySgfPath(
+                      entry.path,
+                      entry.title,
+                      qsTr("Study Library"))) {
+              close()
+          }
+      }
+
+      onOpened: refreshEntries()
+
+      contentItem: ColumnLayout {
+          spacing: Kirigami.Units.smallSpacing
+
+          Label {
+              Layout.fillWidth: true
+              visible: studyLibraryDialog.entries.length === 0
+
+              text: gameController.error_message.length > 0
+                    ? gameController.error_message
+                    : qsTr("No saved Study documents yet.")
+
+              wrapMode: Text.WordWrap
+              horizontalAlignment: Text.AlignHCenter
+              verticalAlignment: Text.AlignVCenter
+          }
+
+          ListView {
+              id: studyLibraryList
+
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+
+              visible: studyLibraryDialog.entries.length > 0
+              clip: true
+              spacing: 1
+              model: studyLibraryDialog.entries
+              currentIndex: -1
+
+              onCurrentIndexChanged:
+                  studyLibraryDialog.selectedIndex = currentIndex
+
+              delegate: ItemDelegate {
+                  required property int index
+                  required property var modelData
+
+                  width: ListView.view.width
+                  highlighted:
+                      studyLibraryList.currentIndex === index
+
+                  onClicked:
+                      studyLibraryList.currentIndex = index
+
+                  contentItem: ColumnLayout {
+                      spacing: 2
+
+                      Label {
+                          Layout.fillWidth: true
+                          text: modelData.title
+                          font.bold: true
+                          elide: Text.ElideRight
+                      }
+
+                      Label {
+                          Layout.fillWidth: true
+                          text: studyLibraryDialog.details(modelData)
+                          opacity: 0.72
+                          elide: Text.ElideRight
+                      }
+                  }
+              }
+
+              ScrollBar.vertical: ScrollBar {}
+          }
+
+          RowLayout {
+              Layout.fillWidth: true
+
+              Button {
+                  text: qsTr("Refresh")
+                  onClicked: studyLibraryDialog.refreshEntries()
+              }
+
+              Button {
+                  text: qsTr("Delete…")
+                  enabled: studyLibraryDialog.selectedIndex >= 0
+
+                  onClicked: {
+                      const index =
+                          studyLibraryDialog.selectedIndex
+
+                      if (index < 0
+                              || index
+                                 >= studyLibraryDialog.entries.length) {
+                          return
+                      }
+
+                      studyLibraryDialog.pendingDeleteEntry =
+                          studyLibraryDialog.entries[index]
+                      studyLibraryDeleteDialog.open()
+                  }
+              }
+
+              Item {
+                  Layout.fillWidth: true
+              }
+
+              Button {
+                  text: qsTr("Cancel")
+                  onClicked: studyLibraryDialog.close()
+              }
+
+              Button {
+                  text: qsTr("Open")
+                  highlighted: true
+                  enabled: studyLibraryDialog.selectedIndex >= 0
+                  onClicked: studyLibraryDialog.openSelected()
+              }
+          }
+      }
+  }
+
+
+  Dialog {
+      id: studyLibraryDeleteDialog
+
+      title: qsTr("Delete Study document?")
+      modal: true
+      focus: true
+      standardButtons: Dialog.Yes | Dialog.No
+
+      width: Math.min(
+          root.width - Kirigami.Units.gridUnit * 4,
+          Kirigami.Units.gridUnit * 28)
+
+      x: Math.round((root.width - width) / 2)
+      y: Math.round((root.height - height) / 2)
+
+      onAccepted: {
+          const entry = studyLibraryDialog.pendingDeleteEntry
+
+          if (entry !== null) {
+              if (gameController.deleteStudyLibraryDocument(
+                          entry.path)) {
+                  studyLibraryDialog.refreshEntries()
+              } else {
+                  console.warn(gameController.error_message)
+              }
+          }
+
+          studyLibraryDialog.pendingDeleteEntry = null
+      }
+
+      onRejected:
+          studyLibraryDialog.pendingDeleteEntry = null
+
+      contentItem: Label {
+          width: parent !== null ? parent.width : implicitWidth
+          wrapMode: Text.WordWrap
+
+          text: {
+              const entry =
+                  studyLibraryDialog.pendingDeleteEntry
+
+              if (entry === null)
+                  return ""
+
+              return qsTr(
+                  "Delete “%1” from the Study Library?\n\n"
+                  + "This deletes Bermuda's saved Study document. "
+                  + "The original game or SGF source is not changed.")
+                  .arg(entry.title)
+          }
+      }
+  }
 
     function safeSgfFilenamePart(value, fallback) {
         let cleaned = value === undefined || value === null
@@ -682,6 +952,11 @@ menuBar: MenuBar {
             Action {
                 text: qsTr("&SGF File…")
                 onTriggered: openSgfDialog.open()
+            }
+
+            Action {
+                text: qsTr("From Study &Library…")
+                onTriggered: studyLibraryDialog.open()
             }
 
             MenuSeparator {}

@@ -82,6 +82,14 @@ mod ffi {
         fn study_library_path(self: &BermudaApp) -> QString;
 
         #[qinvokable]
+        #[cxx_name = "studyLibraryEntriesJson"]
+        fn study_library_entries_json(self: Pin<&mut BermudaApp>) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "deleteStudyLibraryDocument"]
+        fn delete_study_library_document(self: Pin<&mut BermudaApp>, path: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "ensurePersonalProject"]
         fn ensure_personal_project(self: Pin<&mut BermudaApp>) -> bool;
 
@@ -816,6 +824,41 @@ impl ffi::BermudaApp {
         match study_library_root() {
             Ok(path) => QString::from(path.to_string_lossy().as_ref()),
             Err(_) => QString::default(),
+        }
+    }
+
+    fn study_library_entries_json(mut self: Pin<&mut Self>) -> QString {
+        match study_library_catalogue_json() {
+            Ok(json) => {
+                self.as_mut().set_error_message(QString::default());
+                QString::from(json)
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                QString::from("[]")
+            }
+        }
+    }
+
+    fn delete_study_library_document(mut self: Pin<&mut Self>, path: &QString) -> bool {
+        let path = PathBuf::from(path.to_string());
+
+        let result = {
+            let self_ref = self.as_ref();
+            delete_study_library_document_path(self_ref.rust(), &path)
+        };
+
+        match result {
+            Ok(()) => {
+                self.as_mut().set_error_message(QString::default());
+                true
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
         }
     }
 
@@ -2285,6 +2328,207 @@ fn study_document_state_from_collection(
             library_path: None,
         }),
     }
+}
+
+fn document_uses_study_library_path(document: Option<&LoadedDocument>, target: &Path) -> bool {
+    document
+        .and_then(|document| document.study.library_path.as_deref())
+        .and_then(|path| fs::canonicalize(path).ok())
+        .is_some_and(|path| path == target)
+}
+
+fn delete_study_library_document_path(
+    app: &BermudaAppRust,
+    requested: &Path,
+) -> Result<(), String> {
+    let root = study_library_root()?;
+    let canonical_root = fs::canonicalize(&root)
+        .map_err(|error| format!("opening Study Library {}: {error}", root.display()))?;
+    let target = fs::canonicalize(requested)
+        .map_err(|error| format!("opening Study document {}: {error}", requested.display()))?;
+
+    if target.parent() != Some(canonical_root.as_path()) {
+        return Err("refusing to delete a file outside the Study Library".to_owned());
+    }
+
+    let bytes = fs::read(&target)
+        .map_err(|error| format!("reading Study document {}: {error}", target.display()))?;
+    let collection = parse_collection(&bytes)
+        .map_err(|error| format!("parsing Study document {}: {error}", target.display()))?;
+
+    let is_study_document = StudyDocumentMetadata::from_collection(&collection)
+        .map_err(|error| {
+            format!(
+                "reading Bermuda Study metadata from {}: {error}",
+                target.display()
+            )
+        })?
+        .is_some();
+
+    if !is_study_document {
+        return Err("refusing to delete a file without Bermuda Study metadata".to_owned());
+    }
+
+    let active = document_uses_study_library_path(app.loaded_document.as_ref(), &target);
+    let parked = app.workspace_snapshot.as_ref().is_some_and(|snapshot| {
+        document_uses_study_library_path(snapshot.document.as_ref(), &target)
+            || snapshot
+                .search_source_snapshot
+                .as_ref()
+                .is_some_and(|source| {
+                    document_uses_study_library_path(Some(&source.document), &target)
+                })
+    });
+    let search_source = app
+        .search_source_snapshot
+        .as_ref()
+        .is_some_and(|source| document_uses_study_library_path(Some(&source.document), &target));
+
+    if active || parked || search_source {
+        return Err(
+            "close or replace this Study document before deleting it from the library".to_owned(),
+        );
+    }
+
+    fs::remove_file(&target)
+        .map_err(|error| format!("deleting Study document {}: {error}", target.display()))
+}
+
+fn study_library_catalogue_json() -> Result<String, String> {
+    let root = study_library_root()?;
+
+    if !root.exists() {
+        return Ok("[]".to_owned());
+    }
+
+    let directory = fs::read_dir(&root)
+        .map_err(|error| format!("reading Study Library {}: {error}", root.display()))?;
+
+    let mut entries = Vec::new();
+
+    for item in directory {
+        let entry = match item {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+
+        let is_sgf = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| extension.eq_ignore_ascii_case("sgf"))
+            .unwrap_or(false);
+
+        if !is_sgf || !path.is_file() {
+            continue;
+        }
+
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+
+        let collection = match parse_collection(&bytes) {
+            Ok(collection) => collection,
+            Err(_) => continue,
+        };
+
+        let metadata = match StudyDocumentMetadata::from_collection(&collection) {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) | Err(_) => continue,
+        };
+
+        let record = match extract_main_variation(&collection) {
+            Ok(record) => record,
+            Err(_) => continue,
+        };
+
+        let modified_millis = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+            .unwrap_or(0);
+
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Study document")
+            .to_owned();
+
+        let black_player = record.metadata.black_player.unwrap_or_default();
+        let white_player = record.metadata.white_player.unwrap_or_default();
+
+        let fallback_title = match &metadata.origin {
+            StudyOrigin::ProjectGame { game_id, .. } => {
+                format!("Game {game_id}")
+            }
+
+            StudyOrigin::ExternalSgf { path } => Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("External SGF")
+                .to_owned(),
+
+            StudyOrigin::Detached { description } => description.clone(),
+        };
+
+        let title = match (
+            black_player.trim().is_empty(),
+            white_player.trim().is_empty(),
+        ) {
+            (false, false) => format!("{} – {}", black_player.trim(), white_player.trim()),
+            (false, true) => black_player.trim().to_owned(),
+            (true, false) => white_player.trim().to_owned(),
+            (true, true) => fallback_title,
+        };
+
+        let origin = match &metadata.origin {
+            StudyOrigin::ProjectGame { game_id, .. } => {
+                format!("Game database · game {game_id}")
+            }
+
+            StudyOrigin::ExternalSgf { path } => {
+                let name = Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(path.as_str());
+
+                format!("External SGF · {name}")
+            }
+
+            StudyOrigin::Detached { description } => description.clone(),
+        };
+
+        entries.push((
+            modified_millis,
+            serde_json::json!({
+                "path": path.to_string_lossy(),
+                "fileName": file_name,
+                "title": title,
+                "blackPlayer": black_player,
+                "whitePlayer": white_player,
+                "date": record.metadata.date.unwrap_or_default(),
+                "event": record.metadata.event.unwrap_or_default(),
+                "result": record.metadata.result.unwrap_or_default(),
+                "annotationCount": metadata.annotations.len(),
+                "origin": origin,
+                "modifiedMillis": modified_millis,
+            }),
+        ));
+    }
+
+    entries.sort_by(|left, right| right.0.cmp(&left.0));
+
+    let entries = entries
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect::<Vec<_>>();
+
+    serde_json::to_string(&entries)
+        .map_err(|error| format!("encoding Study Library catalogue: {error}"))
 }
 
 fn study_library_root() -> Result<PathBuf, String> {
