@@ -17,12 +17,12 @@ use std::{
 use bermuda::{
     AnalysisOutcome, AnalysisRequest, AnalysisResult, AnalysisVertex, Board, Collection, Colour,
     GameRecord, KataGoConfiguration, KataGoWorker as CoreKataGoWorker, KataGoWorkerEvent, Metadata,
-    Move, PositionOccurrence, PositionState, SetupStone, StudyAnnotationKind,
-    StudyDocumentMetadata, StudyMarkupKind, StudyOrigin, StudyTree, analysis_position_from_states,
-    build_study_tree, extract_main_variation, importer::ImportOutcome,
-    indexer::POSITION_INDEX_VERSION, main_variation_comments, parse_collection,
-    position_fingerprint, project::Project, project_manager::ProjectManager, replay_positions,
-    write_collection_sgf, write_game_record_sgf,
+    Move, Node, PositionOccurrence, PositionState, SetupStone, StudyAnnotationKind,
+    StudyDocumentMetadata, StudyMarkupKind, StudyOrigin, StudySourceLocation, StudyTree,
+    analysis_position_from_states, build_study_tree, extract_main_variation,
+    importer::ImportOutcome, indexer::POSITION_INDEX_VERSION, main_variation_comments,
+    parse_collection, position_fingerprint, project::Project, project_manager::ProjectManager,
+    replay_positions, write_collection_sgf, write_game_record_sgf,
 };
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
@@ -206,6 +206,34 @@ mod ffi {
             tool: &QString,
             text: &QString,
         ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "setStudyComment"]
+        fn set_study_comment(self: Pin<&mut BermudaApp>, move_number: i32, text: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "insertStudyNode"]
+        fn insert_study_node(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "addStudyMove"]
+        fn add_study_move(self: Pin<&mut BermudaApp>, x: i32, y: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "addStudyBranch"]
+        fn add_study_branch(self: Pin<&mut BermudaApp>, x: i32, y: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "addStudyPass"]
+        fn add_study_pass(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "addStudyBranchPass"]
+        fn add_study_branch_pass(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "showStudyStructureNode"]
+        fn show_study_structure_node(self: Pin<&mut BermudaApp>, node_id: i32) -> bool;
 
         #[qinvokable]
         #[cxx_name = "showSgfNode"]
@@ -1718,6 +1746,211 @@ impl ffi::BermudaApp {
         }
     }
 
+    fn set_study_comment(mut self: Pin<&mut Self>, move_number: i32, text: &QString) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let text = text.to_string();
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_comment(document, move_number, &text),
+                None => Err("no Study document is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(display_move) => self.as_mut().show_cached_position(display_move),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn insert_study_node(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let slider_move_number = self.as_ref().rust().move_number;
+        let selected_structure_node = self.as_ref().rust().sgf_tree_current_node;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_node_insertion(
+                    document,
+                    slider_move_number,
+                    selected_structure_node,
+                ),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok((display_move, structure_node)) => {
+                let shown = self.as_mut().show_cached_position(display_move);
+
+                if shown {
+                    self.as_mut().set_sgf_tree_current_node(structure_node);
+                }
+
+                shown
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn add_study_move(mut self: Pin<&mut Self>, x: i32, y: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let move_number = self.as_ref().rust().move_number;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_move(document, move_number, Some((x, y))),
+                None => Err("no Study document is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(display_move) => self.as_mut().show_cached_position(display_move),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn add_study_branch(mut self: Pin<&mut Self>, x: i32, y: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let move_number = self.as_ref().rust().move_number;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_branch(document, move_number, Some((x, y))),
+                None => Err("no Study document is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(display_move) => self.as_mut().show_cached_position(display_move),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn add_study_pass(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let move_number = self.as_ref().rust().move_number;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_move(document, move_number, None),
+                None => Err("no Study document is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(display_move) => self.as_mut().show_cached_position(display_move),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn add_study_branch_pass(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let move_number = self.as_ref().rust().move_number;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_branch(document, move_number, None),
+                None => Err("no Study document is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(display_move) => self.as_mut().show_cached_position(display_move),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn show_study_structure_node(mut self: Pin<&mut Self>, node_id: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let node_id = match usize::try_from(node_id) {
+            Ok(node_id) => node_id,
+
+            Err(_) => {
+                self.as_mut()
+                    .set_error_message(QString::from("invalid structural SGF node"));
+                return false;
+            }
+        };
+
+        let requested_tree_node = i32::try_from(node_id).unwrap_or(i32::MAX);
+
+        if self.as_ref().rust().sgf_tree_current_node != requested_tree_node
+            && self.as_ref().rust().katago_analysis_in_progress
+        {
+            let _ = cancel_katago_analysis_impl(self.as_mut(), false);
+        }
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => activate_study_structure_node(document, node_id),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok(move_number) => {
+                let shown = self.as_mut().show_cached_position(move_number);
+
+                if shown {
+                    self.as_mut().set_sgf_tree_current_node(requested_tree_node);
+                }
+
+                shown
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
     fn show_sgf_node(mut self: Pin<&mut Self>, node_id: i32) -> bool {
         self.as_mut().set_error_message(QString::default());
 
@@ -2177,12 +2410,10 @@ impl ffi::BermudaApp {
 
             let markup_json = study_markup_json(document.study_tree.as_ref(), current_tree_node);
 
-            Ok((
-                position,
-                study_tree_json(document.study_tree.as_ref()),
-                current_tree_node,
-                markup_json,
-            ))
+            let (tree_json, current_tree_node) =
+                study_tree_presentation(document, current_tree_node);
+
+            Ok((position, tree_json, current_tree_node, markup_json))
         })();
 
         match result {
@@ -2241,7 +2472,7 @@ struct LoadedPosition {
     last_move_y: i32,
 }
 
-fn study_tree_json(tree: Option<&StudyTree>) -> String {
+fn study_replay_tree_json(tree: Option<&StudyTree>) -> String {
     let Some(tree) = tree else {
         return "[]".to_owned();
     };
@@ -2263,6 +2494,9 @@ fn study_tree_json(tree: Option<&StudyTree>) -> String {
                 "lane": node.lane,
                 "moveNumber": node.position.occurrence.move_number,
                 "colour": colour,
+                "isMove": node.move_colour.is_some(),
+                "isEmpty": false,
+                "root": node.parent.is_none(),
                 "hasComment": !node.comment.is_empty(),
                 "branchPoint": node.children.len() > 1,
             })
@@ -2270,6 +2504,64 @@ fn study_tree_json(tree: Option<&StudyTree>) -> String {
         .collect::<Vec<_>>();
 
     serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".to_owned())
+}
+
+fn study_structure_tree_json(tree: &bermuda::StudyStructureTree) -> String {
+    let nodes = tree
+        .nodes
+        .iter()
+        .map(|node| {
+            let colour = match node.move_colour {
+                Some(Colour::Black) => "black",
+                Some(Colour::White) => "white",
+                None => "node",
+            };
+
+            serde_json::json!({
+                "id": node.id,
+                "parent": node.parent,
+                "row": node.row,
+                "lane": node.lane,
+                "moveNumber": node.move_number,
+                "colour": colour,
+                "isMove": node.move_colour.is_some(),
+                "isEmpty": node.is_empty,
+                "root": node.parent.is_none(),
+                "hasComment": node.has_comment,
+                "branchPoint": node.children.len() > 1,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".to_owned())
+}
+
+fn study_tree_presentation(document: &LoadedDocument, current_replay_node: i32) -> (String, i32) {
+    let Some(collection) = document.study.collection.as_ref() else {
+        return (
+            study_replay_tree_json(document.study_tree.as_ref()),
+            current_replay_node,
+        );
+    };
+
+    let Ok(structure) = bermuda::build_study_structure_tree(collection) else {
+        return (
+            study_replay_tree_json(document.study_tree.as_ref()),
+            current_replay_node,
+        );
+    };
+
+    let current_structure_node = usize::try_from(current_replay_node)
+        .ok()
+        .and_then(|replay_id| document.study_tree.as_ref()?.nodes.get(replay_id))
+        .and_then(|replay_node| structure.node_id_for_source(&replay_node.source))
+        .and_then(|id| i32::try_from(id).ok())
+        .unwrap_or(-1);
+
+    (
+        study_structure_tree_json(&structure),
+        current_structure_node,
+    )
 }
 
 fn study_markup_json(tree: Option<&StudyTree>, node_id: i32) -> String {
@@ -2334,6 +2626,83 @@ fn study_markup_json(tree: Option<&StudyTree>, node_id: i32) -> String {
     serde_json::to_string(&marks).unwrap_or_else(|_| "[]".to_owned())
 }
 
+fn replay_node_for_structure(
+    structure: &bermuda::StudyStructureTree,
+    replay: &StudyTree,
+    structure_node_id: usize,
+) -> Option<usize> {
+    let selected = structure.nodes.get(structure_node_id)?;
+
+    if let Some(replay_id) = replay.node_id_for_source(&selected.source) {
+        return Some(replay_id);
+    }
+
+    let mut queue = std::collections::VecDeque::new();
+    queue.extend(selected.children.iter().copied());
+
+    while let Some(candidate) = queue.pop_front() {
+        let node = structure.nodes.get(candidate)?;
+
+        if let Some(replay_id) = replay.node_id_for_source(&node.source) {
+            return Some(replay_id);
+        }
+
+        queue.extend(node.children.iter().copied());
+    }
+
+    let mut parent = selected.parent;
+
+    while let Some(candidate) = parent {
+        let node = structure.nodes.get(candidate)?;
+
+        if let Some(replay_id) = replay.node_id_for_source(&node.source) {
+            return Some(replay_id);
+        }
+
+        parent = node.parent;
+    }
+
+    None
+}
+
+fn activate_study_structure_node(
+    document: &mut LoadedDocument,
+    structure_node_id: usize,
+) -> Result<i32, String> {
+    let (replay_node_id, display_move) = {
+        let collection = document
+            .study
+            .collection
+            .as_ref()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        let structure = bermuda::build_study_structure_tree(collection)
+            .map_err(|error| format!("building structural Study tree: {error}"))?;
+
+        let selected = structure
+            .nodes
+            .get(structure_node_id)
+            .ok_or_else(|| format!("structural SGF node {structure_node_id} does not exist"))?;
+
+        let replay = document
+            .study_tree
+            .as_ref()
+            .ok_or_else(|| "the Study document has no SGF game tree".to_owned())?;
+
+        let replay_node_id = replay_node_for_structure(&structure, replay, structure_node_id)
+            .ok_or_else(|| "the selected SGF node has no replayable Study position".to_owned())?;
+
+        let display_move = i32::try_from(selected.move_number)
+            .map_err(|_| "selected SGF move is too large for the Qt interface".to_owned())?;
+
+        (replay_node_id, display_move)
+    };
+
+    activate_study_tree_node(document, replay_node_id)?;
+
+    Ok(display_move)
+}
+
 fn activate_study_tree_node(document: &mut LoadedDocument, node_id: usize) -> Result<i32, String> {
     let (path, selected_index, positions, comments) = {
         let tree = document
@@ -2388,11 +2757,20 @@ fn study_document_state_from_collection(
     })?;
 
     match metadata {
-        Some(metadata) => Ok(StudyDocumentState {
-            metadata,
-            collection: Some(collection.clone()),
-            library_path: Some(path.to_path_buf()),
-        }),
+        Some(metadata) => {
+            /*
+             * Bermuda owns and updates Study documents only inside its
+             * Study Library. A Study SGF copied/exported elsewhere is an
+             * external source and must itself remain untouched.
+             */
+            let library_path = study_library_path_matches(path).then(|| path.to_path_buf());
+
+            Ok(StudyDocumentState {
+                metadata,
+                collection: Some(collection.clone()),
+                library_path,
+            })
+        }
 
         None => Ok(StudyDocumentState {
             metadata: StudyDocumentMetadata::new(StudyOrigin::ExternalSgf {
@@ -2402,6 +2780,22 @@ fn study_document_state_from_collection(
             library_path: None,
         }),
     }
+}
+
+fn study_library_path_matches(path: &Path) -> bool {
+    let Ok(root) = study_library_root() else {
+        return false;
+    };
+
+    let Ok(canonical_root) = fs::canonicalize(root) else {
+        return false;
+    };
+
+    let Ok(canonical_path) = fs::canonicalize(path) else {
+        return false;
+    };
+
+    canonical_path.parent() == Some(canonical_root.as_path())
 }
 
 fn document_uses_study_library_path(document: Option<&LoadedDocument>, target: &Path) -> bool {
@@ -2761,6 +3155,485 @@ fn qml_study_point(
         .board
         .point(qml_x, core_y)
         .map_err(|error| error.to_string())
+}
+
+fn sgf_node_at_mut<'a>(
+    collection: &'a mut Collection,
+    location: &StudySourceLocation,
+) -> Result<&'a mut Node, String> {
+    let mut tree = collection
+        .trees
+        .first_mut()
+        .ok_or_else(|| "Study SGF has no game tree".to_owned())?;
+
+    for &variation_index in &location.variation_path {
+        tree = tree.variations.get_mut(variation_index).ok_or_else(|| {
+            format!(
+                "Study SGF variation path {:?} no longer exists",
+                location.variation_path
+            )
+        })?;
+    }
+
+    tree.sequence
+        .get_mut(location.sequence_index)
+        .ok_or_else(|| {
+            format!(
+                "Study SGF node {} at variation path {:?} no longer exists",
+                location.sequence_index, location.variation_path
+            )
+        })
+}
+
+fn replace_collection_comment(
+    collection: &mut Collection,
+    source: &StudySourceLocation,
+    comment_sources: &[StudySourceLocation],
+    text: &str,
+) -> Result<(), String> {
+    /*
+     * One displayed Study comment can be assembled from several SGF
+     * comment-only nodes. Collapse those C properties onto the canonical
+     * displayed node when the user edits the comment. The SGF nodes
+     * themselves remain in place, so unrelated properties are preserved.
+     */
+    for location in comment_sources {
+        if location == source {
+            continue;
+        }
+
+        sgf_node_at_mut(collection, location)?
+            .properties
+            .remove("C");
+    }
+
+    let node = sgf_node_at_mut(collection, source)?;
+
+    if text.trim().is_empty() {
+        node.properties.remove("C");
+    } else {
+        node.properties
+            .insert("C".to_owned(), vec![text.to_owned()]);
+    }
+
+    Ok(())
+}
+
+fn study_comment_edit_target(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+) -> Result<(StudySourceLocation, Vec<StudySourceLocation>), String> {
+    let position_index = usize::try_from(slider_move_number)
+        .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+    if document.study_tree.is_none() {
+        let collection = study_collection(document)?;
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("building Study tree for editing: {error}"))?;
+
+        if position_index >= tree.main_path.len() {
+            return Err(format!(
+                "Study move {slider_move_number} is outside the SGF tree"
+            ));
+        }
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+    }
+
+    let tree = document
+        .study_tree
+        .as_ref()
+        .ok_or_else(|| "the Study document has no SGF game tree".to_owned())?;
+
+    let node_id = tree
+        .active_path
+        .get(position_index)
+        .copied()
+        .or_else(|| tree.main_path.get(position_index).copied())
+        .ok_or_else(|| {
+            format!("Study move {slider_move_number} is outside the active SGF variation")
+        })?;
+
+    let node = tree
+        .nodes
+        .get(node_id)
+        .ok_or_else(|| format!("Study tree node {node_id} does not exist"))?;
+
+    Ok((node.source.clone(), node.comment_sources.clone()))
+}
+
+fn update_study_comment(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    text: &str,
+) -> Result<i32, String> {
+    let previous = document.clone();
+
+    let result = (|| {
+        let (source, comment_sources) = study_comment_edit_target(document, slider_move_number)?;
+
+        let mut collection = document
+            .study
+            .collection
+            .clone()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        replace_collection_comment(&mut collection, &source, &comment_sources, text)?;
+
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("rebuilding Study tree after comment edit: {error}"))?;
+
+        let node_id = tree
+            .node_id_for_source(&source)
+            .ok_or_else(|| "edited SGF node disappeared while rebuilding Study".to_owned())?;
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+
+        let display_move = activate_study_tree_node(document, node_id)?;
+
+        persist_study_document(document)?;
+
+        Ok(display_move)
+    })();
+
+    match result {
+        Ok(display_move) => Ok(display_move),
+
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
+}
+
+fn update_study_node_insertion(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    selected_structure_node: i32,
+) -> Result<(i32, i32), String> {
+    let previous = document.clone();
+
+    let result = (|| {
+        let position_index = usize::try_from(slider_move_number)
+            .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+        if document.study_tree.is_none() {
+            let collection = study_collection(document)?;
+            let tree = build_study_tree(&collection)
+                .map_err(|error| format!("building Study tree for node insertion: {error}"))?;
+
+            document.study.collection = Some(collection);
+            document.study_tree = Some(tree);
+        }
+
+        let structure = {
+            let collection = document
+                .study
+                .collection
+                .as_ref()
+                .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+            bermuda::build_study_structure_tree(collection)
+                .map_err(|error| format!("building structural Study tree for editing: {error}"))?
+        };
+
+        let selected_id = usize::try_from(selected_structure_node)
+            .ok()
+            .filter(|id| *id < structure.nodes.len())
+            .or_else(|| {
+                let replay = document.study_tree.as_ref()?;
+                let replay_id = replay
+                    .active_path
+                    .get(position_index)
+                    .copied()
+                    .or_else(|| replay.main_path.get(position_index).copied())?;
+                let source = &replay.nodes.get(replay_id)?.source;
+                structure.node_id_for_source(source)
+            })
+            .ok_or_else(|| "the current Study position has no structural SGF node".to_owned())?;
+
+        let source = structure.nodes[selected_id].source.clone();
+
+        let mut collection = document
+            .study
+            .collection
+            .clone()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        let inserted_source = bermuda::insert_study_node_after_source(&mut collection, &source)?;
+
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("rebuilding Study tree after node insertion: {error}"))?;
+
+        let new_structure = bermuda::build_study_structure_tree(&collection).map_err(|error| {
+            format!("rebuilding structural Study tree after insertion: {error}")
+        })?;
+
+        let inserted_id = new_structure
+            .node_id_for_source(&inserted_source)
+            .ok_or_else(|| "inserted SGF node disappeared while rebuilding Study".to_owned())?;
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+
+        let display_move = activate_study_structure_node(document, inserted_id)?;
+
+        persist_study_document(document)?;
+
+        let inserted_id = i32::try_from(inserted_id)
+            .map_err(|_| "inserted SGF node is too large for the Qt interface".to_owned())?;
+
+        Ok((display_move, inserted_id))
+    })();
+
+    match result {
+        Ok(value) => Ok(value),
+
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
+}
+
+fn update_study_move(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    qml_point: Option<(i32, i32)>,
+) -> Result<i32, String> {
+    let previous = document.clone();
+
+    let result = (|| {
+        let position_index = usize::try_from(slider_move_number)
+            .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+        /*
+         * Database games do not carry an SGF Study tree while merely being
+         * browsed. The first structural Study operation promotes the
+         * displayed game into an in-memory SGF collection/tree.
+         */
+        if document.study_tree.is_none() {
+            let collection = study_collection(document)?;
+            let tree = build_study_tree(&collection)
+                .map_err(|error| format!("building Study tree for editing: {error}"))?;
+
+            document.study.collection = Some(collection);
+            document.study_tree = Some(tree);
+        }
+
+        let (node_id, colour, point) = {
+            let tree = document
+                .study_tree
+                .as_ref()
+                .ok_or_else(|| "the Study document has no SGF game tree".to_owned())?;
+
+            let node_id = tree
+                .active_path
+                .get(position_index)
+                .copied()
+                .or_else(|| tree.main_path.get(position_index).copied())
+                .ok_or_else(|| {
+                    format!("Study move {slider_move_number} is outside the active SGF variation")
+                })?;
+
+            let node = tree
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("Study tree node {node_id} does not exist"))?;
+
+            let point = match qml_point {
+                None => None,
+
+                Some((x, y)) => {
+                    let qml_x =
+                        u8::try_from(x).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+                    let qml_y =
+                        u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+                    let board_size = node.position.board.size();
+                    let core_y = qml_y_to_core(board_size, qml_y)?;
+
+                    Some(
+                        node.position
+                            .board
+                            .point(qml_x, core_y)
+                            .map_err(|error| error.to_string())?,
+                    )
+                }
+            };
+
+            (node_id, node.position.occurrence.side_to_move, point)
+        };
+
+        let mv = Move { colour, point };
+
+        let mut collection = document
+            .study
+            .collection
+            .clone()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        let insertion = {
+            let tree = document
+                .study_tree
+                .as_ref()
+                .expect("Study tree was created above");
+
+            bermuda::extend_study_move(&mut collection, tree, node_id, mv)?
+        };
+
+        /*
+         * Collection remains the editable source of truth. Rebuild the
+         * displayed Study tree after every structural operation.
+         */
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("rebuilding Study tree after move edit: {error}"))?;
+
+        let new_node_id = tree.node_id_for_source(&insertion.source).ok_or_else(|| {
+            "inserted SGF continuation disappeared while rebuilding Study".to_owned()
+        })?;
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+
+        let display_move = activate_study_tree_node(document, new_node_id)?;
+
+        if insertion.inserted {
+            persist_study_document(document)?;
+        }
+
+        Ok(display_move)
+    })();
+
+    match result {
+        Ok(display_move) => Ok(display_move),
+
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
+}
+
+fn update_study_branch(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    qml_point: Option<(i32, i32)>,
+) -> Result<i32, String> {
+    let previous = document.clone();
+
+    let result = (|| {
+        let position_index = usize::try_from(slider_move_number)
+            .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+        /*
+         * Database games do not carry an SGF Study tree while merely being
+         * browsed. The first structural Study operation promotes the
+         * displayed game into an in-memory SGF collection/tree.
+         */
+        if document.study_tree.is_none() {
+            let collection = study_collection(document)?;
+            let tree = build_study_tree(&collection)
+                .map_err(|error| format!("building Study tree for editing: {error}"))?;
+
+            document.study.collection = Some(collection);
+            document.study_tree = Some(tree);
+        }
+
+        let (node_id, colour, point) = {
+            let tree = document
+                .study_tree
+                .as_ref()
+                .ok_or_else(|| "the Study document has no SGF game tree".to_owned())?;
+
+            let node_id = tree
+                .active_path
+                .get(position_index)
+                .copied()
+                .or_else(|| tree.main_path.get(position_index).copied())
+                .ok_or_else(|| {
+                    format!("Study move {slider_move_number} is outside the active SGF variation")
+                })?;
+
+            let node = tree
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("Study tree node {node_id} does not exist"))?;
+
+            let point = match qml_point {
+                None => None,
+
+                Some((x, y)) => {
+                    let qml_x =
+                        u8::try_from(x).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+                    let qml_y =
+                        u8::try_from(y).map_err(|_| format!("invalid board coordinate {x},{y}"))?;
+
+                    let board_size = node.position.board.size();
+                    let core_y = qml_y_to_core(board_size, qml_y)?;
+
+                    Some(
+                        node.position
+                            .board
+                            .point(qml_x, core_y)
+                            .map_err(|error| error.to_string())?,
+                    )
+                }
+            };
+
+            (node_id, node.position.occurrence.side_to_move, point)
+        };
+
+        let mv = Move { colour, point };
+
+        let mut collection = document
+            .study
+            .collection
+            .clone()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        let insertion = {
+            let tree = document
+                .study_tree
+                .as_ref()
+                .expect("Study tree was created above");
+
+            bermuda::branch_study_move(&mut collection, tree, node_id, mv)?
+        };
+
+        /*
+         * Collection remains the editable source of truth. Rebuild the
+         * displayed Study tree after every structural operation.
+         */
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("rebuilding Study tree after branch edit: {error}"))?;
+
+        let new_node_id = tree.node_id_for_source(&insertion.source).ok_or_else(|| {
+            "inserted SGF continuation disappeared while rebuilding Study".to_owned()
+        })?;
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+
+        let display_move = activate_study_tree_node(document, new_node_id)?;
+
+        if insertion.inserted {
+            persist_study_document(document)?;
+        }
+
+        Ok(display_move)
+    })();
+
+    match result {
+        Ok(display_move) => Ok(display_move),
+
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
 }
 
 fn study_annotation_kind(tool: &str, text: &str) -> Result<StudyAnnotationKind, String> {
@@ -3767,6 +4640,39 @@ fn board_stones_json(board: &Board) -> QString {
 #[cfg(test)]
 mod played_game_record_tests {
     use super::*;
+
+    #[test]
+    fn replaces_aggregated_sgf_comment_without_touching_other_properties() {
+        let mut collection =
+            parse_collection(b"(;FF[4]GM[1]SZ[19];B[dd]C[first];C[second]TR[pp];W[qq])")
+                .expect("parse SGF");
+
+        let tree = build_study_tree(&collection).expect("build Study tree");
+
+        let node = &tree.nodes[1];
+
+        assert_eq!(node.comment, "first\n\nsecond");
+        assert_eq!(node.comment_sources.len(), 2);
+
+        replace_collection_comment(
+            &mut collection,
+            &node.source,
+            &node.comment_sources,
+            "edited comment",
+        )
+        .expect("replace comment");
+
+        let rebuilt = build_study_tree(&collection).expect("rebuild Study tree");
+
+        assert_eq!(rebuilt.nodes[1].comment, "edited comment");
+
+        /*
+         * The comment-only node remains because it also carries TR.
+         * Only its C property was removed.
+         */
+        assert_eq!(collection.trees[0].sequence[2].first("TR"), Some("pp"));
+        assert_eq!(collection.trees[0].sequence[2].first("C"), None);
+    }
 
     #[test]
     fn converts_live_game_to_core_game_record() {

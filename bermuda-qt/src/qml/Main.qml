@@ -1001,6 +1001,109 @@ ApplicationWindow {
         }
     }
 
+
+    Dialog {
+        id: studyCommentDialog
+
+        title: qsTr("Edit SGF comment")
+        modal: true
+
+        property int moveNumber: -1
+
+        function openForCurrentPosition() {
+            moveNumber = gameController.move_number
+            studyCommentField.text =
+                gameController.source_comment
+            studyCommentError.text = ""
+            open()
+        }
+
+        onOpened:
+            studyCommentField.forceActiveFocus()
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            Label {
+                Layout.preferredWidth:
+                    Kirigami.Units.gridUnit * 28
+
+                text: qsTr(
+                    "This edits Bermuda's Study copy. "
+                    + "The original game database or SGF "
+                    + "is left untouched.")
+
+                wrapMode: Text.WordWrap
+            }
+
+            ScrollView {
+                id: studyCommentScroll
+
+                Layout.preferredWidth:
+                    Kirigami.Units.gridUnit * 28
+                Layout.preferredHeight:
+                    Kirigami.Units.gridUnit * 12
+
+                clip: true
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy:
+                    ScrollBar.AlwaysOff
+
+                TextArea {
+                    id: studyCommentField
+
+                    width: studyCommentScroll.availableWidth
+                    implicitWidth: 0
+
+                    placeholderText: qsTr(
+                        "Comment for this position")
+
+                    wrapMode: TextEdit.WordWrap
+                    selectByMouse: true
+                }
+            }
+
+            Label {
+                id: studyCommentError
+
+                Layout.fillWidth: true
+                visible: text.length > 0
+                color: Kirigami.Theme.negativeTextColor
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Item {
+                    Layout.fillWidth: true
+                }
+
+                Button {
+                    text: qsTr("Cancel")
+                    onClicked: studyCommentDialog.close()
+                }
+
+                Button {
+                    text: qsTr("Save")
+                    highlighted: true
+
+                    onClicked: {
+                        if (gameController.setStudyComment(
+                                studyCommentDialog.moveNumber,
+                                studyCommentField.text)) {
+                            boardPane.applyLoadedPosition()
+                            studyCommentDialog.close()
+                        } else {
+                            studyCommentError.text =
+                                gameController.error_message
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 menuBar: MenuBar {
     Menu {
         title: qsTr("&Game")
@@ -2763,7 +2866,8 @@ menuBar: MenuBar {
                                             id: sourceCommentSection
 
                                             visible:
-                                                gameController.has_source_comments
+                                                !root.playingGame
+                                                && boardPane.selectedGame !== null
 
                                             Layout.fillWidth: true
                                             Layout.fillHeight: false
@@ -2780,7 +2884,7 @@ menuBar: MenuBar {
 
                                                 Label {
                                                     Layout.fillWidth: true
-                                                    text: qsTr("Source comment")
+                                                    text: qsTr("SGF comment")
                                                     font.bold: true
                                                 }
 
@@ -2808,7 +2912,7 @@ menuBar: MenuBar {
                                                             ? gameController
                                                                 .source_comment
                                                             : qsTr(
-                                                                "No source comment at "
+                                                                "No SGF comment at "
                                                                 + "this position.")
 
                                                         readOnly: true
@@ -2837,6 +2941,113 @@ menuBar: MenuBar {
                                             Layout.maximumHeight: implicitHeight
                                         }
 
+                                        TabBar {
+                                            id: studyToolsTabs
+
+                                            visible:
+                                                !root.playingGame
+                                                && boardPane.selectedGame !== null
+                                                && !boardPane.editingPosition
+
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 8
+                                            Layout.rightMargin: 8
+
+                                            currentIndex: 0
+
+                                            onCurrentIndexChanged: {
+                                                /*
+                                                 * A hidden annotation tool must not
+                                                 * continue consuming board clicks.
+                                                 * Likewise, leaving Analyse stops an
+                                                 * unfinished rubber-band drag without
+                                                 * throwing away an existing result.
+                                                 */
+                                                if (currentIndex !== 0) {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+                                                }
+
+                                                if (currentIndex !== 1)
+                                                    boardPane.selectingPattern = false
+                                            }
+
+                                            TabButton {
+                                                width: studyToolsTabs.width / 3
+                                                text: qsTr("Study")
+                                            }
+
+                                            TabButton {
+                                                width: studyToolsTabs.width / 3
+                                                text: qsTr("Analyse")
+                                            }
+
+                                            TabButton {
+                                                width: studyToolsTabs.width / 3
+                                                text: qsTr("View")
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            id: studyAnalysisControls
+
+                                            visible:
+                                                !root.playingGame
+                                                && boardPane.selectedGame !== null
+                                                && !boardPane.editingPosition
+                                                && studyToolsTabs.currentIndex === 1
+
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: false
+                                            Layout.preferredHeight: implicitHeight
+                                            Layout.maximumHeight: implicitHeight
+                                            Layout.leftMargin: 8
+                                            Layout.rightMargin: 8
+                                            spacing: 4
+
+                                            Label {
+                                                text: qsTr("Analyse:")
+                                            }
+
+                                            Button {
+                                                id: studyPatternSearchButton
+
+                                                text: qsTr("Pattern Search")
+                                                highlighted:
+                                                    boardPane.investigationMode === "pattern"
+
+                                                onClicked: {
+                                                    if (boardPane.investigationMode === "pattern") {
+                                                        boardPane.clearPatternSelection()
+                                                        boardPane.investigationMode = ""
+                                                    } else {
+                                                        boardPane.investigationMode = "pattern"
+                                                    }
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("KataGo")
+                                                highlighted:
+                                                    boardPane.investigationMode === "katago"
+
+                                                onClicked: {
+                                                    if (boardPane.investigationMode === "pattern")
+                                                        boardPane.clearPatternSelection()
+                                                    else
+                                                        boardPane.selectingPattern = false
+
+                                                    boardPane.investigationMode =
+                                                        boardPane.investigationMode === "katago"
+                                                        ? ""
+                                                        : "katago"
+                                                }
+                                            }
+
+                                            Item {
+                                                Layout.fillWidth: true
+                                            }
+                                        }
 
                                         RowLayout {
                                             id: positionEditControls
@@ -2924,6 +3135,7 @@ menuBar: MenuBar {
                                                              Layout.fillWidth: true
                                                              visible: root.playingGame
                                                                       || (boardPane.selectedGame !== null
+                                                                          && studyToolsTabs.currentIndex === 1
                                                                           && boardPane.investigationMode === "pattern")
 
                                                              Layout.fillHeight: false
@@ -3330,12 +3542,14 @@ menuBar: MenuBar {
                                                              visible:
                                                                  !root.playingGame
                                                                  && (
-                                                                     (boardPane.investigationMode
-                                                                         === "pattern"
+                                                                     (studyToolsTabs.currentIndex === 1
+                                                                         && boardPane.investigationMode
+                                                                            === "pattern"
                                                                          && boardPane.investigatingSearch
                                                                          && gameList.searchOutcomeText.length > 0)
-                                                                     || (boardPane.investigationMode
-                                                                         === "pattern"
+                                                                     || (studyToolsTabs.currentIndex === 1
+                                                                         && boardPane.investigationMode
+                                                                            === "pattern"
                                                                          && goBoard.patternSelectionValid
                                                                          && !gameList.searchHasRun)
                                                                      || (boardPane.editingPosition
@@ -3481,66 +3695,6 @@ menuBar: MenuBar {
                                                              }
                                                          }
 
-                                        RowLayout {
-                                            id: studyAnalysisControls
-
-                                            visible:
-                                                !root.playingGame
-                                                && boardPane.selectedGame !== null
-                                                && !boardPane.editingPosition
-
-                                            Layout.fillWidth: true
-                                            Layout.fillHeight: false
-                                            Layout.preferredHeight: implicitHeight
-                                            Layout.maximumHeight: implicitHeight
-                                            Layout.leftMargin: 8
-                                            Layout.rightMargin: 8
-                                            spacing: 4
-
-                                            Label {
-                                                text: qsTr("Analyse:")
-                                            }
-
-                                            Button {
-                                                id: studyPatternSearchButton
-
-                                                text: qsTr("Pattern Search")
-                                                highlighted:
-                                                    boardPane.investigationMode === "pattern"
-
-                                                onClicked: {
-                                                    if (boardPane.investigationMode === "pattern") {
-                                                        boardPane.clearPatternSelection()
-                                                        boardPane.investigationMode = ""
-                                                    } else {
-                                                        boardPane.investigationMode = "pattern"
-                                                    }
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("KataGo")
-                                                highlighted:
-                                                    boardPane.investigationMode === "katago"
-
-                                                onClicked: {
-                                                    if (boardPane.investigationMode === "pattern")
-                                                        boardPane.clearPatternSelection()
-                                                    else
-                                                        boardPane.selectingPattern = false
-
-                                                    boardPane.investigationMode =
-                                                        boardPane.investigationMode === "katago"
-                                                        ? ""
-                                                        : "katago"
-                                                }
-                                            }
-
-                                            Item {
-                                                Layout.fillWidth: true
-                                            }
-                                        }
-
                                                          Frame {
                                                              id: katagoPanel
 
@@ -3550,6 +3704,7 @@ menuBar: MenuBar {
 
                                                              visible: !root.playingGame
                                                                       && boardPane.selectedGame !== null
+                                                                      && studyToolsTabs.currentIndex === 1
                                                                       && boardPane.investigationMode === "katago"
 
                                                              Layout.fillHeight: false
@@ -3700,6 +3855,7 @@ menuBar: MenuBar {
                                                 !root.playingGame
                                                 && boardPane.selectedGame !== null
                                                 && !boardPane.editingPosition
+                                                && studyToolsTabs.currentIndex === 2
 
                                             Layout.fillWidth: true
                                             Layout.fillHeight: false
@@ -3771,6 +3927,7 @@ menuBar: MenuBar {
                                                 !root.playingGame
                                                 && boardPane.selectedGame !== null
                                                 && !boardPane.editingPosition
+                                                && studyToolsTabs.currentIndex === 0
 
                                             Layout.fillWidth: true
                                             Layout.fillHeight: false
@@ -3818,9 +3975,13 @@ menuBar: MenuBar {
                                                     return 0
                                                 }
 
-                                                onActivated:
+                                                onActivated: {
                                                     boardPane.annotationTool =
                                                         model[index].tool
+
+                                                    if (model[index].tool.length > 0)
+                                                        boardPane.sgfEditTool = ""
+                                                }
                                             }
 
                                             Item {
@@ -3830,6 +3991,142 @@ menuBar: MenuBar {
 
 
 
+                                        RowLayout {
+                                            id: studySgfEditControls
+
+                                            visible:
+                                                !root.playingGame
+                                                && boardPane.selectedGame !== null
+                                                && !boardPane.editingPosition
+                                                && studyToolsTabs.currentIndex === 0
+
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: false
+                                            Layout.preferredHeight: implicitHeight
+                                            Layout.maximumHeight: implicitHeight
+                                            Layout.leftMargin: 8
+                                            Layout.rightMargin: 8
+                                            spacing: 4
+
+                                            Label {
+                                                text: qsTr("Edit:")
+                                            }
+
+                                            Button {
+                                                text: qsTr("Comment…")
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Edit the SGF comment in "
+                                                    + "the Study copy. The "
+                                                    + "original source is "
+                                                    + "never changed.")
+
+                                                onClicked:
+                                                    studyCommentDialog
+                                                        .openForCurrentPosition()
+                                            }
+
+                                            Button {
+                                                text: qsTr("Add move")
+                                                checkable: true
+                                                checked:
+                                                    boardPane.sgfEditTool
+                                                    === "move"
+                                                highlighted: checked
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Click an empty point to "
+                                                    + "add a continuation. "
+                                                    + "Clicking an existing "
+                                                    + "continuation follows it.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool =
+                                                        checked ? "move" : ""
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("Insert node")
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Insert an empty SGF node immediately "
+                                                    + "after the selected game-tree node.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+
+                                                    if (gameController.insertStudyNode()) {
+                                                        boardPane.applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(
+                                                            gameController.error_message)
+                                                    }
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("Branch")
+                                                checkable: true
+                                                checked:
+                                                    boardPane.sgfEditTool
+                                                    === "branch"
+                                                highlighted: checked
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Add an alternative from "
+                                                    + "the selected game-tree "
+                                                    + "position.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool =
+                                                        checked ? "branch" : ""
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("Pass")
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Add a pass as the next "
+                                                    + "SGF continuation.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+
+                                                    const branching =
+                                                        boardPane.sgfEditTool
+                                                        === "branch"
+
+                                                    const ok = branching
+                                                        ? gameController
+                                                            .addStudyBranchPass()
+                                                        : gameController
+                                                            .addStudyPass()
+
+                                                    if (ok) {
+                                                        boardPane
+                                                            .applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(
+                                                            gameController
+                                                                .error_message)
+                                                    }
+                                                }
+                                            }
+
+                                            Item {
+                                                Layout.fillWidth: true
+                                            }
+                                        }
 
 
                                         // closes the new gameDetailsFrame
@@ -4204,6 +4501,7 @@ menuBar: MenuBar {
 
 
             property string annotationTool: ""
+            property string sgfEditTool: ""
             property int pendingStudyLabelX: -1
             property int pendingStudyLabelY: -1
 
@@ -5599,15 +5897,29 @@ menuBar: MenuBar {
                                                         .backgroundColor
                                             }
 
-                                            ctx.beginPath()
-                                            ctx.arc(
-                                                x,
-                                                y,
-                                                5.5,
-                                                0,
-                                                Math.PI * 2)
-                                            ctx.fill()
-                                            ctx.stroke()
+                                            if (node.isMove
+                                                    || node.root) {
+                                                ctx.beginPath()
+                                                ctx.arc(
+                                                    x,
+                                                    y,
+                                                    5.5,
+                                                    0,
+                                                    Math.PI * 2)
+                                                ctx.fill()
+                                                ctx.stroke()
+                                            } else {
+                                                ctx.fillRect(
+                                                    x - 4.5,
+                                                    y - 4.5,
+                                                    9,
+                                                    9)
+                                                ctx.strokeRect(
+                                                    x - 4.5,
+                                                    y - 4.5,
+                                                    9,
+                                                    9)
+                                            }
 
                                             if (node.hasComment) {
                                                 ctx.fillStyle =
@@ -5635,10 +5947,13 @@ menuBar: MenuBar {
                                                 ctx.textBaseline =
                                                     "middle"
                                                 ctx.fillText(
-                                                    Number(
-                                                        node
-                                                            .moveNumber)
-                                                        .toString(),
+                                                    node.isMove
+                                                        || node.root
+                                                        ? Number(
+                                                            node
+                                                                .moveNumber)
+                                                            .toString()
+                                                        : "node",
                                                     x + 11,
                                                     y)
                                             }
@@ -5664,7 +5979,7 @@ menuBar: MenuBar {
                                                     .clearContinuationMap()
 
                                                 if (gameController
-                                                        .showSgfNode(
+                                                        .showStudyStructureNode(
                                                             Number(
                                                                 node.id))) {
                                                     boardPane
@@ -6210,6 +6525,25 @@ menuBar: MenuBar {
                                   } else {
                                       console.warn(
                                                   gameController.error_message)
+                                  }
+
+                                  return
+                              }
+
+                              if (boardPane.sgfEditTool === "move"
+                                      || boardPane.sgfEditTool === "branch") {
+                                  const branching =
+                                      boardPane.sgfEditTool === "branch"
+
+                                  const ok = branching
+                                      ? gameController.addStudyBranch(x, y)
+                                      : gameController.addStudyMove(x, y)
+
+                                  if (ok) {
+                                      boardPane.applyLoadedPosition()
+                                  } else {
+                                      console.warn(
+                                          gameController.error_message)
                                   }
 
                                   return

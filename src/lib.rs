@@ -30,6 +30,8 @@ pub mod search;
 pub mod sgf;
 pub mod sgf_writer;
 pub mod study_document;
+pub mod study_edit;
+pub mod study_structure;
 pub mod study_tree;
 
 mod game_date;
@@ -70,4 +72,12 @@ pub use study_document::{
     STUDY_DOCUMENT_VERSION, STUDY_METADATA_PROPERTY, StudyAnnotation, StudyAnnotationKind,
     StudyDocumentError, StudyDocumentMetadata, StudyOrigin,
 };
-pub use study_tree::{StudyMarkup, StudyMarkupKind, StudyTree, StudyTreeNode, build_study_tree};
+pub use study_edit::{
+    StudyMoveInsertion, branch_study_move, extend_study_move, insert_study_move, insert_study_node,
+    insert_study_node_after_source,
+};
+pub use study_tree::{
+    StudyMarkup, StudyMarkupKind, StudySourceLocation, StudyTree, StudyTreeNode, build_study_tree,
+};
+
+pub use study_structure::{StudyStructureNode, StudyStructureTree, build_study_structure_tree};

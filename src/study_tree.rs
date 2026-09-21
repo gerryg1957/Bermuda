@@ -26,6 +26,23 @@ pub struct StudyMarkup {
     pub kind: StudyMarkupKind,
 }
 
+/// Address of the SGF node that produced a displayed Study-tree position.
+///
+/// `variation_path` contains child-variation indices starting at the first
+/// game tree in the collection. An empty path therefore refers to the root
+/// game tree. `sequence_index` addresses the node within that game tree's
+/// sequence.
+///
+/// Bermuda's Study tree deliberately collapses comment/setup-only SGF nodes
+/// into neighbouring displayed positions, so this address identifies the
+/// canonical move/root node for structural editing rather than claiming that
+/// one displayed position corresponds to exactly one SGF node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StudySourceLocation {
+    pub variation_path: Vec<usize>,
+    pub sequence_index: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct StudyTreeNode {
     pub id: usize,
@@ -34,6 +51,8 @@ pub struct StudyTreeNode {
     pub row: usize,
     pub lane: usize,
     pub position: PositionState,
+    pub source: StudySourceLocation,
+    pub comment_sources: Vec<StudySourceLocation>,
     pub comment: String,
     pub move_colour: Option<Colour>,
     pub markup: Vec<StudyMarkup>,
@@ -78,6 +97,15 @@ impl StudyTree {
 
         Some(path)
     }
+
+    /// Find the displayed Study node produced by one exact SGF node.
+    #[must_use]
+    pub fn node_id_for_source(&self, source: &StudySourceLocation) -> Option<usize> {
+        self.nodes
+            .iter()
+            .find(|node| &node.source == source)
+            .map(|node| node.id)
+    }
 }
 
 /// Build a move-oriented Study tree from the first SGF game tree.
@@ -103,6 +131,11 @@ pub fn build_study_tree(collection: &Collection) -> Result<StudyTree, GameError>
             row: 0,
             lane: 0,
             position: root_position,
+            source: StudySourceLocation {
+                variation_path: Vec::new(),
+                sequence_index: 0,
+            },
+            comment_sources: Vec::new(),
             comment: String::new(),
             move_colour: None,
             markup: Vec::new(),
@@ -113,7 +146,17 @@ pub fn build_study_tree(collection: &Collection) -> Result<StudyTree, GameError>
 
     let mut next_lane = 0usize;
 
-    walk_tree(game_tree, &mut study, board, 0, 0, 0, &mut next_lane, true)?;
+    walk_tree(
+        game_tree,
+        &mut study,
+        board,
+        0,
+        0,
+        0,
+        &mut next_lane,
+        true,
+        &[],
+    )?;
 
     /*
      * Side-to-move is determined by the next move on the first continuation
@@ -159,12 +202,19 @@ fn walk_tree(
     lane: usize,
     next_lane: &mut usize,
     root_tree: bool,
+    tree_path: &[usize],
 ) -> Result<(), GameError> {
     let mut created_move = false;
     let mut pending_comment = String::new();
+    let mut pending_comment_sources = Vec::new();
     let mut pending_markup = Vec::new();
 
-    for node in &tree.sequence {
+    for (sequence_index, node) in tree.sequence.iter().enumerate() {
+        let source = StudySourceLocation {
+            variation_path: tree_path.to_vec(),
+            sequence_index,
+        };
+
         let setup_changed = apply_setup_properties(&mut board, node, move_number)?;
 
         let node_markup = node_markup(node, board.size())?;
@@ -190,7 +240,14 @@ fn walk_tree(
             move_number += 1;
 
             let mut comment = std::mem::take(&mut pending_comment);
-            append_comment(&mut comment, node.first("C"));
+            let mut comment_sources = std::mem::take(&mut pending_comment_sources);
+
+            if let Some(node_comment) = node.first("C")
+                && !node_comment.is_empty()
+            {
+                append_comment(&mut comment, Some(node_comment));
+                comment_sources.push(source.clone());
+            }
 
             let mut markup = std::mem::take(&mut pending_markup);
             markup.extend(node_markup);
@@ -205,6 +262,8 @@ fn walk_tree(
                 row: move_number,
                 lane,
                 position,
+                source,
+                comment_sources,
                 comment,
                 move_colour: Some(mv.colour),
                 markup,
@@ -222,7 +281,13 @@ fn walk_tree(
                 refresh_position(&mut study.nodes[parent], &board);
             }
 
-            append_comment(&mut study.nodes[parent].comment, node.first("C"));
+            if let Some(node_comment) = node.first("C")
+                && !node_comment.is_empty()
+            {
+                append_comment(&mut study.nodes[parent].comment, Some(node_comment));
+                study.nodes[parent].comment_sources.push(source);
+            }
+
             study.nodes[parent].markup.extend(node_markup);
         } else {
             /*
@@ -230,7 +295,13 @@ fn walk_tree(
              * Do not attach that text to the shared branch point; carry it
              * forward to the first move belonging to this variation.
              */
-            append_comment(&mut pending_comment, node.first("C"));
+            if let Some(node_comment) = node.first("C")
+                && !node_comment.is_empty()
+            {
+                append_comment(&mut pending_comment, Some(node_comment));
+                pending_comment_sources.push(source);
+            }
+
             pending_markup.extend(node_markup);
         }
     }
@@ -243,6 +314,9 @@ fn walk_tree(
             *next_lane
         };
 
+        let mut variation_path = tree_path.to_vec();
+        variation_path.push(index);
+
         walk_tree(
             variation,
             study,
@@ -252,6 +326,7 @@ fn walk_tree(
             variation_lane,
             next_lane,
             false,
+            &variation_path,
         )?;
     }
 
@@ -462,6 +537,97 @@ mod tests {
         assert_eq!(tree.main_path, vec![0, 1, 2, 3]);
         assert_eq!(tree.nodes[1].children, vec![2, 4]);
         assert_eq!(tree.path_through(4), Some(vec![0, 1, 4]));
+
+        assert_eq!(
+            tree.nodes[0].source,
+            StudySourceLocation {
+                variation_path: vec![],
+                sequence_index: 0,
+            }
+        );
+        assert_eq!(
+            tree.nodes[1].source,
+            StudySourceLocation {
+                variation_path: vec![],
+                sequence_index: 1,
+            }
+        );
+        assert_eq!(
+            tree.nodes[2].source,
+            StudySourceLocation {
+                variation_path: vec![0],
+                sequence_index: 0,
+            }
+        );
+        assert_eq!(
+            tree.nodes[3].source,
+            StudySourceLocation {
+                variation_path: vec![0],
+                sequence_index: 1,
+            }
+        );
+        assert_eq!(
+            tree.nodes[4].source,
+            StudySourceLocation {
+                variation_path: vec![1],
+                sequence_index: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn tracks_all_sgf_nodes_contributing_to_displayed_comments() {
+        let collection = parse_collection(
+            b"(;FF[4]GM[1]SZ[19]C[root one];C[root two];B[dd]C[first];C[after](;C[lead];W[pp]C[reply]))",
+        )
+        .expect("parse SGF");
+
+        let tree = build_study_tree(&collection).expect("build Study tree");
+
+        assert_eq!(tree.nodes[0].comment, "root one\n\nroot two");
+        assert_eq!(
+            tree.nodes[0].comment_sources,
+            vec![
+                StudySourceLocation {
+                    variation_path: vec![],
+                    sequence_index: 0,
+                },
+                StudySourceLocation {
+                    variation_path: vec![],
+                    sequence_index: 1,
+                },
+            ]
+        );
+
+        assert_eq!(tree.nodes[1].comment, "first\n\nafter");
+        assert_eq!(
+            tree.nodes[1].comment_sources,
+            vec![
+                StudySourceLocation {
+                    variation_path: vec![],
+                    sequence_index: 2,
+                },
+                StudySourceLocation {
+                    variation_path: vec![],
+                    sequence_index: 3,
+                },
+            ]
+        );
+
+        assert_eq!(tree.nodes[2].comment, "lead\n\nreply");
+        assert_eq!(
+            tree.nodes[2].comment_sources,
+            vec![
+                StudySourceLocation {
+                    variation_path: vec![0],
+                    sequence_index: 0,
+                },
+                StudySourceLocation {
+                    variation_path: vec![0],
+                    sequence_index: 1,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -477,6 +643,29 @@ mod tests {
         assert_eq!(tree.nodes[1].comment, "first");
         assert_eq!(tree.nodes[2].comment, "main");
         assert_eq!(tree.nodes[3].comment, "other");
+    }
+
+    #[test]
+    fn records_nested_variation_paths() {
+        let collection = parse_collection(b"(;FF[4]GM[1]SZ[19];B[dd](;W[pp](;B[qq])(;B[qp])))")
+            .expect("parse SGF");
+
+        let tree = build_study_tree(&collection).expect("build Study tree");
+
+        assert_eq!(
+            tree.nodes[3].source,
+            StudySourceLocation {
+                variation_path: vec![0, 0],
+                sequence_index: 0,
+            }
+        );
+        assert_eq!(
+            tree.nodes[4].source,
+            StudySourceLocation {
+                variation_path: vec![0, 1],
+                sequence_index: 0,
+            }
+        );
     }
 
     #[test]
