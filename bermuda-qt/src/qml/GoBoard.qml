@@ -1711,6 +1711,70 @@ Item {
             ctx.strokeRect(x, y, width, height)
 
             /*
+             * A board edge is part of the search context only when the
+             * selection actually reaches that edge. Emphasise included
+             * edges on the grid itself so a corner-constrained search is
+             * visually different from the same local stone shape searched
+             * without corner context.
+             */
+            const boardRight =
+                left + (root.boardSize - 1) * spacing
+            const boardBottom =
+                top + (root.boardSize - 1) * spacing
+
+            const selectedLeft =
+                Math.max(
+                    left,
+                    left + firstX * spacing - halfSpacing)
+            const selectedRight =
+                Math.min(
+                    boardRight,
+                    left + lastX * spacing + halfSpacing)
+            const selectedTop =
+                Math.max(
+                    top,
+                    top + firstY * spacing - halfSpacing)
+            const selectedBottom =
+                Math.min(
+                    boardBottom,
+                    top + lastY * spacing + halfSpacing)
+
+            ctx.save()
+            ctx.strokeStyle = "rgba(25, 75, 180, 1.0)"
+            ctx.lineWidth = Math.max(4, spacing * 0.14)
+            ctx.lineCap = "round"
+
+            if (firstX === 0) {
+                ctx.beginPath()
+                ctx.moveTo(left, selectedTop)
+                ctx.lineTo(left, selectedBottom)
+                ctx.stroke()
+            }
+
+            if (lastX === root.boardSize - 1) {
+                ctx.beginPath()
+                ctx.moveTo(boardRight, selectedTop)
+                ctx.lineTo(boardRight, selectedBottom)
+                ctx.stroke()
+            }
+
+            if (firstY === 0) {
+                ctx.beginPath()
+                ctx.moveTo(selectedLeft, top)
+                ctx.lineTo(selectedRight, top)
+                ctx.stroke()
+            }
+
+            if (lastY === root.boardSize - 1) {
+                ctx.beginPath()
+                ctx.moveTo(selectedLeft, boardBottom)
+                ctx.lineTo(selectedRight, boardBottom)
+                ctx.stroke()
+            }
+
+            ctx.restore()
+
+            /*
              * Show resize handles while the selected pattern can still
              * be edited.  They disappear once a database search is being
              * investigated.

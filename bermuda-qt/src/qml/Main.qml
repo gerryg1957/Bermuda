@@ -1560,6 +1560,22 @@ menuBar: MenuBar {
         uiSettings.browserSplitViewStateV3 = mainSplitView.saveState()
     }
 
+    function saveStudySplitState() {
+        if (!root.browserExpanded && studyPane.visible) {
+            uiSettings.studySplitViewStateV1 =
+                mainSplitView.saveState()
+        }
+    }
+
+    function restoreStudySplitState() {
+        Qt.callLater(function() {
+            if (uiSettings.studySplitViewStateV1) {
+                mainSplitView.restoreState(
+                    uiSettings.studySplitViewStateV1)
+            }
+        })
+    }
+
     function prepareStudyReplacement() {
         root.studyReplacementFromBrowser = false
         root.replacementHadStudyWorkspace =
@@ -1593,6 +1609,7 @@ menuBar: MenuBar {
         root.studyWorkspaceActive = true
         root.browserExpanded = false
         root.studyReplacementFromBrowser = true
+        root.restoreStudySplitState()
         return true
     }
 
@@ -1665,6 +1682,7 @@ menuBar: MenuBar {
 
         root.studyWorkspaceActive = true
         root.browserExpanded = false
+        root.restoreStudySplitState()
 
         if (boardPane.selectedGame === null
                 && root.studyPaneMode === "document") {
@@ -1677,6 +1695,8 @@ menuBar: MenuBar {
     }
 
     function showPatternResults() {
+        root.saveStudySplitState()
+
         /*
          * Pattern results are a pane, not a workspace.
          *
@@ -1704,6 +1724,8 @@ menuBar: MenuBar {
     }
 
     function showBrowserTab(index) {
+        root.saveStudySplitState()
+
         if (index === 2) {
             root.showPatternResults()
             return
@@ -1973,6 +1995,7 @@ menuBar: MenuBar {
         property alias windowHeight: root.height
         property int katagoVisitBudget: 200
         property var browserSplitViewStateV3
+        property var studySplitViewStateV1
     }
 
     Settings {
@@ -2036,6 +2059,8 @@ menuBar: MenuBar {
         if (root.browserExpanded) {
             uiSettings.browserSplitViewStateV3 =
                 mainSplitView.saveState()
+        } else {
+            root.saveStudySplitState()
         }
     }
 
@@ -2282,7 +2307,7 @@ menuBar: MenuBar {
                     || root.studyPaneMode !== "document")
 
             SplitView.minimumWidth: 360
-            SplitView.preferredWidth: 500
+            SplitView.preferredWidth: 520
             SplitView.maximumWidth: 700
             SplitView.fillWidth: false
 
@@ -3069,11 +3094,17 @@ menuBar: MenuBar {
                                                                  }
                                                              }
 
-                                                             ToolButton {
+                                                             Button {
                                                                  visible: !root.playingGame
                                                                           && !gameList.searchHasRun
-                                                                 text: qsTr("Select Pattern")
+                                                                 text: qsTr("Select Search Area")
                                                                  checkable: true
+
+                                                                 ToolTip.visible: hovered
+                                                                 ToolTip.text: qsTr(
+                                                                     "Drag around the complete context to match. "
+                                                                     + "Only stones and board edges inside the blue "
+                                                                     + "area are part of the search.")
 
                                                                      checked: boardPane.selectingPattern
 
@@ -3088,7 +3119,7 @@ menuBar: MenuBar {
                                                                  }
                                                              }
 
-                                                             ToolButton {
+                                                             Button {
                                                                  visible: !root.playingGame
                                                                           && !gameList.searchHasRun
                                                                  text: qsTr("Clear Selection")
@@ -3097,7 +3128,7 @@ menuBar: MenuBar {
                                                                  onClicked: boardPane.clearPatternSelection()
                                                              }
 
-                                                             ToolButton {
+                                                             Button {
                                                                  visible: !root.playingGame
                                                                           && !gameList.searchHasRun
                                                                  text: qsTr("Search Database")
@@ -3112,7 +3143,7 @@ menuBar: MenuBar {
                                                                          gameList.databaseProjectPath)
                                                              }
 
-                                                             ToolButton {
+                                                             Button {
                                                                  visible: !root.playingGame
                                                                           && !gameList.searchHasRun
                                                                  text: qsTr("Search My Games")
@@ -3305,7 +3336,8 @@ menuBar: MenuBar {
                                                                          && gameList.searchOutcomeText.length > 0)
                                                                      || (boardPane.investigationMode
                                                                          === "pattern"
-                                                                         && boardPane.selectingPattern)
+                                                                         && goBoard.patternSelectionValid
+                                                                         && !gameList.searchHasRun)
                                                                      || (boardPane.editingPosition
                                                                          && boardPane.editTool
                                                                             === "alternate")
@@ -3314,6 +3346,32 @@ menuBar: MenuBar {
                                                              Layout.rightMargin: 8
                                                              spacing: 4
 
+                                                             Label {
+                                                                 visible:
+                                                                     boardPane.investigationMode === "pattern"
+                                                                     && goBoard.patternSelectionValid
+                                                                     && !gameList.searchHasRun
+
+                                                                 text: boardPane.patternContextText()
+                                                                 color: "#194bb4"
+                                                                 font.bold: true
+
+                                                                 ToolTip.visible:
+                                                                     contextMouse.containsMouse
+                                                                 ToolTip.text: qsTr(
+                                                                     "Only stones and board edges inside the "
+                                                                     + "selected blue area are matched. "
+                                                                     + "Move the selection to the edge of the "
+                                                                     + "board when the side or corner is part "
+                                                                     + "of the pattern.")
+
+                                                                 MouseArea {
+                                                                     id: contextMouse
+                                                                     anchors.fill: parent
+                                                                     hoverEnabled: true
+                                                                     acceptedButtons: Qt.NoButton
+                                                                 }
+                                                             }
 
                                                              Item {
                                                                  Layout.fillWidth: true
@@ -3452,7 +3510,7 @@ menuBar: MenuBar {
 
                                                 onClicked: {
                                                     if (boardPane.investigationMode === "pattern") {
-                                                        boardPane.selectingPattern = false
+                                                        boardPane.clearPatternSelection()
                                                         boardPane.investigationMode = ""
                                                     } else {
                                                         boardPane.investigationMode = "pattern"
@@ -3466,7 +3524,10 @@ menuBar: MenuBar {
                                                     boardPane.investigationMode === "katago"
 
                                                 onClicked: {
-                                                    boardPane.selectingPattern = false
+                                                    if (boardPane.investigationMode === "pattern")
+                                                        boardPane.clearPatternSelection()
+                                                    else
+                                                        boardPane.selectingPattern = false
 
                                                     boardPane.investigationMode =
                                                         boardPane.investigationMode === "katago"
@@ -4145,6 +4206,59 @@ menuBar: MenuBar {
             property string annotationTool: ""
             property int pendingStudyLabelX: -1
             property int pendingStudyLabelY: -1
+
+            function patternContextText() {
+                if (!goBoard.patternSelectionValid)
+                    return ""
+
+                const left =
+                    Math.min(
+                        goBoard.patternStartX,
+                        goBoard.patternEndX)
+                const right =
+                    Math.max(
+                        goBoard.patternStartX,
+                        goBoard.patternEndX)
+                const top =
+                    Math.min(
+                        goBoard.patternStartY,
+                        goBoard.patternEndY)
+                const bottom =
+                    Math.max(
+                        goBoard.patternStartY,
+                        goBoard.patternEndY)
+
+                const includesLeft = left === 0
+                const includesRight =
+                    right === goBoard.boardSize - 1
+                const includesTop = top === 0
+                const includesBottom =
+                    bottom === goBoard.boardSize - 1
+
+                const edgeCount =
+                    (includesLeft ? 1 : 0)
+                    + (includesRight ? 1 : 0)
+                    + (includesTop ? 1 : 0)
+                    + (includesBottom ? 1 : 0)
+
+                const includesCorner =
+                    (includesLeft
+                     && (includesTop || includesBottom))
+                    || (includesRight
+                        && (includesTop || includesBottom))
+
+                if (includesCorner)
+                    return qsTr("Search context: corner")
+
+                if (edgeCount === 1)
+                    return qsTr("Search context: side")
+
+                if (edgeCount === 0)
+                    return qsTr("Search context: no board edge")
+
+                return qsTr("Search context: %1 board edges")
+                    .arg(edgeCount)
+            }
 
             function toggleAnnotationTool(tool) {
                 annotationTool =
