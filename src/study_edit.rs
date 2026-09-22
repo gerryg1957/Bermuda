@@ -376,6 +376,98 @@ fn sgf_move_node(mv: Move, board_size: u8) -> Result<Node, String> {
     Ok(node)
 }
 
+/// Delete the selected literal SGF node and every descendant below it.
+///
+/// If the selected node starts a variation, the whole variation is removed
+/// while its siblings are preserved. If it occurs later in a sequence, that
+/// sequence is truncated immediately before the selected node and any child
+/// variations below the deleted suffix are discarded.
+///
+/// The root SGF node cannot be deleted because it owns the game record.
+pub fn delete_study_from_source(
+    collection: &mut Collection,
+    source: &StudySourceLocation,
+) -> Result<StudySourceLocation, String> {
+    let root = collection
+        .trees
+        .first_mut()
+        .ok_or_else(|| "Study SGF has no game tree".to_owned())?;
+
+    if source.variation_path.is_empty() {
+        if source.sequence_index >= root.sequence.len() {
+            return Err(format!(
+                "Study SGF node {} does not exist",
+                source.sequence_index
+            ));
+        }
+
+        if source.sequence_index == 0 {
+            return Err("the root SGF node cannot be deleted".to_owned());
+        }
+
+        root.sequence.truncate(source.sequence_index);
+        root.variations.clear();
+
+        return Ok(StudySourceLocation {
+            variation_path: Vec::new(),
+            sequence_index: source.sequence_index - 1,
+        });
+    }
+
+    let parent_path = &source.variation_path[..source.variation_path.len() - 1];
+    let variation_index = *source
+        .variation_path
+        .last()
+        .expect("non-empty variation path checked above");
+
+    let mut parent = root;
+    for (depth, &index) in parent_path.iter().enumerate() {
+        parent = parent.variations.get_mut(index).ok_or_else(|| {
+            format!(
+                "Study variation {} does not exist at depth {}",
+                index, depth
+            )
+        })?;
+    }
+
+    if variation_index >= parent.variations.len() {
+        return Err(format!(
+            "Study variation {} does not exist",
+            variation_index
+        ));
+    }
+
+    let child_len = parent.variations[variation_index].sequence.len();
+    if source.sequence_index >= child_len {
+        return Err(format!(
+            "Study SGF node {} does not exist in variation {}",
+            source.sequence_index, variation_index
+        ));
+    }
+
+    if source.sequence_index == 0 {
+        if parent.sequence.is_empty() {
+            return Err("cannot return to the parent of an empty Study variation".to_owned());
+        }
+
+        parent.variations.remove(variation_index);
+
+        return Ok(StudySourceLocation {
+            variation_path: parent_path.to_vec(),
+            sequence_index: parent.sequence.len() - 1,
+        });
+    }
+
+    let child = &mut parent.variations[variation_index];
+    child.sequence.truncate(source.sequence_index);
+    child.variations.clear();
+
+    Ok(StudySourceLocation {
+        variation_path: source.variation_path.clone(),
+        sequence_index: source.sequence_index - 1,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,5 +1021,151 @@ mod tests {
         .expect_err("occupied point");
 
         assert!(occupied.contains("occupied"));
+    }
+}
+
+#[cfg(test)]
+mod delete_from_here_tests {
+    use super::delete_study_from_source;
+    use crate::sgf::{Collection, GameTree, Node};
+    use crate::study_tree::StudySourceLocation;
+
+    fn node() -> Node {
+        Node::default()
+    }
+
+    #[test]
+    fn delete_from_root_sequence_truncates_every_descendant() {
+        let mut collection = Collection {
+            trees: vec![GameTree {
+                sequence: vec![node(), node(), node()],
+                variations: vec![GameTree {
+                    sequence: vec![node()],
+                    variations: Vec::new(),
+                }],
+            }],
+        };
+
+        let selected = delete_study_from_source(
+            &mut collection,
+            &StudySourceLocation {
+                variation_path: Vec::new(),
+                sequence_index: 1,
+            },
+        )
+        .expect("delete from root sequence");
+
+        assert_eq!(collection.trees[0].sequence.len(), 1);
+        assert!(collection.trees[0].variations.is_empty());
+        assert_eq!(
+            selected,
+            StudySourceLocation {
+                variation_path: Vec::new(),
+                sequence_index: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn delete_first_node_of_variation_removes_only_that_variation() {
+        let mut collection = Collection {
+            trees: vec![GameTree {
+                sequence: vec![node(), node()],
+                variations: vec![
+                    GameTree {
+                        sequence: vec![node(), node()],
+                        variations: Vec::new(),
+                    },
+                    GameTree {
+                        sequence: vec![node()],
+                        variations: Vec::new(),
+                    },
+                ],
+            }],
+        };
+
+        let selected = delete_study_from_source(
+            &mut collection,
+            &StudySourceLocation {
+                variation_path: vec![0],
+                sequence_index: 0,
+            },
+        )
+        .expect("delete whole variation");
+
+        assert_eq!(collection.trees[0].variations.len(), 1);
+        assert_eq!(collection.trees[0].variations[0].sequence.len(), 1);
+        assert_eq!(
+            selected,
+            StudySourceLocation {
+                variation_path: Vec::new(),
+                sequence_index: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn delete_inside_variation_keeps_earlier_nodes_and_siblings() {
+        let mut collection = Collection {
+            trees: vec![GameTree {
+                sequence: vec![node(), node()],
+                variations: vec![
+                    GameTree {
+                        sequence: vec![node(), node(), node()],
+                        variations: vec![GameTree {
+                            sequence: vec![node()],
+                            variations: Vec::new(),
+                        }],
+                    },
+                    GameTree {
+                        sequence: vec![node()],
+                        variations: Vec::new(),
+                    },
+                ],
+            }],
+        };
+
+        let selected = delete_study_from_source(
+            &mut collection,
+            &StudySourceLocation {
+                variation_path: vec![0],
+                sequence_index: 1,
+            },
+        )
+        .expect("delete inside variation");
+
+        assert_eq!(collection.trees[0].variations.len(), 2);
+        assert_eq!(collection.trees[0].variations[0].sequence.len(), 1);
+        assert!(collection.trees[0].variations[0].variations.is_empty());
+        assert_eq!(collection.trees[0].variations[1].sequence.len(), 1);
+        assert_eq!(
+            selected,
+            StudySourceLocation {
+                variation_path: vec![0],
+                sequence_index: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn root_node_is_protected() {
+        let mut collection = Collection {
+            trees: vec![GameTree {
+                sequence: vec![node(), node()],
+                variations: Vec::new(),
+            }],
+        };
+
+        let error = delete_study_from_source(
+            &mut collection,
+            &StudySourceLocation {
+                variation_path: Vec::new(),
+                sequence_index: 0,
+            },
+        )
+        .expect_err("root node must be protected");
+
+        assert!(error.contains("root SGF node"));
+        assert_eq!(collection.trees[0].sequence.len(), 2);
     }
 }

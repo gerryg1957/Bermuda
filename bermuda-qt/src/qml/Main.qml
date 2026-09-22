@@ -2454,6 +2454,25 @@ menuBar: MenuBar {
                     Item {
                         Layout.fillWidth: true
                     }
+
+                    ToolButton {
+                        text: qsTr("Done")
+                        visible:
+                            root.studyPaneMode === "document"
+                            && boardPane.selectedGame !== null
+                            && !root.playingGame
+
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr(
+                            "Study changes are saved automatically. "
+                            + "Return to the Study Library.")
+
+                        onClicked: {
+                            boardPane.annotationTool = ""
+                            boardPane.sgfEditTool = ""
+                            root.showStudyPaneMode("library")
+                        }
+                    }
                 }
 
                 Kirigami.Separator {
@@ -3991,7 +4010,7 @@ menuBar: MenuBar {
 
 
 
-                                        RowLayout {
+                                        Flow {
                                             id: studySgfEditControls
 
                                             visible:
@@ -4010,6 +4029,50 @@ menuBar: MenuBar {
 
                                             Label {
                                                 text: qsTr("Edit:")
+                                            }
+
+                                            Button {
+                                                text: qsTr("Undo")
+                                                enabled:
+                                                    gameController.can_undo_study_edit
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Undo the most recent edit made since this Study was opened.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+
+                                                    if (gameController.undoStudyEdit()) {
+                                                        boardPane.applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(
+                                                            gameController.error_message)
+                                                    }
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("Redo")
+                                                enabled:
+                                                    gameController.can_redo_study_edit
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Redo the most recently undone Study edit.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+
+                                                    if (gameController.redoStudyEdit()) {
+                                                        boardPane.applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(
+                                                            gameController.error_message)
+                                                    }
+                                                }
                                             }
 
                                             Button {
@@ -4119,6 +4182,28 @@ menuBar: MenuBar {
                                                         console.warn(
                                                             gameController
                                                                 .error_message)
+                                                    }
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("Delete from here")
+                                                enabled: gameController.sgf_tree_current_node > 0
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Delete the selected SGF node and everything below it "
+                                                    + "in this variation. Other sibling variations are kept. "
+                                                    + "The root node cannot be deleted.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+
+                                                    if (gameController.deleteStudyFromHere()) {
+                                                        boardPane.applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(gameController.error_message)
                                                     }
                                                 }
                                             }

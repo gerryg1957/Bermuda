@@ -63,6 +63,8 @@ mod ffi {
         #[qproperty(QString, sgf_tree_json)]
         #[qproperty(i32, sgf_tree_current_node)]
         #[qproperty(QString, board_markup_json)]
+        #[qproperty(bool, can_undo_study_edit)]
+        #[qproperty(bool, can_redo_study_edit)]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, katago_analysis_in_progress)]
         #[qproperty(QString, katago_analysis_text)]
@@ -208,8 +210,20 @@ mod ffi {
         ) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "undoStudyEdit"]
+        fn undo_study_edit(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "redoStudyEdit"]
+        fn redo_study_edit(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "setStudyComment"]
         fn set_study_comment(self: Pin<&mut BermudaApp>, move_number: i32, text: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "deleteStudyFromHere"]
+        fn delete_study_from_here(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "insertStudyNode"]
@@ -282,10 +296,50 @@ mod ffi {
 }
 
 #[derive(Debug, Clone)]
+struct StudyHistoryEntry {
+    collection: Collection,
+    metadata: StudyDocumentMetadata,
+    selection: Option<StudySourceLocation>,
+    move_number: i32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StudyEditHistory {
+    undo: Vec<StudyHistoryEntry>,
+    redo: Vec<StudyHistoryEntry>,
+}
+
+impl StudyEditHistory {
+    const LIMIT: usize = 100;
+
+    fn push_undo(&mut self, entry: StudyHistoryEntry) {
+        Self::push_limited(&mut self.undo, entry);
+    }
+
+    fn push_redo(&mut self, entry: StudyHistoryEntry) {
+        Self::push_limited(&mut self.redo, entry);
+    }
+
+    fn record_edit(&mut self, entry: StudyHistoryEntry) {
+        self.push_undo(entry);
+        self.redo.clear();
+    }
+
+    fn push_limited(stack: &mut Vec<StudyHistoryEntry>, entry: StudyHistoryEntry) {
+        if stack.len() >= Self::LIMIT {
+            stack.remove(0);
+        }
+
+        stack.push(entry);
+    }
+}
+
+#[derive(Debug, Clone)]
 struct StudyDocumentState {
     metadata: StudyDocumentMetadata,
     collection: Option<Collection>,
     library_path: Option<PathBuf>,
+    history: StudyEditHistory,
 }
 
 impl StudyDocumentState {
@@ -294,6 +348,7 @@ impl StudyDocumentState {
             metadata: StudyDocumentMetadata::new(origin),
             collection: None,
             library_path: None,
+            history: StudyEditHistory::default(),
         }
     }
 }
@@ -371,6 +426,8 @@ pub struct BermudaAppRust {
     sgf_tree_json: QString,
     sgf_tree_current_node: i32,
     board_markup_json: QString,
+    can_undo_study_edit: bool,
+    can_redo_study_edit: bool,
     error_message: QString,
     katago_analysis_in_progress: bool,
     katago_analysis_text: QString,
@@ -402,6 +459,8 @@ impl Default for BermudaAppRust {
             sgf_tree_json: QString::from("[]"),
             sgf_tree_current_node: -1,
             board_markup_json: QString::from("[]"),
+            can_undo_study_edit: false,
+            can_redo_study_edit: false,
             error_message: QString::default(),
             katago_analysis_in_progress: false,
             katago_analysis_text: QString::default(),
@@ -1738,7 +1797,91 @@ impl ffi::BermudaApp {
         };
 
         match result {
-            Ok(()) => true,
+            Ok(()) => {
+                let (can_undo, can_redo) = self
+                    .as_ref()
+                    .rust()
+                    .loaded_document
+                    .as_ref()
+                    .map(|document| {
+                        (
+                            !document.study.history.undo.is_empty(),
+                            !document.study.history.redo.is_empty(),
+                        )
+                    })
+                    .unwrap_or((false, false));
+
+                self.as_mut().set_can_undo_study_edit(can_undo);
+                self.as_mut().set_can_redo_study_edit(can_redo);
+
+                true
+            }
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn undo_study_edit(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let move_number = self.as_ref().rust().move_number;
+        let structural_node = self.as_ref().rust().sgf_tree_current_node;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => step_study_history(document, move_number, structural_node, true),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok((display_move, structure_node)) => {
+                let shown = self.as_mut().show_cached_position(display_move);
+
+                if shown {
+                    self.as_mut().set_sgf_tree_current_node(structure_node);
+                }
+
+                shown
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn redo_study_edit(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let move_number = self.as_ref().rust().move_number;
+        let structural_node = self.as_ref().rust().sgf_tree_current_node;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => step_study_history(document, move_number, structural_node, false),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok((display_move, structure_node)) => {
+                let shown = self.as_mut().show_cached_position(display_move);
+
+                if shown {
+                    self.as_mut().set_sgf_tree_current_node(structure_node);
+                }
+
+                shown
+            }
+
             Err(error) => {
                 self.as_mut().set_error_message(QString::from(error));
                 false
@@ -1762,6 +1905,43 @@ impl ffi::BermudaApp {
 
         match result {
             Ok(display_move) => self.as_mut().show_cached_position(display_move),
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn delete_study_from_here(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let slider_move_number = self.as_ref().rust().move_number;
+        let selected_structure_node = self.as_ref().rust().sgf_tree_current_node;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_delete_from_here(
+                    document,
+                    slider_move_number,
+                    selected_structure_node,
+                ),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok((display_move, structure_node)) => {
+                let shown = self.as_mut().show_cached_position(display_move);
+
+                if shown {
+                    self.as_mut().set_sgf_tree_current_node(structure_node);
+                }
+
+                shown
+            }
 
             Err(error) => {
                 self.as_mut().set_error_message(QString::from(error));
@@ -2432,6 +2612,21 @@ impl ffi::BermudaApp {
                 self.as_mut().set_sgf_tree_current_node(current_tree_node);
                 self.as_mut()
                     .set_board_markup_json(QString::from(markup_json));
+                let (can_undo, can_redo) = self
+                    .as_ref()
+                    .rust()
+                    .loaded_document
+                    .as_ref()
+                    .map(|document| {
+                        (
+                            !document.study.history.undo.is_empty(),
+                            !document.study.history.redo.is_empty(),
+                        )
+                    })
+                    .unwrap_or((false, false));
+
+                self.as_mut().set_can_undo_study_edit(can_undo);
+                self.as_mut().set_can_redo_study_edit(can_redo);
 
                 true
             }
@@ -2458,6 +2653,8 @@ impl ffi::BermudaApp {
         self.as_mut().set_sgf_tree_json(QString::from("[]"));
         self.as_mut().set_sgf_tree_current_node(-1);
         self.as_mut().set_board_markup_json(QString::from("[]"));
+        self.as_mut().set_can_undo_study_edit(false);
+        self.as_mut().set_can_redo_study_edit(false);
     }
 }
 
@@ -2769,6 +2966,7 @@ fn study_document_state_from_collection(
                 metadata,
                 collection: Some(collection.clone()),
                 library_path,
+                history: StudyEditHistory::default(),
             })
         }
 
@@ -2778,6 +2976,7 @@ fn study_document_state_from_collection(
             }),
             collection: Some(collection.clone()),
             library_path: None,
+            history: StudyEditHistory::default(),
         }),
     }
 }
@@ -3077,6 +3276,163 @@ fn study_collection(document: &LoadedDocument) -> Result<Collection, String> {
         .map_err(|error| format!("parsing generated Study SGF: {error}"))
 }
 
+fn study_history_entry(
+    document: &LoadedDocument,
+    move_number: i32,
+    structural_node: Option<i32>,
+) -> Result<StudyHistoryEntry, String> {
+    let collection = study_collection(document)?;
+
+    let structural_selection = structural_node
+        .and_then(|node_id| usize::try_from(node_id).ok())
+        .and_then(|node_id| {
+            bermuda::build_study_structure_tree(&collection)
+                .ok()?
+                .nodes
+                .get(node_id)
+                .map(|node| node.source.clone())
+        });
+
+    let position_index = usize::try_from(move_number).ok();
+
+    let replay_selection = position_index.and_then(|position_index| {
+        let tree = document.study_tree.as_ref()?;
+
+        let node_id = tree
+            .active_path
+            .get(position_index)
+            .copied()
+            .or_else(|| tree.main_path.get(position_index).copied())?;
+
+        tree.nodes.get(node_id).map(|node| node.source.clone())
+    });
+
+    Ok(StudyHistoryEntry {
+        collection,
+        metadata: document.study.metadata.clone(),
+        selection: structural_selection.or(replay_selection),
+        move_number,
+    })
+}
+
+fn restore_study_history_entry(
+    document: &mut LoadedDocument,
+    entry: StudyHistoryEntry,
+) -> Result<(i32, i32), String> {
+    let library_path = document.study.library_path.clone();
+
+    document.study.metadata = entry.metadata;
+    document.study.collection = Some(entry.collection);
+    document.study.library_path = library_path;
+
+    let collection = document
+        .study
+        .collection
+        .as_ref()
+        .expect("Study history restored its SGF collection");
+
+    let tree = build_study_tree(collection)
+        .map_err(|error| format!("rebuilding Study tree from edit history: {error}"))?;
+
+    document.study_tree = Some(tree);
+
+    let structure = bermuda::build_study_structure_tree(collection)
+        .map_err(|error| format!("rebuilding structural Study tree from edit history: {error}"))?;
+
+    let selected_structure_node = entry
+        .selection
+        .as_ref()
+        .and_then(|source| structure.node_id_for_source(source));
+
+    let (display_move, structure_node) = if let Some(structure_node) = selected_structure_node {
+        let display_move = activate_study_structure_node(document, structure_node)?;
+
+        let structure_node = i32::try_from(structure_node)
+            .map_err(|_| "restored SGF node is too large for the Qt interface".to_owned())?;
+
+        (display_move, structure_node)
+    } else {
+        let position_index = usize::try_from(entry.move_number).map_err(|_| {
+            format!(
+                "invalid Study move number {} in edit history",
+                entry.move_number
+            )
+        })?;
+
+        let replay_node = document
+            .study_tree
+            .as_ref()
+            .and_then(|tree| tree.main_path.get(position_index).copied())
+            .ok_or_else(|| "restored Study position is outside the SGF tree".to_owned())?;
+
+        let display_move = activate_study_tree_node(document, replay_node)?;
+
+        let source = document
+            .study_tree
+            .as_ref()
+            .and_then(|tree| tree.nodes.get(replay_node))
+            .map(|node| node.source.clone());
+
+        let structure_node = source
+            .as_ref()
+            .and_then(|source| structure.node_id_for_source(source))
+            .and_then(|node_id| i32::try_from(node_id).ok())
+            .unwrap_or(-1);
+
+        (display_move, structure_node)
+    };
+
+    persist_study_document(document)?;
+
+    Ok((display_move, structure_node))
+}
+
+fn step_study_history(
+    document: &mut LoadedDocument,
+    move_number: i32,
+    structural_node: i32,
+    undo: bool,
+) -> Result<(i32, i32), String> {
+    let previous = document.clone();
+
+    let result = (|| {
+        let current = study_history_entry(document, move_number, Some(structural_node))?;
+
+        let target = if undo {
+            document
+                .study
+                .history
+                .undo
+                .pop()
+                .ok_or_else(|| "nothing to undo".to_owned())?
+        } else {
+            document
+                .study
+                .history
+                .redo
+                .pop()
+                .ok_or_else(|| "nothing to redo".to_owned())?
+        };
+
+        if undo {
+            document.study.history.push_redo(current);
+        } else {
+            document.study.history.push_undo(current);
+        }
+
+        restore_study_history_entry(document, target)
+    })();
+
+    match result {
+        Ok(value) => Ok(value),
+
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
+}
+
 fn persist_study_document(document: &mut LoadedDocument) -> Result<(), String> {
     let mut collection = study_collection(document)?;
 
@@ -3269,6 +3625,7 @@ fn update_study_comment(
     text: &str,
 ) -> Result<i32, String> {
     let previous = document.clone();
+    let history_entry = study_history_entry(&previous, slider_move_number, None)?;
 
     let result = (|| {
         let (source, comment_sources) = study_comment_edit_target(document, slider_move_number)?;
@@ -3295,6 +3652,8 @@ fn update_study_comment(
 
         persist_study_document(document)?;
 
+        document.study.history.record_edit(history_entry);
+
         Ok(display_move)
     })();
 
@@ -3308,12 +3667,105 @@ fn update_study_comment(
     }
 }
 
+fn update_study_delete_from_here(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    selected_structure_node: i32,
+) -> Result<(i32, i32), String> {
+    let previous = document.clone();
+    let history_entry =
+        study_history_entry(&previous, slider_move_number, Some(selected_structure_node))?;
+
+    let result = (|| {
+        let position_index = usize::try_from(slider_move_number)
+            .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+        if document.study_tree.is_none() {
+            let collection = study_collection(document)?;
+            let tree = build_study_tree(&collection)
+                .map_err(|error| format!("building Study tree for deletion: {error}"))?;
+
+            document.study.collection = Some(collection);
+            document.study_tree = Some(tree);
+        }
+
+        let structure = {
+            let collection = document
+                .study
+                .collection
+                .as_ref()
+                .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+            bermuda::build_study_structure_tree(collection)
+                .map_err(|error| format!("building structural Study tree for deletion: {error}"))?
+        };
+
+        let selected_id = usize::try_from(selected_structure_node)
+            .ok()
+            .filter(|id| *id < structure.nodes.len())
+            .or_else(|| {
+                let replay = document.study_tree.as_ref()?;
+                let replay_id = replay
+                    .active_path
+                    .get(position_index)
+                    .copied()
+                    .or_else(|| replay.main_path.get(position_index).copied())?;
+                let source = &replay.nodes.get(replay_id)?.source;
+                structure.node_id_for_source(source)
+            })
+            .ok_or_else(|| "the current Study position has no structural SGF node".to_owned())?;
+
+        let source = structure.nodes[selected_id].source.clone();
+
+        let mut collection = document
+            .study
+            .collection
+            .clone()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        let selected_source = bermuda::delete_study_from_source(&mut collection, &source)?;
+
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("rebuilding Study tree after deletion: {error}"))?;
+
+        let new_structure = bermuda::build_study_structure_tree(&collection)
+            .map_err(|error| format!("rebuilding structural Study tree after deletion: {error}"))?;
+
+        let selected_id = new_structure
+            .node_id_for_source(&selected_source)
+            .ok_or_else(|| "the node before the deleted Study branch disappeared".to_owned())?;
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+
+        let display_move = activate_study_structure_node(document, selected_id)?;
+
+        persist_study_document(document)?;
+        document.study.history.record_edit(history_entry);
+
+        let selected_id = i32::try_from(selected_id)
+            .map_err(|_| "selected SGF node is too large for the Qt interface".to_owned())?;
+
+        Ok((display_move, selected_id))
+    })();
+
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
+}
+
 fn update_study_node_insertion(
     document: &mut LoadedDocument,
     slider_move_number: i32,
     selected_structure_node: i32,
 ) -> Result<(i32, i32), String> {
     let previous = document.clone();
+    let history_entry =
+        study_history_entry(&previous, slider_move_number, Some(selected_structure_node))?;
 
     let result = (|| {
         let position_index = usize::try_from(slider_move_number)
@@ -3382,6 +3834,8 @@ fn update_study_node_insertion(
 
         persist_study_document(document)?;
 
+        document.study.history.record_edit(history_entry);
+
         let inserted_id = i32::try_from(inserted_id)
             .map_err(|_| "inserted SGF node is too large for the Qt interface".to_owned())?;
 
@@ -3404,6 +3858,7 @@ fn update_study_move(
     qml_point: Option<(i32, i32)>,
 ) -> Result<i32, String> {
     let previous = document.clone();
+    let history_entry = study_history_entry(&previous, slider_move_number, None)?;
 
     let result = (|| {
         let position_index = usize::try_from(slider_move_number)
@@ -3502,6 +3957,7 @@ fn update_study_move(
 
         if insertion.inserted {
             persist_study_document(document)?;
+            document.study.history.record_edit(history_entry);
         }
 
         Ok(display_move)
@@ -3523,6 +3979,7 @@ fn update_study_branch(
     qml_point: Option<(i32, i32)>,
 ) -> Result<i32, String> {
     let previous = document.clone();
+    let history_entry = study_history_entry(&previous, slider_move_number, None)?;
 
     let result = (|| {
         let position_index = usize::try_from(slider_move_number)
@@ -3621,6 +4078,7 @@ fn update_study_branch(
 
         if insertion.inserted {
             persist_study_document(document)?;
+            document.study.history.record_edit(history_entry);
         }
 
         Ok(display_move)
@@ -3695,7 +4153,8 @@ fn update_study_annotation(
 
     let kind = study_annotation_kind(tool, text)?;
 
-    let previous = document.study.clone();
+    let previous = document.clone();
+    let history_entry = study_history_entry(&previous, slider_move_number, None)?;
 
     document
         .study
@@ -3703,9 +4162,11 @@ fn update_study_annotation(
         .set_annotation(node_id, move_number, point, kind);
 
     if let Err(error) = persist_study_document(document) {
-        document.study = previous;
+        *document = previous;
         return Err(error);
     }
+
+    document.study.history.record_edit(history_entry);
 
     Ok(())
 }
