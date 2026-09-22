@@ -2901,10 +2901,30 @@ menuBar: MenuBar {
                                                 spacing:
                                                     Kirigami.Units.smallSpacing
 
-                                                Label {
+                                                                                                RowLayout {
                                                     Layout.fillWidth: true
-                                                    text: qsTr("SGF comment")
-                                                    font.bold: true
+                                                    spacing: Kirigami.Units.smallSpacing
+
+                                                    Label {
+                                                        Layout.fillWidth: true
+                                                        text: qsTr("SGF comment")
+                                                        font.bold: true
+                                                    }
+
+                                                                                                        Button {
+                                                        text:
+                                                            gameController.source_comment.length > 0
+                                                            ? qsTr("Edit comment…")
+                                                            : qsTr("Add comment…")
+
+                                                        ToolTip.visible: hovered
+                                                        ToolTip.text: qsTr(
+                                                            "Edit the SGF comment in the Study copy. "
+                                                            + "The original source is never changed.")
+
+                                                        onClicked:
+                                                            studyCommentDialog.openForCurrentPosition()
+                                                    }
                                                 }
 
                                                 Kirigami.Separator {
@@ -3939,7 +3959,48 @@ menuBar: MenuBar {
                                             }
                                         }
 
-                                        RowLayout {
+                                                                                TabBar {
+                                            id: studyActionTabs
+                                            property int branchSourceNode: -1
+                                            property int branchSourceMove: -1
+
+                                            visible:
+                                                !root.playingGame
+                                                && boardPane.selectedGame !== null
+                                                && !boardPane.editingPosition
+                                                && studyToolsTabs.currentIndex === 0
+
+                                            Layout.alignment: Qt.AlignLeft
+                                            Layout.leftMargin: 8
+                                            Layout.rightMargin: 8
+                                            Layout.preferredWidth: implicitWidth
+                                            Layout.preferredHeight: visible ? implicitHeight : 0
+
+                                            TabButton {
+                                                text: qsTr("Annotate")
+                                            }
+
+                                            TabButton {
+                                                text: qsTr("Moves")
+                                            }
+
+                                            TabButton {
+                                                text: qsTr("Edit")
+                                            }
+
+                                                                                        onCurrentIndexChanged: {
+                                                if (currentIndex !== 0)
+                                                    boardPane.annotationTool = ""
+
+                                                if (currentIndex !== 1) {
+                                                    boardPane.sgfEditTool = ""
+                                                    branchSourceNode = -1
+                                                    branchSourceMove = -1
+                                                }
+                                            }
+                                        }
+
+RowLayout {
                                             id: studyMarkupControls
 
                                             visible:
@@ -3947,6 +4008,7 @@ menuBar: MenuBar {
                                                 && boardPane.selectedGame !== null
                                                 && !boardPane.editingPosition
                                                 && studyToolsTabs.currentIndex === 0
+                                              && studyActionTabs.currentIndex === 0
 
                                             Layout.fillWidth: true
                                             Layout.fillHeight: false
@@ -3957,7 +4019,7 @@ menuBar: MenuBar {
                                             spacing: 4
 
                                             Label {
-                                                text: qsTr("Annotate:")
+                                                text: qsTr("Tool:")
                                             }
 
                                             ComboBox {
@@ -4010,7 +4072,7 @@ menuBar: MenuBar {
 
 
 
-                                        Flow {
+                                                                                ColumnLayout {
                                             id: studySgfEditControls
 
                                             visible:
@@ -4027,189 +4089,210 @@ menuBar: MenuBar {
                                             Layout.rightMargin: 8
                                             spacing: 4
 
-                                            Label {
-                                                text: qsTr("Edit:")
-                                            }
-
-                                            Button {
-                                                text: qsTr("Undo")
-                                                enabled:
-                                                    gameController.can_undo_study_edit
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Undo the most recent edit made since this Study was opened.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-                                                    boardPane.sgfEditTool = ""
-
-                                                    if (gameController.undoStudyEdit()) {
-                                                        boardPane.applyLoadedPosition()
-                                                    } else {
-                                                        console.warn(
-                                                            gameController.error_message)
-                                                    }
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("Redo")
-                                                enabled:
-                                                    gameController.can_redo_study_edit
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Redo the most recently undone Study edit.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-                                                    boardPane.sgfEditTool = ""
-
-                                                    if (gameController.redoStudyEdit()) {
-                                                        boardPane.applyLoadedPosition()
-                                                    } else {
-                                                        console.warn(
-                                                            gameController.error_message)
-                                                    }
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("Comment…")
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Edit the SGF comment in "
-                                                    + "the Study copy. The "
-                                                    + "original source is "
-                                                    + "never changed.")
-
-                                                onClicked:
-                                                    studyCommentDialog
-                                                        .openForCurrentPosition()
-                                            }
-
-                                            Button {
-                                                text: qsTr("Add move")
-                                                checkable: true
-                                                checked:
-                                                    boardPane.sgfEditTool
-                                                    === "move"
-                                                highlighted: checked
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Click an empty point to "
-                                                    + "add a continuation. "
-                                                    + "Clicking an existing "
-                                                    + "continuation follows it.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-                                                    boardPane.sgfEditTool =
-                                                        checked ? "move" : ""
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("Insert node")
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Insert an empty SGF node immediately "
-                                                    + "after the selected game-tree node.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-                                                    boardPane.sgfEditTool = ""
-
-                                                    if (gameController.insertStudyNode()) {
-                                                        boardPane.applyLoadedPosition()
-                                                    } else {
-                                                        console.warn(
-                                                            gameController.error_message)
-                                                    }
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("Branch")
-                                                checkable: true
-                                                checked:
-                                                    boardPane.sgfEditTool
-                                                    === "branch"
-                                                highlighted: checked
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Add an alternative from "
-                                                    + "the selected game-tree "
-                                                    + "position.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-                                                    boardPane.sgfEditTool =
-                                                        checked ? "branch" : ""
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("Pass")
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Add a pass as the next "
-                                                    + "SGF continuation.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-
-                                                    const branching =
-                                                        boardPane.sgfEditTool
-                                                        === "branch"
-
-                                                    const ok = branching
-                                                        ? gameController
-                                                            .addStudyBranchPass()
-                                                        : gameController
-                                                            .addStudyPass()
-
-                                                    if (ok) {
-                                                        boardPane
-                                                            .applyLoadedPosition()
-                                                    } else {
-                                                        console.warn(
-                                                            gameController
-                                                                .error_message)
-                                                    }
-                                                }
-                                            }
-
-                                            Button {
-                                                text: qsTr("Delete from here")
-                                                enabled: gameController.sgf_tree_current_node > 0
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: qsTr(
-                                                    "Delete the selected SGF node and everything below it "
-                                                    + "in this variation. Other sibling variations are kept. "
-                                                    + "The root node cannot be deleted.")
-
-                                                onClicked: {
-                                                    boardPane.annotationTool = ""
-                                                    boardPane.sgfEditTool = ""
-
-                                                    if (gameController.deleteStudyFromHere()) {
-                                                        boardPane.applyLoadedPosition()
-                                                    } else {
-                                                        console.warn(gameController.error_message)
-                                                    }
-                                                }
-                                            }
-
-                                            Item {
+                                            RowLayout {
+            visible: studyActionTabs.currentIndex === 1
                                                 Layout.fillWidth: true
+                                                spacing: 4
+
+                                                Button {
+                                                    text: qsTr("Add move")
+                                                                                                        checkable: true
+                                                    checked: boardPane.sgfEditTool === "move"
+                                                    highlighted: checked
+
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr(
+                                                        "Click an empty point to add a continuation. "
+                                                        + "Clicking an existing continuation follows it.")
+
+                                                                                                        onClicked: {
+                                                        boardPane.annotationTool = ""
+                                                        studyActionTabs.branchSourceNode = -1
+                                                        studyActionTabs.branchSourceMove = -1
+                                                        boardPane.sgfEditTool = checked ? "move" : ""
+                                                    }
+                                                }
+
+                                                Button {
+                                                    text: qsTr("Pass")
+
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr(
+                                                        "Add a pass as the next SGF continuation.")
+
+                                                                                                        onClicked: {
+                                                        boardPane.annotationTool = ""
+
+                                                        const branching =
+                                                            boardPane.sgfEditTool === "branch"
+
+                                                        if (branching) {
+                                                            if (studyActionTabs.branchSourceNode < 0
+                                                                    || !gameController.showStudyStructureNode(
+                                                                        studyActionTabs.branchSourceNode)) {
+                                                                console.warn(gameController.error_message)
+                                                                return
+                                                            }
+                                                        }
+
+                                                        const ok = branching
+                                                            ? gameController.addStudyBranchPass()
+                                                            : gameController.addStudyPass()
+
+                                                        if (ok) {
+                                                            if (branching
+                                                                    && !gameController.showStudyStructureNode(
+                                                                        studyActionTabs.branchSourceNode)) {
+                                                                console.warn(gameController.error_message)
+                                                            }
+
+                                                            boardPane.applyLoadedPosition()
+                                                        } else {
+                                                            console.warn(gameController.error_message)
+                                                        }
+                                                    }
+                                                }
+
+                                                Label {
+                                                    visible: boardPane.sgfEditTool === "branch"
+                                                    text: qsTr("Branching from move %1 — add alternatives here").arg(studyActionTabs.branchSourceMove)
+                                                    font.italic: true
+                                                    color: Kirigami.Theme.highlightColor
+                                                }
+
+                                                Button {
+                                                    visible: boardPane.sgfEditTool === "branch"
+                                                    text: qsTr("Cancel")
+
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr("Cancel branch creation.")
+
+                                                    onClicked: {
+                                                        boardPane.sgfEditTool = ""
+                                                        studyActionTabs.branchSourceNode = -1
+                                                        studyActionTabs.branchSourceMove = -1
+                                                    }
+                                                }
+
+                                                Item {
+                                                    Layout.fillWidth: true
+                                                }
+                                            }
+
+                                            RowLayout {
+            visible: studyActionTabs.currentIndex === 2
+                                                Layout.fillWidth: true
+                                                spacing: 4
+
+                                                Button {
+                                                    text: qsTr("Undo")
+                                                    enabled: gameController.can_undo_study_edit
+
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr(
+                                                        "Undo the most recent edit made since this Study was opened.")
+
+                                                    onClicked: {
+                                                        boardPane.annotationTool = ""
+                                                        boardPane.sgfEditTool = ""
+
+                                                        if (gameController.undoStudyEdit()) {
+                                                            boardPane.applyLoadedPosition()
+                                                        } else {
+                                                            console.warn(gameController.error_message)
+                                                        }
+                                                    }
+                                                }
+
+                                                Button {
+                                                    text: qsTr("Redo")
+                                                    enabled: gameController.can_redo_study_edit
+
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr(
+                                                        "Redo the most recently undone Study edit.")
+
+                                                    onClicked: {
+                                                        boardPane.annotationTool = ""
+                                                        boardPane.sgfEditTool = ""
+
+                                                        if (gameController.redoStudyEdit()) {
+                                                            boardPane.applyLoadedPosition()
+                                                        } else {
+                                                            console.warn(gameController.error_message)
+                                                        }
+                                                    }
+                                                }
+
+                                                Button {
+                                                    text: qsTr("Tree ▾")
+
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr(
+                                                        "Structural game-tree editing commands.")
+
+                                                    onClicked: studyTreeEditMenu.open()
+
+                                                    Menu {
+                                                        id: studyTreeEditMenu
+
+                                                                                                                MenuItem {
+                                                            text: qsTr("Branch")
+                                                            enabled:
+                                                                gameController.studyBranchAvailable(
+                                                                    gameController.move_number)
+
+                                                                                                                        onTriggered: {
+                                                                boardPane.annotationTool = ""
+                                                                studyActionTabs.branchSourceNode =
+                                                                    gameController.sgf_tree_current_node
+                                                                studyActionTabs.branchSourceMove =
+                                                                    gameController.move_number
+                                                                studyActionTabs.currentIndex = 1
+                                                                boardPane.sgfEditTool = "branch"
+                                                            }
+                                                        }
+MenuItem {
+                                                            text: qsTr("Insert node")
+
+                                                            onTriggered: {
+                                                                boardPane.annotationTool = ""
+                                                                boardPane.sgfEditTool = ""
+
+                                                                if (gameController.insertStudyNode()) {
+                                                                    boardPane.applyLoadedPosition()
+                                                                } else {
+                                                                    console.warn(
+                                                                        gameController.error_message)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        MenuSeparator {}
+
+                                                        MenuItem {
+                                                            text: qsTr("Prune from here")
+                                                            enabled:
+                                                                gameController.sgf_tree_current_node > 0
+
+                                                            onTriggered: {
+                                                                boardPane.annotationTool = ""
+                                                                boardPane.sgfEditTool = ""
+
+                                                                if (gameController.deleteStudyFromHere()) {
+                                                                    boardPane.applyLoadedPosition()
+                                                                } else {
+                                                                    console.warn(
+                                                                        gameController.error_message)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                Item {
+                                                    Layout.fillWidth: true
+                                                }
                                             }
                                         }
 
@@ -6615,20 +6698,34 @@ menuBar: MenuBar {
                                   return
                               }
 
-                              if (boardPane.sgfEditTool === "move"
+                                                            if (boardPane.sgfEditTool === "move"
                                       || boardPane.sgfEditTool === "branch") {
                                   const branching =
                                       boardPane.sgfEditTool === "branch"
+
+                                  if (branching) {
+                                      if (studyActionTabs.branchSourceNode < 0
+                                              || !gameController.showStudyStructureNode(
+                                                  studyActionTabs.branchSourceNode)) {
+                                          console.warn(gameController.error_message)
+                                          return
+                                      }
+                                  }
 
                                   const ok = branching
                                       ? gameController.addStudyBranch(x, y)
                                       : gameController.addStudyMove(x, y)
 
                                   if (ok) {
+                                      if (branching
+                                              && !gameController.showStudyStructureNode(
+                                                  studyActionTabs.branchSourceNode)) {
+                                          console.warn(gameController.error_message)
+                                      }
+
                                       boardPane.applyLoadedPosition()
                                   } else {
-                                      console.warn(
-                                          gameController.error_message)
+                                      console.warn(gameController.error_message)
                                   }
 
                                   return

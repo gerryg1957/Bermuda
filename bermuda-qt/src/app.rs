@@ -234,6 +234,10 @@ mod ffi {
         fn add_study_move(self: Pin<&mut BermudaApp>, x: i32, y: i32) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "studyBranchAvailable"]
+        fn study_branch_available(self: Pin<&mut BermudaApp>, move_number: i32) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "addStudyBranch"]
         fn add_study_branch(self: Pin<&mut BermudaApp>, x: i32, y: i32) -> bool;
 
@@ -2009,6 +2013,35 @@ impl ffi::BermudaApp {
                 false
             }
         }
+    }
+
+    fn study_branch_available(self: Pin<&mut Self>, move_number: i32) -> bool {
+        let position_index = match usize::try_from(move_number) {
+            Ok(position_index) => position_index,
+            Err(_) => return false,
+        };
+
+        let app = self.as_ref();
+        let rust = app.rust();
+        let Some(document) = rust.loaded_document.as_ref() else {
+            return false;
+        };
+
+        if let Some(tree) = document.study_tree.as_ref() {
+            return study_tree_has_continuation(tree, position_index);
+        }
+
+        let collection = match study_collection(document) {
+            Ok(collection) => collection,
+            Err(_) => return false,
+        };
+
+        let tree = match build_study_tree(&collection) {
+            Ok(tree) => tree,
+            Err(_) => return false,
+        };
+
+        study_tree_has_continuation(&tree, position_index)
     }
 
     fn add_study_branch(mut self: Pin<&mut Self>, x: i32, y: i32) -> bool {
@@ -3973,6 +4006,18 @@ fn update_study_move(
     }
 }
 
+fn study_tree_has_continuation(tree: &StudyTree, position_index: usize) -> bool {
+    let node_id = tree
+        .active_path
+        .get(position_index)
+        .copied()
+        .or_else(|| tree.main_path.get(position_index).copied());
+
+    node_id
+        .and_then(|node_id| tree.nodes.get(node_id))
+        .is_some_and(|node| !node.children.is_empty())
+}
+
 fn update_study_branch(
     document: &mut LoadedDocument,
     slider_move_number: i32,
@@ -4018,6 +4063,13 @@ fn update_study_branch(
                 .nodes
                 .get(node_id)
                 .ok_or_else(|| format!("Study tree node {node_id} does not exist"))?;
+
+            if node.children.is_empty() {
+                return Err(
+                    "the selected Study position has no continuation to branch from; ".to_owned()
+                        + "use Add move instead",
+                );
+            }
 
             let point = match qml_point {
                 None => None,
