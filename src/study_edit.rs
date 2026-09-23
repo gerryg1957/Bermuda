@@ -376,6 +376,81 @@ fn sgf_move_node(mv: Move, board_size: u8) -> Result<Node, String> {
     Ok(node)
 }
 
+/// Make the nearest selected side variation the first continuation at its
+/// branch point.
+///
+/// A selection may be several variation levels below the main line. In that
+/// case the deepest non-main variation is promoted first. Repeating the
+/// operation can therefore promote the selected route one branch point at a
+/// time without changing or deleting any SGF nodes.
+pub fn promote_study_variation(
+    collection: &mut Collection,
+    source: &StudySourceLocation,
+) -> Result<StudySourceLocation, String> {
+    let promote_depth = source
+        .variation_path
+        .iter()
+        .rposition(|&variation_index| variation_index != 0)
+        .ok_or_else(|| "the selected Study line is already the main variation".to_owned())?;
+
+    {
+        let root = collection
+            .trees
+            .first()
+            .ok_or_else(|| "Study SGF has no game tree".to_owned())?;
+
+        let mut selected = root;
+        for (depth, &variation_index) in source.variation_path.iter().enumerate() {
+            selected = selected.variations.get(variation_index).ok_or_else(|| {
+                format!(
+                    "Study variation {} does not exist at depth {}",
+                    variation_index, depth
+                )
+            })?;
+        }
+
+        if source.sequence_index >= selected.sequence.len() {
+            return Err(format!(
+                "Study SGF node {} does not exist in the selected variation",
+                source.sequence_index
+            ));
+        }
+    }
+
+    let root = collection
+        .trees
+        .first_mut()
+        .ok_or_else(|| "Study SGF has no game tree".to_owned())?;
+
+    let parent_path = &source.variation_path[..promote_depth];
+    let variation_index = source.variation_path[promote_depth];
+
+    let mut parent = root;
+    for (depth, &index) in parent_path.iter().enumerate() {
+        parent = parent.variations.get_mut(index).ok_or_else(|| {
+            format!(
+                "Study variation {} does not exist at depth {}",
+                index, depth
+            )
+        })?;
+    }
+
+    if variation_index >= parent.variations.len() {
+        return Err(format!(
+            "Study variation {} does not exist at depth {}",
+            variation_index, promote_depth
+        ));
+    }
+
+    let promoted = parent.variations.remove(variation_index);
+    parent.variations.insert(0, promoted);
+
+    let mut selected_source = source.clone();
+    selected_source.variation_path[promote_depth] = 0;
+
+    Ok(selected_source)
+}
+
 /// Delete the selected literal SGF node and every descendant below it.
 ///
 /// If the selected node starts a variation, the whole variation is removed
@@ -472,6 +547,96 @@ pub fn delete_study_from_source(
 mod tests {
     use super::*;
     use crate::{build_study_tree, parse_collection};
+
+    #[test]
+    fn promotes_nearest_side_variation_without_losing_siblings() {
+        let mut collection =
+            parse_collection(b"(;GM[1]FF[4]SZ[19];B[aa](;W[bb];B[cc])(;W[dd](;B[ee])(;B[ff])))")
+                .expect("parse Study SGF");
+
+        let selected = StudySourceLocation {
+            variation_path: vec![1, 1],
+            sequence_index: 0,
+        };
+
+        let selected =
+            promote_study_variation(&mut collection, &selected).expect("promote inner variation");
+
+        assert_eq!(
+            selected,
+            StudySourceLocation {
+                variation_path: vec![1, 0],
+                sequence_index: 0,
+            }
+        );
+
+        let outer = &collection.trees[0].variations[1];
+
+        assert_eq!(
+            outer.variations[0].sequence[0]
+                .properties
+                .get("B")
+                .and_then(|values| values.first())
+                .map(String::as_str),
+            Some("ff")
+        );
+        assert_eq!(
+            outer.variations[1].sequence[0]
+                .properties
+                .get("B")
+                .and_then(|values| values.first())
+                .map(String::as_str),
+            Some("ee")
+        );
+
+        let selected =
+            promote_study_variation(&mut collection, &selected).expect("promote outer variation");
+
+        assert_eq!(
+            selected,
+            StudySourceLocation {
+                variation_path: vec![0, 0],
+                sequence_index: 0,
+            }
+        );
+
+        assert_eq!(
+            collection.trees[0].variations[0].sequence[0]
+                .properties
+                .get("W")
+                .and_then(|values| values.first())
+                .map(String::as_str),
+            Some("dd")
+        );
+        assert_eq!(
+            collection.trees[0].variations[1].sequence[0]
+                .properties
+                .get("W")
+                .and_then(|values| values.first())
+                .map(String::as_str),
+            Some("bb")
+        );
+    }
+
+    #[test]
+    fn main_variation_cannot_be_promoted_again() {
+        let mut collection = parse_collection(b"(;GM[1]FF[4]SZ[19];B[aa](;W[bb])(;W[cc]))")
+            .expect("parse Study SGF");
+
+        let error = promote_study_variation(
+            &mut collection,
+            &StudySourceLocation {
+                variation_path: vec![0],
+                sequence_index: 0,
+            },
+        )
+        .expect_err("main variation should not be promotable");
+
+        assert_eq!(
+            error,
+            "the selected Study line is already the main variation"
+        );
+    }
 
     fn point(study: &StudyTree, node_id: usize, x: u8, y: u8) -> u16 {
         study.nodes[node_id]

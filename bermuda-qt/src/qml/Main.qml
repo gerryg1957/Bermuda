@@ -2455,24 +2455,6 @@ menuBar: MenuBar {
                         Layout.fillWidth: true
                     }
 
-                    ToolButton {
-                        text: qsTr("Done")
-                        visible:
-                            root.studyPaneMode === "document"
-                            && boardPane.selectedGame !== null
-                            && !root.playingGame
-
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr(
-                            "Study changes are saved automatically. "
-                            + "Return to the Study Library.")
-
-                        onClicked: {
-                            boardPane.annotationTool = ""
-                            boardPane.sgfEditTool = ""
-                            root.showStudyPaneMode("library")
-                        }
-                    }
                 }
 
                 Kirigami.Separator {
@@ -4180,49 +4162,9 @@ RowLayout {
                                             }
 
                                             RowLayout {
-            visible: studyActionTabs.currentIndex === 2
+                                                visible: studyActionTabs.currentIndex === 2
                                                 Layout.fillWidth: true
                                                 spacing: 4
-
-                                                Button {
-                                                    text: qsTr("Undo")
-                                                    enabled: gameController.can_undo_study_edit
-
-                                                    ToolTip.visible: hovered
-                                                    ToolTip.text: qsTr(
-                                                        "Undo the most recent edit made since this Study was opened.")
-
-                                                    onClicked: {
-                                                        boardPane.annotationTool = ""
-                                                        boardPane.sgfEditTool = ""
-
-                                                        if (gameController.undoStudyEdit()) {
-                                                            boardPane.applyLoadedPosition()
-                                                        } else {
-                                                            console.warn(gameController.error_message)
-                                                        }
-                                                    }
-                                                }
-
-                                                Button {
-                                                    text: qsTr("Redo")
-                                                    enabled: gameController.can_redo_study_edit
-
-                                                    ToolTip.visible: hovered
-                                                    ToolTip.text: qsTr(
-                                                        "Redo the most recently undone Study edit.")
-
-                                                    onClicked: {
-                                                        boardPane.annotationTool = ""
-                                                        boardPane.sgfEditTool = ""
-
-                                                        if (gameController.redoStudyEdit()) {
-                                                            boardPane.applyLoadedPosition()
-                                                        } else {
-                                                            console.warn(gameController.error_message)
-                                                        }
-                                                    }
-                                                }
 
                                                 Button {
                                                     text: qsTr("Tree ▾")
@@ -4268,6 +4210,25 @@ MenuItem {
                                                             }
                                                         }
 
+                                                        MenuItem {
+                                                            text: qsTr("Make main variation")
+                                                            enabled:
+                                                                gameController.studyMainVariationAvailable(
+                                                                    gameController.sgf_tree_current_node)
+
+                                                            onTriggered: {
+                                                                boardPane.annotationTool = ""
+                                                                boardPane.sgfEditTool = ""
+
+                                                                if (gameController.makeStudyMainVariation()) {
+                                                                    boardPane.applyLoadedPosition()
+                                                                } else {
+                                                                    console.warn(
+                                                                        gameController.error_message)
+                                                                }
+                                                            }
+                                                        }
+
                                                         MenuSeparator {}
 
                                                         MenuItem {
@@ -4302,6 +4263,77 @@ MenuItem {
                                             id: studyBottomSpacer
                                             Layout.fillWidth: true
                                             Layout.fillHeight: true
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: Kirigami.Units.smallSpacing
+
+                                            visible:
+                                                boardPane.selectedGame !== null
+                                                && !root.playingGame
+
+                                            Button {
+                                                text: qsTr("Undo")
+                                                enabled: gameController.can_undo_study_edit
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Undo the most recent edit made since this Study was opened.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+
+                                                    if (gameController.undoStudyEdit()) {
+                                                        boardPane.applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(gameController.error_message)
+                                                    }
+                                                }
+                                            }
+
+                                            Button {
+                                                text: qsTr("Redo")
+                                                enabled: gameController.can_redo_study_edit
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Redo the most recently undone Study edit.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+
+                                                    if (gameController.redoStudyEdit()) {
+                                                        boardPane.applyLoadedPosition()
+                                                    } else {
+                                                        console.warn(gameController.error_message)
+                                                    }
+                                                }
+                                            }
+
+                                            Item {
+                                                Layout.fillWidth: true
+                                            }
+
+                                            Button {
+                                                text: qsTr("Close study")
+                                                highlighted: true
+
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: qsTr(
+                                                    "Study changes are saved automatically. "
+                                                    + "Return to the Study Library.")
+
+                                                onClicked: {
+                                                    boardPane.annotationTool = ""
+                                                    boardPane.sgfEditTool = ""
+                                                    studyActionTabs.branchSourceNode = -1
+                                                    studyActionTabs.branchSourceMove = -1
+                                                    root.showStudyPaneMode("library")
+                                                }
+                                            }
                                         }
                     }
 

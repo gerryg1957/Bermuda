@@ -230,6 +230,17 @@ mod ffi {
         fn insert_study_node(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "studyMainVariationAvailable"]
+        fn study_main_variation_available(
+            self: Pin<&mut BermudaApp>,
+            selected_structure_node: i32,
+        ) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "makeStudyMainVariation"]
+        fn make_study_main_variation(self: Pin<&mut BermudaApp>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "addStudyMove"]
         fn add_study_move(self: Pin<&mut BermudaApp>, x: i32, y: i32) -> bool;
 
@@ -1928,6 +1939,72 @@ impl ffi::BermudaApp {
 
             match rust.loaded_document.as_mut() {
                 Some(document) => update_study_delete_from_here(
+                    document,
+                    slider_move_number,
+                    selected_structure_node,
+                ),
+                None => Err("no SGF is loaded".to_owned()),
+            }
+        };
+
+        match result {
+            Ok((display_move, structure_node)) => {
+                let shown = self.as_mut().show_cached_position(display_move);
+
+                if shown {
+                    self.as_mut().set_sgf_tree_current_node(structure_node);
+                }
+
+                shown
+            }
+
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn study_main_variation_available(self: Pin<&mut Self>, selected_structure_node: i32) -> bool {
+        let app = self.as_ref();
+        let rust = app.rust();
+
+        let Some(document) = rust.loaded_document.as_ref() else {
+            return false;
+        };
+
+        let selected_id = match usize::try_from(selected_structure_node) {
+            Ok(selected_id) => selected_id,
+            Err(_) => return false,
+        };
+
+        let collection = match study_collection(document) {
+            Ok(collection) => collection,
+            Err(_) => return false,
+        };
+
+        let structure = match bermuda::build_study_structure_tree(&collection) {
+            Ok(structure) => structure,
+            Err(_) => return false,
+        };
+
+        structure
+            .nodes
+            .get(selected_id)
+            .is_some_and(|node| node.source.variation_path.iter().any(|&index| index != 0))
+    }
+
+    fn make_study_main_variation(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+
+        let slider_move_number = self.as_ref().rust().move_number;
+        let selected_structure_node = self.as_ref().rust().sgf_tree_current_node;
+
+        let result = {
+            let mut rust = self.as_mut().rust_mut();
+
+            match rust.loaded_document.as_mut() {
+                Some(document) => update_study_main_variation(
                     document,
                     slider_move_number,
                     selected_structure_node,
@@ -3784,6 +3861,100 @@ fn update_study_delete_from_here(
 
     match result {
         Ok(value) => Ok(value),
+        Err(error) => {
+            *document = previous;
+            Err(error)
+        }
+    }
+}
+
+fn update_study_main_variation(
+    document: &mut LoadedDocument,
+    slider_move_number: i32,
+    selected_structure_node: i32,
+) -> Result<(i32, i32), String> {
+    let previous = document.clone();
+    let history_entry =
+        study_history_entry(&previous, slider_move_number, Some(selected_structure_node))?;
+
+    let result = (|| {
+        let position_index = usize::try_from(slider_move_number)
+            .map_err(|_| format!("invalid Study move number {slider_move_number}"))?;
+
+        if document.study_tree.is_none() {
+            let collection = study_collection(document)?;
+            let tree = build_study_tree(&collection)
+                .map_err(|error| format!("building Study tree for variation promotion: {error}"))?;
+
+            document.study.collection = Some(collection);
+            document.study_tree = Some(tree);
+        }
+
+        let structure = {
+            let collection = document
+                .study
+                .collection
+                .as_ref()
+                .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+            bermuda::build_study_structure_tree(collection).map_err(|error| {
+                format!("building structural Study tree for variation promotion: {error}")
+            })?
+        };
+
+        let selected_id = usize::try_from(selected_structure_node)
+            .ok()
+            .filter(|id| *id < structure.nodes.len())
+            .or_else(|| {
+                let replay = document.study_tree.as_ref()?;
+                let replay_id = replay
+                    .active_path
+                    .get(position_index)
+                    .copied()
+                    .or_else(|| replay.main_path.get(position_index).copied())?;
+                let source = &replay.nodes.get(replay_id)?.source;
+                structure.node_id_for_source(source)
+            })
+            .ok_or_else(|| "the current Study position has no structural SGF node".to_owned())?;
+
+        let source = structure.nodes[selected_id].source.clone();
+
+        let mut collection = document
+            .study
+            .collection
+            .clone()
+            .ok_or_else(|| "Study SGF collection is unavailable".to_owned())?;
+
+        let selected_source = bermuda::promote_study_variation(&mut collection, &source)?;
+
+        let tree = build_study_tree(&collection)
+            .map_err(|error| format!("rebuilding Study tree after variation promotion: {error}"))?;
+
+        let new_structure = bermuda::build_study_structure_tree(&collection).map_err(|error| {
+            format!("rebuilding structural Study tree after variation promotion: {error}")
+        })?;
+
+        let selected_id = new_structure
+            .node_id_for_source(&selected_source)
+            .ok_or_else(|| "promoted Study variation disappeared while rebuilding".to_owned())?;
+
+        document.study.collection = Some(collection);
+        document.study_tree = Some(tree);
+
+        let display_move = activate_study_structure_node(document, selected_id)?;
+
+        persist_study_document(document)?;
+        document.study.history.record_edit(history_entry);
+
+        let selected_id = i32::try_from(selected_id)
+            .map_err(|_| "selected SGF node is too large for the Qt interface".to_owned())?;
+
+        Ok((display_move, selected_id))
+    })();
+
+    match result {
+        Ok(value) => Ok(value),
+
         Err(error) => {
             *document = previous;
             Err(error)
