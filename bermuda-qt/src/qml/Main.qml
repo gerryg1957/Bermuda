@@ -75,6 +75,20 @@ ApplicationWindow {
         ? Qt.application.arguments[1]
         : ""
 
+    /*
+     * Startup presentation has three user-visible phases:
+     *   welcome  - no professional-game database is available yet;
+     *   loading  - an existing database is opening;
+     *   ready    - show the normal Bermuda workspace.
+     */
+    property string startupMode: "detecting"
+
+    onProjectPathChanged: {
+        if (root.projectPath.length > 0
+                && root.startupMode !== "ready")
+            root.startupMode = "loading"
+    }
+
     BermudaApp {
         id: gameController
     }
@@ -1105,6 +1119,7 @@ ApplicationWindow {
     }
 
 menuBar: MenuBar {
+        visible: root.startupMode === "ready"
     Menu {
         title: qsTr("&Game")
 
@@ -2134,6 +2149,9 @@ menuBar: MenuBar {
         if (!gameController.ensurePersonalProject())
             console.warn(gameController.error_message)
 
+        if (root.projectPath.length > 0)
+            root.startupMode = "loading"
+
         if (root.projectPath.length === 0
                 && root.managedProjectPath.length > 0) {
             if (gameController.projectExists(
@@ -2148,9 +2166,14 @@ menuBar: MenuBar {
                  */
                 root.projectPath = root.legacyManagedProjectPath
             } else {
-                databaseImportDialog.openManagedCreate(
-                    root.managedProjectPath)
+                root.startupMode = "welcome"
             }
+        }
+    
+        if (root.startupMode === "detecting") {
+            root.startupMode = root.projectPath.length > 0
+                    ? "loading"
+                    : "welcome"
         }
     }
 
@@ -2239,6 +2262,277 @@ menuBar: MenuBar {
         }
     }
 
+    Rectangle {
+        id: startupScreen
+
+        anchors.fill: parent
+        visible: root.startupMode !== "ready"
+        z: 1000
+
+        color: "#ffffff"
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+        }
+
+        Item {
+            anchors.centerIn: parent
+
+            width: Math.min(parent.width - 64, 1120)
+            height: Math.min(parent.height - 48, 700)
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 22
+
+                Item {
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 8
+                }
+
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 28
+
+                    Image {
+                        source: "assets/lgc-logo.png"
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        mipmap: true
+
+                        Layout.preferredWidth: 390
+                        Layout.preferredHeight: 214
+                    }
+
+                    Rectangle {
+                        color: "#cfd6df"
+
+                        Layout.preferredWidth: 1
+                        Layout.preferredHeight: 170
+                    }
+
+                    Label {
+                        text: qsTr("Bermuda")
+                        color: "#0b1a2f"
+
+                        font.bold: true
+                        font.pixelSize: 72
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+
+                    text: qsTr(
+                        "Learn from professional games and analyse patterns "
+                        + "and behaviours in your games.")
+
+                    color: "#172033"
+                    font.bold: true
+                    font.pixelSize: 30
+
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+
+                StackLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 255
+
+                    currentIndex:
+                        root.startupMode === "welcome" ? 0 : 1
+
+                    Frame {
+                        padding: 22
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 10
+
+                            Label {
+                                text: qsTr("Professional game database")
+                                color: "#172033"
+                                font.bold: true
+                                font.pixelSize: 23
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+
+                                text: qsTr(
+                                    "Bermuda does not include professional "
+                                    + "game records. To search professional "
+                                    + "games and compare patterns, create a "
+                                    + "Bermuda database and import SGF "
+                                    + "collections you obtain separately.")
+
+                                color: "#334155"
+                                font.pixelSize: 17
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Button {
+                                Layout.alignment: Qt.AlignLeft
+
+                                flat: true
+                                text: qsTr(
+                                    "How to obtain professional game records  ↗")
+
+                                onClicked:
+                                    Qt.openUrlExternally(
+                                        "https://github.com/gerryg1957/"
+                                        + "Bermuda/blob/main/docs/"
+                                        + "professional-game-databases.md")
+                            }
+
+                            Kirigami.Separator {
+                                Layout.fillWidth: true
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+
+                                text: qsTr(
+                                    "My Games, Study and the Joseki Library "
+                                    + "can be used without a professional "
+                                    + "game database.")
+
+                                color: "#64748b"
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Item {
+                                Layout.fillHeight: true
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Button {
+                                    text: qsTr("Create database…")
+                                    highlighted: true
+
+                                    onClicked:
+                                        databaseImportDialog.openManagedCreate(
+                                            root.managedProjectPath)
+                                }
+
+                                Item {
+                                    Layout.fillWidth: true
+                                }
+
+                                Button {
+                                    text: qsTr("Continue without database")
+
+                                    onClicked:
+                                        root.startupMode = "ready"
+                                }
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        spacing: 12
+
+                        Item {
+                            Layout.fillHeight: true
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+
+                            text: qsTr(
+                                "Opening professional games database…")
+                            color: "#172033"
+                            font.pixelSize: 22
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Item {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: 620
+                            Layout.preferredHeight: 10
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: height / 2
+                                color: "#e1e5ea"
+                            }
+
+                            Item {
+                                anchors.fill: parent
+                                clip: true
+
+                                Canvas {
+                                    id: startupLoadingBar
+                                    anchors.fill: parent
+
+                                    property real stripeOffset: 0
+
+                                    onStripeOffsetChanged: requestPaint()
+
+                                    onPaint: {
+                                        const ctx = getContext("2d")
+                                        const stripeWidth = 18
+                                        const gap = 10
+                                        const period = stripeWidth + gap
+
+                                        ctx.clearRect(0, 0, width, height)
+
+                                        ctx.fillStyle = "#da8c00"
+                                        ctx.fillRect(0, 0, width, height)
+
+                                        ctx.fillStyle = "#f2bd57"
+
+                                        for (let x = -period * 2
+                                                + stripeOffset;
+                                             x < width + period * 2;
+                                             x += period) {
+                                            ctx.beginPath()
+                                            ctx.moveTo(x, height)
+                                            ctx.lineTo(x + 8, 0)
+                                            ctx.lineTo(x + stripeWidth + 8, 0)
+                                            ctx.lineTo(x + stripeWidth, height)
+                                            ctx.closePath()
+                                            ctx.fill()
+                                        }
+                                    }
+
+                                    NumberAnimation on stripeOffset {
+                                        from: 0
+                                        to: 28
+                                        duration: 650
+                                        loops: Animation.Infinite
+                                        running: root.startupMode === "loading"
+                                    }
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+
+                            text: qsTr(
+                                "Preparing database and search tools…")
+                            color: "#64748b"
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Item {
+                            Layout.fillHeight: true
+                        }
+                    }
+                }
+
+                Item {
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 8
+                }
+            }
+        }
+    }
+
     SplitView {
         id: mainSplitView
 
@@ -2264,6 +2558,12 @@ menuBar: MenuBar {
 
             databaseProjectPath: root.projectPath
             myGamesProjectPath: root.personalProjectPath
+
+            onProjectLoadedChanged: {
+                if (root.startupMode === "loading"
+                        && projectLoaded)
+                    root.startupMode = "ready"
+            }
 
             onShowingMyGamesChanged:
                 root.clearProjectSelection()
