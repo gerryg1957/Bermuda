@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.bermuda.app</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Bermuda</name>
+  <summary>Study Go games and search board patterns</summary>
+  <description>
+    <p>Bermuda imports your SGF game collections and searches local board
+    patterns, including rotations and reflections. Explore matching games
+    and the continuations played by professional players.</p>
+    <p>Study personal games, browse joseki from OGS, and optionally set up
+    KataGo analysis. Game collections and KataGo are obtained separately.</p>
+  </description>
+  <launchable type="desktop-id">org.bermuda.app.desktop</launchable>
+  <url type="homepage">https://github.com/gerryg1957/Bermuda</url>
+  <url type="bugtracker">https://github.com/gerryg1957/Bermuda/issues</url>
+  <provides><binary>bermuda-qt</binary></provides>
+  <releases>
+    <release version="0.8.0" date="2026-09-25" type="development"/>
+  </releases>
+</component>

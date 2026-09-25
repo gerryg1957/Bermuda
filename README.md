@@ -35,10 +35,9 @@ select a pattern, and search.
 Bermuda is intended to be installed and used as a normal desktop application,
 launched from an application menu or icon.
 
-Packaged releases are not available yet, so the current development version
-must still be built from source. The `cargo` commands later in this README
-are therefore development/build instructions, not the intended long-term
-way of launching Bermuda.
+RPM and Flatpak candidates for 0.8.0 have been built and locally tested.
+Publication is being prepared; see the [candidate release notes](docs/releases/0.8.0.md)
+for installation steps and limitations. Source-build instructions remain below.
 
 ### First launch
 
@@ -87,10 +86,10 @@ A demonstration of the graphical application is available here:
 
 ## Release packaging
 
-Version 0.8.0 is being prepared for release. The first package target is
-openSUSE Tumbleweed; the RPM recipe still needs installation testing before
-publication. See [building the RPM](docs/building-rpm.md). Flatpak and Windows
-11 packages are planned next.
+Version 0.8.0 is being prepared as a Linux testing release. The
+[Tumbleweed RPM](docs/building-rpm.md) and [Flatpak](docs/building-flatpak.md)
+have passed local installation tests and signature verification. Windows 11
+packaging is planned next. See [release preparation](docs/packaging.md).
 
 ## Building from source
 

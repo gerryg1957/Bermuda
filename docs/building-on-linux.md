@@ -26,6 +26,12 @@ application and declares its runtime dependencies; users do not need Rust or
 Qt development tools. SGF collections and optional KataGo are set up inside
 Bermuda. Package removal leaves your per-user databases and settings in place.
 
+## Flatpak testing
+
+A local Flatpak build recipe is available for sandbox testing. It uses the KDE
+runtime and a separate application profile. See [Building the Flatpak](building-flatpak.md).
+It is not yet a published release or a Flathub listing.
+
 ## Quick overview
 
 For most testers the process is:

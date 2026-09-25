@@ -54,7 +54,9 @@ Agreed first-release order:
 Fedora and Debian native packages remain possible later. Flatpak must include
 Qt/Kirigami and test file access and the managed KataGo executable inside its
 sandbox. Windows must include the required Qt/KDE plugins and runtime DLLs.
-Neither target is implemented or validated yet.
+The [Flatpak build recipe](building-flatpak.md) has passed local installation,
+database and guided KataGo checks, including a restart. Its bundle signature
+was verified. Windows packaging is not implemented yet.
 
 openSUSE is the natural first RPM target because it is Bermuda's principal development environment.
 
@@ -266,15 +268,44 @@ A possible eventual layout is:
 
 This is illustrative. Existing working project structure should not be reorganised merely to conform to this diagram.
 
-## Immediate next steps
+## Release preparation status
 
-1. Build the 0.8.0 RPM using `packaging/opensuse/build-rpm.sh`.
-2. Inspect its dependencies and contents, install it, and launch from KDE.
-3. Confirm that removing the package leaves user data intact.
-4. Review bundled dependency licences and release metadata before publication.
-5. Proceed to Flatpak, then Windows 11 deployment testing.
+On 25 September 2026 the maintainer confirmed:
 
-The RPM recipe uses the normal Cargo release build with vendored dependencies
-and offline compilation. It is a local packaging candidate, not yet an OBS
-submission. Packaging changes should not require a separate application fork;
-new features continue in the same source tree.
+- Tumbleweed RPM build and installation worked; binary and source RPM signatures verified.
+- Flatpak installation, NHK import, database persistence, guided KataGo setup
+  and analysis after restart worked.
+- The final Flatpak bundle signature verified after import into a separate repository.
+
+These are local tests, not proof of compatibility with every Linux machine.
+Clean-machine dependency checks, broader portal checks and a complete bundled
+licence review remain outstanding. Windows has no package yet.
+
+The candidate release notes are in [releases/0.8.0.md](releases/0.8.0.md).
+After committing the source and packaging work, stage the existing signed
+packages and create a signed checksum list with:
+
+```bash
+bash packaging/prepare-release.sh
+```
+
+The script expects the previously verified packages under
+`~/bermuda-packages/0.8.0` and the public key under `~/bermuda-packages`.
+It writes a new `github-pre-release` directory and refuses to overwrite one.
+It asks GnuPG to sign the checksums using the existing Bermuda key. It does
+not rebuild, install, tag, push or publish anything. Do not publish unsigned
+copies left over from testing.
+
+Record the source commit used for the release and ensure it contains the
+application sources used to build both packages. Documentation added after
+the builds does not require recompiling the application. Changes to runtime
+code do require a new build, signing and verification.
+
+A proposed first tag is `v0.8.0-rc1`, with GitHub's **pre-release** option set.
+The application and package version remain 0.8.0. Review the release notes,
+source correspondence and licence status before uploading the staged assets.
+The staging script's Git commit record identifies the preparation checkout;
+it is not, by itself, proof of either binary's build provenance.
+
+Packaging uses the normal source tree. New features continue there without
+maintaining a separate application fork for each package type.

@@ -1,0 +1,40 @@
+{
+  "app-id": "org.bermuda.app",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6.10",
+  "sdk": "org.kde.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "bermuda-qt",
+  "default-branch": "test",
+  "desktop-file-name-suffix": " (Flatpak test)",
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin"
+  },
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri",
+    "--share=network"
+  ],
+  "modules": [
+    {
+      "name": "bermuda",
+      "buildsystem": "simple",
+      "build-commands": [
+        "CARGO_HOME=\"$PWD/.cargo-home\" cargo build --release --frozen --workspace",
+        "install -Dm755 target/release/bermuda-qt /app/bin/bermuda-qt",
+        "install -Dm755 target/release/bermuda /app/bin/bermuda",
+        "install -Dm644 packaging/org.bermuda.app.desktop /app/share/applications/org.bermuda.app.desktop",
+        "desktop-file-edit --set-icon=org.bermuda.app /app/share/applications/org.bermuda.app.desktop",
+        "install -Dm644 packaging/flatpak/org.bermuda.app.svg /app/share/icons/hicolor/scalable/apps/org.bermuda.app.svg",
+        "install -Dm644 packaging/flatpak/org.bermuda.app.metainfo.xml /app/share/metainfo/org.bermuda.app.metainfo.xml",
+        "install -Dm644 LICENCE /app/share/licenses/bermuda/LICENCE",
+        "cp -a third-party-licenses /app/share/licenses/bermuda/",
+        "install -Dm644 docs/katago-setup.md /app/share/doc/bermuda/katago-setup.md",
+        "desktop-file-validate /app/share/applications/org.bermuda.app.desktop"
+      ],
+      "sources": [{"type": "dir", "path": "source"}]
+    }
+  ]
+}
