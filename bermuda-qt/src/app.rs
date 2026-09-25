@@ -8,8 +8,8 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering},
-        mpsc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc, Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -67,6 +67,10 @@ mod ffi {
         #[qproperty(bool, can_redo_study_edit)]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, katago_analysis_in_progress)]
+        #[qproperty(bool, katago_analysis_succeeded)]
+        #[qproperty(bool, katago_installing)]
+        #[qproperty(QString, katago_install_status)]
+        #[qproperty(QString, katago_install_paths_json)]
         #[qproperty(QString, katago_analysis_text)]
         #[qproperty(QString, katago_candidate_points_json)]
         type BermudaApp = super::BermudaAppRust;
@@ -269,6 +273,30 @@ mod ffi {
         fn show_sgf_node(self: Pin<&mut BermudaApp>, node_id: i32) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "kataGoInstallPlan"]
+        fn katago_install_plan(self: &BermudaApp, faster: bool) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "installKataGo"]
+        fn install_katago(self: Pin<&mut BermudaApp>, faster: bool) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "cancelKataGoInstall"]
+        fn cancel_katago_install(self: Pin<&mut BermudaApp>);
+
+        #[qinvokable]
+        #[cxx_name = "kataGoEnvironmentJson"]
+        fn katago_environment_json(self: &BermudaApp) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "defaultKataGoConfig"]
+        fn default_katago_config(self: Pin<&mut BermudaApp>) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "releaseKataGo"]
+        fn release_katago(self: Pin<&mut BermudaApp>);
+
+        #[qinvokable]
         #[cxx_name = "analyseCurrentPosition"]
         fn analyse_current_position(
             self: Pin<&mut BermudaApp>,
@@ -445,6 +473,11 @@ pub struct BermudaAppRust {
     can_redo_study_edit: bool,
     error_message: QString,
     katago_analysis_in_progress: bool,
+    katago_analysis_succeeded: bool,
+    katago_installing: bool,
+    katago_install_status: QString,
+    katago_install_paths_json: QString,
+    katago_install_cancel: Option<Arc<AtomicBool>>,
     katago_analysis_text: QString,
     katago_candidate_points_json: QString,
 
@@ -478,6 +511,11 @@ impl Default for BermudaAppRust {
             can_redo_study_edit: false,
             error_message: QString::default(),
             katago_analysis_in_progress: false,
+            katago_analysis_succeeded: false,
+            katago_installing: false,
+            katago_install_status: QString::default(),
+            katago_install_paths_json: QString::default(),
+            katago_install_cancel: None,
             katago_analysis_text: QString::default(),
             katago_candidate_points_json: QString::from("[]"),
 
@@ -524,6 +562,7 @@ fn queue_katago_completion(
 
             match completion {
                 Ok(presentation) => {
+                    app.as_mut().set_katago_analysis_succeeded(true);
                     app.as_mut()
                         .set_katago_analysis_text(QString::from(presentation.text));
 
@@ -2282,6 +2321,111 @@ impl ffi::BermudaApp {
         }
     }
 
+    fn katago_install_plan(&self, faster: bool) -> QString {
+        QString::from(crate::katago_install::summary(faster))
+    }
+
+    fn install_katago(mut self: Pin<&mut Self>, faster: bool) -> bool {
+        if self.as_ref().rust().katago_installing { return false; }
+        // Environment overrides intentionally remain authoritative; do not
+        // download a managed install that would silently be ignored.
+        if ["BERMUDA_KATAGO_EXECUTABLE", "BERMUDA_KATAGO_MODEL", "BERMUDA_KATAGO_CONFIG"]
+            .iter().any(|key| env::var_os(key).is_some()) {
+            self.as_mut().set_katago_install_status(QString::from("Use your own installation while environment overrides are active."));
+            return false;
+        }
+        let root = match katago_working_directory() {
+            Ok(path) => path.join("managed"),
+            Err(error) => {
+                self.as_mut().set_katago_install_status(QString::from(error));
+                return false;
+            }
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.as_mut().rust_mut().katago_install_cancel = Some(Arc::clone(&cancel));
+        self.as_mut().set_katago_install_paths_json(QString::default());
+        self.as_mut().set_katago_install_status(QString::from("Preparing download…"));
+        self.as_mut().set_katago_installing(true);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let result = crate::katago_install::install(&root, faster, &cancel, |message| {
+                let _ = qt_thread.queue(move |mut app| {
+                    app.as_mut().set_katago_install_status(QString::from(message));
+                });
+            });
+            let _ = qt_thread.queue(move |mut app| {
+                app.as_mut().set_katago_installing(false);
+                let cancelled = cancel.load(Ordering::Relaxed);
+                app.as_mut().rust_mut().katago_install_cancel = None;
+                if cancelled {
+                    app.as_mut().set_katago_install_status(QString::from("Installation cancelled. Your saved setup has not changed."));
+                    return;
+                }
+                match result {
+                    Ok(paths) => {
+                        app.as_mut().set_katago_install_status(QString::from("Download verified. Testing analysis…"));
+                        app.as_mut().set_katago_install_paths_json(QString::from(paths));
+                    }
+                    Err(error) => app.as_mut().set_katago_install_status(QString::from(error)),
+                }
+            });
+        });
+        true
+    }
+
+    fn cancel_katago_install(mut self: Pin<&mut Self>) {
+        if let Some(cancel) = self.as_ref().rust().katago_install_cancel.as_ref() {
+            cancel.store(true, Ordering::Relaxed);
+            self.as_mut().set_katago_install_status(QString::from("Cancelling download…"));
+        }
+    }
+
+    fn katago_environment_json(&self) -> QString {
+        let mut values = serde_json::Map::new();
+        for (key, variable) in [
+            ("executable", "BERMUDA_KATAGO_EXECUTABLE"),
+            ("model", "BERMUDA_KATAGO_MODEL"),
+            ("config", "BERMUDA_KATAGO_CONFIG"),
+        ] {
+            if let Some(value) = env::var_os(variable) {
+                values.insert(key.to_owned(), serde_json::Value::String(value.to_string_lossy().into_owned()));
+            }
+        }
+        QString::from(serde_json::Value::Object(values).to_string())
+    }
+
+    fn default_katago_config(mut self: Pin<&mut Self>) -> QString {
+        self.as_mut().set_error_message(QString::default());
+        let result = (|| -> Result<PathBuf, String> {
+            let directory = katago_working_directory()?;
+            fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+            let path = directory.join("bermuda-analysis-v1.cfg");
+            // Never overwrite a user's edited configuration.
+            match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    file.write_all(BERMUDA_ANALYSIS_CONFIG.as_bytes())
+                        .map_err(|error| format!("writing {}: {error}", path.display()))?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(format!("creating {}: {error}", path.display())),
+            }
+            validate_katago_file(path, "Bermuda analysis configuration")
+        })();
+        match result {
+            Ok(path) => QString::from(path.to_string_lossy().into_owned()),
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                QString::default()
+            }
+        }
+    }
+
+    fn release_katago(mut self: Pin<&mut Self>) {
+        cancel_katago_analysis_impl(self.as_mut(), false);
+        self.as_mut().rust_mut().katago_worker = None;
+    }
+
     fn analyse_current_position(
         mut self: Pin<&mut Self>,
         visit_budget: i32,
@@ -2291,6 +2435,8 @@ impl ffi::BermudaApp {
         saved_config: &QString,
     ) -> bool {
         self.as_mut().set_error_message(QString::default());
+
+        self.as_mut().set_katago_analysis_succeeded(false);
 
         self.as_mut().set_katago_analysis_text(QString::default());
         self.as_mut()
@@ -4763,7 +4909,11 @@ fn katago_executable_path(saved_value: &QString) -> Result<PathBuf, String> {
         return Ok(PathBuf::from("katago"));
     }
 
-    validate_katago_file(PathBuf::from(saved), "saved KataGo executable")
+    let path = PathBuf::from(saved.trim());
+    if path.components().count() == 1 && !path.is_absolute() {
+        return Ok(path);
+    }
+    validate_katago_file(path, "saved KataGo executable")
 }
 
 fn configured_katago_file(
@@ -4798,8 +4948,11 @@ fn analysis_vertex_name(vertex: &AnalysisVertex, board_size: u8) -> Result<Strin
         AnalysisVertex::Point(point) => {
             let board = Board::new(board_size).map_err(|error| error.to_string())?;
 
+            if point.x >= board_size || point.y >= board_size {
+                return Err("KataGo candidate lies outside the board".to_owned());
+            }
             let core_point = board
-                .point(point.x, point.y)
+                .point(point.x, board_size - 1 - point.y)
                 .map_err(|error| error.to_string())?;
 
             board
@@ -5597,5 +5750,33 @@ mod orientation_tests {
         assert_eq!(qml_y_to_core(19, 14).unwrap(), 14);
         assert_eq!(core_y_to_qml(19, 14), 14);
         assert!(qml_y_to_core(19, 19).is_err());
+    }
+}
+
+// Conservative interactive defaults; the request supplies visits, rules and komi.
+// Custom configurations remain separate and are never overwritten.
+const BERMUDA_ANALYSIS_CONFIG: &str = "logToStderr = true\nnumAnalysisThreads = 1\nnumSearchThreadsPerAnalysisThread = 4\nnnMaxBatchSize = 4\nnnCacheSizePowerOfTwo = 18\nnnMutexPoolSizePowerOfTwo = 14\n";
+
+#[cfg(test)]
+mod katago_setup_tests {
+    use super::*;
+    use bermuda::AnalysisPoint;
+
+    #[test]
+    fn engine_vertex_names_keep_gtp_orientation() {
+        for (x, y, expected) in [(0, 0, "A1"), (16, 3, "R4"), (3, 15, "D16"), (18, 18, "T19")] {
+            let vertex = AnalysisVertex::Point(AnalysisPoint { x, y });
+            assert_eq!(analysis_vertex_name(&vertex, 19).unwrap(), expected);
+        }
+        let invalid = AnalysisVertex::Point(AnalysisPoint { x: 0, y: 19 });
+        assert!(analysis_vertex_name(&invalid, 19).is_err());
+    }
+}
+
+impl Drop for BermudaAppRust {
+    fn drop(&mut self) {
+        if let Some(cancel) = &self.katago_install_cancel {
+            cancel.store(true, Ordering::Relaxed);
+        }
     }
 }

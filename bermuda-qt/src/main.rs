@@ -1,4 +1,5 @@
 mod app;
+mod katago_install;
 mod database_operation_model;
 mod game_list_model;
 mod joseki_model;

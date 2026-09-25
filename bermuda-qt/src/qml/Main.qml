@@ -98,6 +98,402 @@ ApplicationWindow {
         id: josekiSearchController
     }
 
+    // Independent controller: setup tests cannot replace the current study.
+    BermudaApp { id: katagoSetupController }
+
+    Dialog {
+        id: katagoSetupDialog
+        title: qsTr("Set up KataGo")
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(root.width - 40, 760)
+        height: Math.min(root.height - 60, 700)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+
+        property var environment: ({})
+        property bool guided: true
+        property bool guidedTest: false
+        property bool guidedSaved: false
+        property bool guidedDownloaded: false
+        property var installPlan: ({"available": false, "description": ""})
+        property string testedSelection: ""
+        property string statusText: ""
+        property bool testPending: false
+        property double testStartedAt: 0
+        property string testElapsed: ""
+        readonly property bool busy: katagoSetupController.katago_analysis_in_progress
+                                     || katagoSetupController.katago_installing
+
+        function saveSelection() {
+            if (!fromEnvironment("executable")) katagoSettings.executable = katagoExecutableField.text
+            if (!fromEnvironment("model")) katagoSettings.model = katagoModelField.text
+            if (!fromEnvironment("config")) katagoSettings.config = katagoConfigField.text
+            workspaceGameController.releaseKataGo()
+            josekiSearchController.releaseKataGo()
+        }
+        function beginGuidedInstall() {
+            invalidate()
+            guidedSaved = false
+            guidedTest = true
+            guidedDownloaded = false
+            katagoSetupController.installKataGo(katagoSpeed.currentIndex === 1)
+        }
+
+        function selectionKey() {
+            return JSON.stringify([katagoExecutableField.text,
+                                   katagoModelField.text, katagoConfigField.text])
+        }
+        function invalidate() {
+            testedSelection = ""
+            statusText = ""
+            testElapsed = ""
+        }
+        function fromEnvironment(key) {
+            return Object.prototype.hasOwnProperty.call(environment, key)
+        }
+        function startTest() {
+            invalidate()
+            if (katagoConfigField.text.trim().length === 0 && !fromEnvironment("config")) {
+                katagoConfigField.text = katagoSetupController.defaultKataGoConfig()
+                if (katagoConfigField.text.length === 0) {
+                    statusText = katagoSetupController.error_message
+                    return
+                }
+            }
+            katagoSetupController.newPosition(19)
+            testPending = true
+            testStartedAt = Date.now()
+            statusText = qsTr("Testing a 10-visit analysis. First startup may take several minutes while the engine prepares your hardware.")
+            if (katagoSetupController.analyseCurrentPosition(10, "6.5",
+                    katagoExecutableField.text, katagoModelField.text, katagoConfigField.text)) {
+                katagoSetupTimer.restart()
+            } else {
+                testPending = false
+                statusText = katagoSetupController.error_message
+            }
+        }
+        function stopTest(message) {
+            testPending = false
+            katagoSetupTimer.stop()
+            katagoSetupController.releaseKataGo()
+            testedSelection = ""
+            statusText = message
+        }
+
+        onOpened: {
+            guidedSaved = false
+            guidedTest = false
+            guidedDownloaded = false
+            environment = JSON.parse(katagoSetupController.kataGoEnvironmentJson())
+            guided = katagoSettings.model.length === 0 && Object.keys(environment).length === 0
+            katagoSpeed.currentIndex = 0
+            installPlan = JSON.parse(katagoSetupController.kataGoInstallPlan(false))
+            katagoExecutableField.text = fromEnvironment("executable") ? environment.executable : katagoSettings.executable
+            katagoModelField.text = fromEnvironment("model") ? environment.model : katagoSettings.model
+            katagoConfigField.text = fromEnvironment("config") ? environment.config : katagoSettings.config
+            katagoAdvanced.checked = katagoConfigField.text.length > 0
+            katagoGetHelp.checked = katagoModelField.text.length === 0
+            invalidate()
+        }
+        onClosed: {
+            katagoSetupController.cancelKataGoInstall()
+            guidedTest = false
+            testPending = false
+            katagoSetupTimer.stop()
+            katagoSetupController.releaseKataGo()
+        }
+
+        Connections {
+            target: katagoSetupController
+            function onKatago_install_paths_jsonChanged() {
+                if (!katagoSetupDialog.opened || !katagoSetupDialog.guidedTest
+                        || katagoSetupController.katago_install_paths_json.length === 0)
+                    return
+                const paths = JSON.parse(katagoSetupController.katago_install_paths_json)
+                katagoExecutableField.text = paths.executable
+                katagoModelField.text = paths.model
+                katagoConfigField.text = paths.config
+                katagoSetupDialog.guidedDownloaded = true
+                katagoSetupDialog.startTest()
+            }
+            function onKatago_analysis_succeededChanged() {
+                if (!katagoSetupDialog.testPending || !katagoSetupController.katago_analysis_succeeded)
+                    return
+                katagoSetupTimer.stop()
+                katagoSetupDialog.testPending = false
+                katagoSetupDialog.testElapsed =
+                    ((Date.now() - katagoSetupDialog.testStartedAt) / 1000).toFixed(1)
+                katagoSetupDialog.testedSelection = katagoSetupDialog.selectionKey()
+                if (katagoSetupDialog.guidedTest) {
+                    katagoSetupDialog.saveSelection()
+                    katagoSetupDialog.guidedSaved = true
+                    katagoSetupDialog.statusText = qsTr("KataGo is installed, tested and ready to use. Your settings have been saved.")
+                } else {
+                    katagoSetupDialog.statusText = qsTr("Setup works: KataGo completed an analysis. Choose Save to use these settings.")
+                }
+            }
+            function onKatago_analysis_textChanged() {
+                if (katagoSetupDialog.testPending && !katagoSetupDialog.busy
+                        && katagoSetupController.error_message.length > 0) {
+                    katagoSetupTimer.stop()
+                    katagoSetupDialog.testPending = false
+                    katagoSetupDialog.statusText = katagoSetupController.error_message
+                }
+            }
+        }
+
+        contentItem: ScrollView {
+            clip: true
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: parent.width
+                spacing: 10
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("KataGo adds AI analysis to Bermuda. Database search and study work without it.")
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    RadioButton {
+                        text: qsTr("Install KataGo for me")
+                        checked: katagoSetupDialog.guided
+                        enabled: !katagoSetupDialog.busy
+                        onClicked: {
+                            katagoSetupDialog.guided = true
+                            katagoSetupDialog.guidedTest = false
+                            katagoSetupDialog.guidedSaved = false
+                            katagoSetupDialog.guidedDownloaded = false
+                            katagoSetupDialog.invalidate()
+                        }
+                    }
+                    RadioButton {
+                        text: qsTr("Use my own installation")
+                        checked: !katagoSetupDialog.guided
+                        enabled: !katagoSetupDialog.busy
+                        onClicked: {
+                            katagoSetupDialog.guided = false
+                            katagoSetupDialog.guidedTest = false
+                            katagoSetupDialog.invalidate()
+                        }
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: katagoSetupDialog.guided
+                    Label { text: qsTr("How would you like analysis to use your computer?") }
+                    ComboBox {
+                        id: katagoSpeed
+                        Layout.fillWidth: true
+                        enabled: !katagoSetupDialog.busy
+                        model: [qsTr("Keep my computer responsive (recommended)"),
+                                qsTr("Faster analysis — use more CPU")]
+                        onActivated: {
+                            katagoSetupDialog.guidedSaved = false
+                            katagoSetupDialog.guidedDownloaded = false
+                            katagoSetupDialog.invalidate()
+                            katagoSetupDialog.installPlan = JSON.parse(katagoSetupController.kataGoInstallPlan(currentIndex === 1))
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: katagoSetupDialog.installPlan.description || ""
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("This installs CPU analysis. You can switch to a graphics-accelerated engine or a different network later using your own installation. Existing engines and networks are left untouched.")
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.RichText
+                        text: qsTr("Downloads come from <a href='https://github.com/lightvector/KataGo/releases'>official KataGo releases</a>. No administrator access is needed.")
+                        onLinkActivated: link => Qt.openUrlExternally(link)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: Object.keys(katagoSetupDialog.environment).length > 0
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Your launch environment already selects a KataGo installation. Use ‘Use my own installation’ to view and test it.")
+                    }
+                    Button {
+                        text: katagoSetupDialog.guidedSaved ? qsTr("Installed")
+                            : katagoSetupDialog.guidedDownloaded ? qsTr("Retry analysis test") : qsTr("Install and set up")
+                        enabled: !katagoSetupDialog.busy && !katagoSetupDialog.guidedSaved
+                                 && katagoSetupDialog.installPlan.available === true
+                                 && Object.keys(katagoSetupDialog.environment).length === 0
+                        onClicked: {
+                            if (katagoSetupDialog.guidedDownloaded) {
+                                katagoSetupDialog.guidedTest = true
+                                katagoSetupDialog.startTest()
+                            } else katagoSetupDialog.beginGuidedInstall()
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: katagoSetupController.katago_install_status.length > 0
+                                 && !katagoSetupDialog.guidedDownloaded
+                        text: katagoSetupController.katago_install_status
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: !katagoSetupDialog.guided
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Choose your own executable, network and analysis configuration. Bermuda will test them before saving your choices.")
+                }
+                CheckBox { id: katagoGetHelp; text: qsTr("Getting KataGo for the first time") }
+                Label {
+                    visible: katagoGetHelp.checked
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.RichText
+                    text: qsTr("1. Download and extract an engine from the <a href='https://github.com/lightvector/KataGo/releases'>official KataGo releases</a>.<br><br>CPU only: choose Eigen (AVX2 if your CPU supports it). NVIDIA: TensorRT or CUDA with the required runtimes. AMD/Intel graphics: OpenCL where supported; Eigen is the CPU fallback. On Mac, see the <a href='https://github.com/lightvector/KataGo#macos'>Homebrew instructions</a>.<br><br>2. Download a compatible model from <a href='https://katagotraining.org/networks/'>KataGo networks</a>. For CPU use, start with a smaller conventional 18- or 20-block network. Check the model's minimum engine version. Keep the network file compressed.<br><br>3. Browse to the files below. Bermuda can create a starting analysis configuration. Test setup before saving. See the <a href='https://github.com/lightvector/KataGo#setting-up-and-running-katago'>official setup guide</a> for driver requirements and tuning.")
+                    onLinkActivated: link => Qt.openUrlExternally(link)
+                }
+                Label { text: qsTr("KataGo executable") }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField {
+                        id: katagoExecutableField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Leave blank to find katago on PATH")
+                        enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("executable")
+                        onTextChanged: katagoSetupDialog.invalidate()
+                    }
+                    Button {
+                        text: qsTr("Browse…")
+                        enabled: katagoExecutableField.enabled
+                        onClicked: katagoPathPicker.choose("executable")
+                    }
+                }
+                Label { text: qsTr("Neural-network file (including a custom network)") }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField {
+                        id: katagoModelField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Choose a compatible model file")
+                        enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("model")
+                        onTextChanged: katagoSetupDialog.invalidate()
+                    }
+                    Button {
+                        text: qsTr("Browse…")
+                        enabled: katagoModelField.enabled
+                        onClicked: katagoPathPicker.choose("model")
+                    }
+                }
+                CheckBox { id: katagoAdvanced; text: qsTr("Advanced: analysis configuration") }
+                ColumnLayout {
+                    visible: katagoAdvanced.checked
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Choose your own analysis configuration, or leave blank for Bermuda's conservative defaults. Existing files are never overwritten. Use an analysis configuration, not a GTP configuration.")
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        TextField {
+                            id: katagoConfigField
+                            Layout.fillWidth: true
+                            placeholderText: qsTr("Bermuda starting configuration")
+                            enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("config")
+                            onTextChanged: katagoSetupDialog.invalidate()
+                        }
+                        Button {
+                            text: qsTr("Browse…")
+                            enabled: katagoConfigField.enabled
+                            onClicked: katagoPathPicker.choose("config")
+                        }
+                    }
+                }
+                Label {
+                    visible: Object.keys(katagoSetupDialog.environment).length > 0
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Environment overrides are active for: %1. Those fields show the effective values and are read-only. Remove the corresponding BERMUDA_KATAGO_* variables from your launch environment and restart Bermuda to change them here.")
+                        .arg(Object.keys(katagoSetupDialog.environment).join(", "))
+                }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WrapAnywhere
+                    text: katagoSetupDialog.statusText
+                    visible: text.length > 0
+                }
+                Label {
+                    Layout.fillWidth: true
+                    visible: katagoSetupDialog.testedSelection.length > 0
+                             && katagoSetupDialog.testedSelection === katagoSetupDialog.selectionKey()
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Test position: empty 19×19 board, Black to play, Japanese rules, komi 6.5.\n%1\nCompleted in %2 seconds, including engine startup.\nThis short 10-visit test checks that analysis works; it is not a strength or speed benchmark.")
+                        .arg(katagoSetupController.katago_analysis_text)
+                        .arg(katagoSetupDialog.testElapsed)
+                }
+            }
+        }
+        footer: DialogButtonBox {
+            Button {
+                text: qsTr("Test setup")
+                visible: !katagoSetupDialog.guided
+                enabled: !katagoSetupDialog.busy && katagoModelField.text.trim().length > 0
+                onClicked: katagoSetupDialog.startTest()
+            }
+            Button {
+                text: qsTr("Stop test")
+                visible: katagoSetupController.katago_analysis_in_progress
+                onClicked: katagoSetupDialog.stopTest(qsTr("Test cancelled. Settings have not been saved."))
+            }
+            Button {
+                text: qsTr("Save")
+                visible: !katagoSetupDialog.guided
+                enabled: !katagoSetupDialog.busy && katagoSetupDialog.testedSelection.length > 0
+                         && katagoSetupDialog.testedSelection === katagoSetupDialog.selectionKey()
+                onClicked: {
+                    katagoSetupDialog.saveSelection()
+                    katagoSetupDialog.close()
+                }
+            }
+            Button {
+                text: katagoSetupDialog.guidedSaved ? qsTr("Done") : qsTr("Cancel")
+                onClicked: katagoSetupDialog.close()
+            }
+        }
+    }
+    Timer {
+        id: katagoSetupTimer
+        interval: 300000
+        onTriggered: katagoSetupDialog.stopTest(qsTr("No result after five minutes. Check the engine, network and graphics runtime. First-time hardware tuning can be slow; you can retry the test."))
+    }
+    FileDialog {
+        id: katagoPathPicker
+        property string destination: ""
+        fileMode: FileDialog.OpenFile
+        function choose(field) {
+            destination = field
+            title = field === "model" ? qsTr("Choose a KataGo network")
+                  : field === "config" ? qsTr("Choose an analysis configuration")
+                  : qsTr("Choose the KataGo executable")
+            nameFilters = field === "model" ? [qsTr("Networks (*.gz *.bin *.txt)"), qsTr("All files (*)")]
+                        : field === "config" ? [qsTr("Configurations (*.cfg)"), qsTr("All files (*)")]
+                        : [qsTr("All files (*)")]
+            open()
+        }
+        onAccepted: {
+            const path = root.localPathFromUrl(selectedFile)
+            if (destination === "executable") katagoExecutableField.text = path
+            else if (destination === "model") katagoModelField.text = path
+            else katagoConfigField.text = path
+        }
+    }
+
     property var josekiSearchUi: null
     property string josekiQueryStones: ""
     property var josekiResizeSession: null
@@ -458,6 +854,39 @@ ApplicationWindow {
 
     AboutDialog {
         id: aboutDialog
+    }
+
+    Dialog {
+        id: professionalRecordsHelp
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        title: qsTr("Professional game records")
+        modal: true
+        standardButtons: Dialog.Close
+        width: Math.min(700, root.width - 40)
+        height: Math.min(620, root.height - 40)
+
+        contentItem: ScrollView {
+            id: professionalRecordsScroll
+            clip: true
+            contentWidth: availableWidth
+
+            Label {
+                width: professionalRecordsScroll.availableWidth
+                padding: 8
+                textFormat: Text.RichText
+                wrapMode: Text.WordWrap
+                text: qsTr("<p>Bermuda does not include professional game records. These two sources are useful starting points for building your own collection.</p>")
+                    + qsTr("<h3>Free: CWI collection</h3><p><a href=\"https://homepages.cwi.nl/~aeb/go/games/index.html\">Database of Go Games at CWI</a> offers an extensive free SGF collection, including downloadable archives and individual collections. Coverage and update dates vary between collections.</p>")
+                    + qsTr("<h3>Paid: GoGoD</h3><p><a href=\"https://gogodonline.co.uk/\">GoGoD — Games of Go on Download</a> offers a collection of historical and modern professional games as downloadable SGF files. See the website for the current edition and price.</p>")
+                    + qsTr("<h3>Importing your games</h3><ol><li>Download an SGF collection and extract the archive into a folder.</li><li>Close this help and choose <b>Create database…</b> on the welcome screen. From the main window, use <b>Database → Create Another Database…</b>.</li><li>Select the <b>SGF source folder</b>. Enter a <b>Source name</b> such as CWI or GoGoD and a <b>Source version</b> identifying the release, or the download date if no release is stated.</li><li>Start the import and wait for import and indexing to finish.</li></ol>")
+                    + qsTr("<p>Start with the professional 19×19 games. You can add further collections as your interests develop.</p>")
+                    + qsTr("<p>This help is available offline from the <b>Help</b> menu. The source links open in your web browser and require an internet connection.</p>")
+                onLinkActivated: function(link) {
+                    Qt.openUrlExternally(link)
+                }
+            }
+        }
     }
 
   FolderDialog {
@@ -1779,6 +2208,16 @@ menuBar: MenuBar {
         title: qsTr("&Help")
 
         Action {
+            text: qsTr("&Professional game records…")
+            onTriggered: professionalRecordsHelp.open()
+        }
+
+        Action {
+            text: qsTr("Set up &KataGo…")
+            onTriggered: katagoSetupDialog.open()
+        }
+
+        Action {
             text: qsTr("&About Bermuda")
             onTriggered: aboutDialog.open()
         }
@@ -2670,15 +3109,10 @@ menuBar: MenuBar {
                             Button {
                                 Layout.alignment: Qt.AlignLeft
 
-                                flat: true
                                 text: qsTr(
-                                    "How to obtain professional game records  ↗")
+                                    "How to obtain professional game records…")
 
-                                onClicked:
-                                    Qt.openUrlExternally(
-                                        "https://github.com/gerryg1957/"
-                                        + "Bermuda/blob/main/docs/"
-                                        + "professional-game-databases.md")
+                                onClicked: professionalRecordsHelp.open()
                             }
 
                             Kirigami.Separator {
@@ -4346,6 +4780,12 @@ menuBar: MenuBar {
 
                                                              contentItem: ColumnLayout {
                                                                  spacing: 4
+
+                                                                 Button {
+                                                                     text: qsTr("Set up KataGo…")
+                                                                     enabled: !gameController.katago_analysis_in_progress
+                                                                     onClicked: katagoSetupDialog.open()
+                                                                 }
 
                                                                  RowLayout {
                                                                      Layout.fillWidth: true

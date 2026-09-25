@@ -508,6 +508,8 @@ Kirigami.AbstractCard {
     }
 
     function filterSearchResults() {
+        appliedSearchExtraFilterCount = extraFilterCount(
+            searchFilterEvent, searchFilterDateFrom, searchFilterDateTo, searchFilterResult)
         selectedSearchRow = -1
 
         searchModel.filterResults(
@@ -521,6 +523,7 @@ Kirigami.AbstractCard {
     }
 
     function resetSearchResultFilters() {
+        appliedSearchExtraFilterCount = 0
         searchFilterPlayer = ""
         searchFilterVersus = ""
         searchFilterColour = "either"
@@ -531,12 +534,8 @@ Kirigami.AbstractCard {
 
         searchFilterPlayerField.text = ""
         searchFilterVersusField.text = ""
-        searchFilterEventField.text = ""
-        searchFilterDateFromField.text = ""
-        searchFilterDateToField.text = ""
 
         searchFilterColourBox.currentIndex = 0
-        searchFilterResultBox.currentIndex = 0
     }
 
     function clearSearchResultFilters() {
@@ -1381,258 +1380,101 @@ Kirigami.AbstractCard {
         }
     }
 
-   contentItem: ColumnLayout {
-    anchors.fill: parent
-    spacing: 0
 
-    /*
-     * The application owns the permanently visible browser tabs.
-     * Keep this existing TabBar as the state/controller for the
-     * catalogue and search-result bodies, but do not duplicate it.
-     */
-    RowLayout {
-        visible: false
-        Layout.fillWidth: true
-        spacing: 0
-
-        TabBar {
-            id: mainTabs
-
-            onCurrentIndexChanged: {
-                if (currentIndex === 0)
-                    root.selectCatalogue(false)
-                else if (currentIndex === 1)
-                    root.selectCatalogue(true)
-            }
-
-            TabButton {
-                text: qsTr("Professional games")
-            }
-
-            TabButton {
-                text: qsTr("My games")
-            }
-
-            TabButton {
-                text: qsTr("Pattern results")
-            }
-        }
-
-        Item {
-            Layout.fillWidth: true
-        }
-
+    function extraFilterCount(event, from, to, result) {
+        return (event.trim().length > 0 ? 1 : 0)
+             + (from.trim().length > 0 || to.trim().length > 0 ? 1 : 0)
+             + (result !== "any" ? 1 : 0)
     }
 
+    property int appliedSearchExtraFilterCount: 0
+    readonly property int appliedCatalogueExtraFilterCount:
+        extraFilterCount(appliedCatalogueEvent, appliedCatalogueDateFrom,
+                         appliedCatalogueDateTo, appliedCatalogueResult)
 
+    Dialog {
+        id: extraFiltersDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: forResults ? qsTr("Filter pattern results") : qsTr("Filter games")
+        width: Math.min(560, parent.width - 40)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property bool forResults: false
+        readonly property var resultValues: ["any", "black-win", "white-win", "jigo", "void"]
 
+        function openFor(results) {
+            forResults = results
+            eventDraft.text = results ? root.searchFilterEvent : root.catalogueEvent
+            fromDraft.text = results ? root.searchFilterDateFrom : root.catalogueDateFrom
+            toDraft.text = results ? root.searchFilterDateTo : root.catalogueDateTo
+            resultDraft.currentIndex = resultValues.indexOf(
+                results ? root.searchFilterResult : root.catalogueResult)
+            open()
+        }
 
+        onAccepted: {
+            if (forResults) {
+                root.searchFilterEvent = eventDraft.text
+                root.searchFilterDateFrom = fromDraft.text
+                root.searchFilterDateTo = toDraft.text
+                root.searchFilterResult = resultValues[resultDraft.currentIndex]
+                root.filterSearchResults()
+            } else {
+                root.catalogueEvent = eventDraft.text
+                root.catalogueDateFrom = fromDraft.text
+                root.catalogueDateTo = toDraft.text
+                root.catalogueResult = resultValues[resultDraft.currentIndex]
+                root.applyCatalogueSearch()
+            }
+        }
 
-        Frame {
-            Layout.fillWidth: true
-            visible: mainTabs.currentIndex !== 2
-            padding: Kirigami.Units.smallSpacing
+        contentItem: GridLayout {
+            columns: 2
+            columnSpacing: Kirigami.Units.smallSpacing
+            rowSpacing: Kirigami.Units.smallSpacing
+            Label { text: qsTr("Event") }
+            TextField {
+                id: eventDraft
+                Layout.fillWidth: true
+                placeholderText: qsTr("Tournament or event contains…")
+            }
+            Label { text: qsTr("From") }
+            TextField {
+                id: fromDraft
+                Layout.fillWidth: true
+                placeholderText: qsTr("YYYY-MM-DD")
+            }
+            Label { text: qsTr("To") }
+            TextField {
+                id: toDraft
+                Layout.fillWidth: true
+                placeholderText: qsTr("YYYY-MM-DD")
+            }
+            Label { text: qsTr("Result") }
+            ComboBox {
+                id: resultDraft
+                Layout.fillWidth: true
+                model: [qsTr("Any"), qsTr("Black win"), qsTr("White win"), qsTr("Jigo"), qsTr("Void")]
+            }
+        }
+    }
 
-            contentItem: ColumnLayout {
-                spacing: Kirigami.Units.smallSpacing
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Label {
-                        text: qsTr("Player")
-                    }
-
-                    TextField {
-                        id: cataloguePlayerField
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Exact player name")
-                        text: root.cataloguePlayer
-                        onTextChanged: root.cataloguePlayer = text
-                        onAccepted: root.applyCatalogueSearch()
-                    }
-
-                    ComboBox {
-                        id: catalogueColourBox
-                        model: [
-                            qsTr("Either colour"),
-                            qsTr("Black"),
-                            qsTr("White")
-                        ]
-
-                        currentIndex:
-                            root.catalogueColour === "black"
-                            ? 1
-                            : root.catalogueColour === "white"
-                              ? 2
-                              : 0
-
-                        onActivated: function(index) {
-                            root.catalogueColour =
-                                index === 1
-                                ? "black"
-                                : index === 2
-                                  ? "white"
-                                  : "either"
-                        }
-                    }
-
-                    Label {
-                        text: qsTr("Versus")
-                    }
-
-                    TextField {
-                        id: catalogueVersusField
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Exact opponent name or blank")
-                        text: root.catalogueVersus
-                        onTextChanged: root.catalogueVersus = text
-                        onAccepted: root.applyCatalogueSearch()
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Label {
-                        text: qsTr("Event")
-                    }
-
-                    TextField {
-                        id: catalogueEventField
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Tournament or event contains…")
-                        text: root.catalogueEvent
-                        onTextChanged: root.catalogueEvent = text
-                        onAccepted: root.applyCatalogueSearch()
-                    }
-
-                    Label {
-                        text: qsTr("From")
-                    }
-
-                    TextField {
-                        id: catalogueDateFromField
-                        Layout.preferredWidth:
-                            Kirigami.Units.gridUnit * 7
-                        placeholderText: qsTr("YYYY-MM-DD")
-                        text: root.catalogueDateFrom
-                        onTextChanged:
-                            root.catalogueDateFrom = text
-                        onAccepted: root.applyCatalogueSearch()
-                    }
-
-                    Label {
-                        text: qsTr("To")
-                    }
-
-                    TextField {
-                        id: catalogueDateToField
-                        Layout.preferredWidth:
-                            Kirigami.Units.gridUnit * 7
-                        placeholderText: qsTr("YYYY-MM-DD")
-                        text: root.catalogueDateTo
-                        onTextChanged:
-                            root.catalogueDateTo = text
-                        onAccepted: root.applyCatalogueSearch()
-                    }
-
-                    Label {
-                        text: qsTr("Result")
-                    }
-
-                    ComboBox {
-                        id: catalogueResultBox
-
-                        model: [
-                            qsTr("Any"),
-                            qsTr("Black win"),
-                            qsTr("White win"),
-                            qsTr("Jigo"),
-                            qsTr("Void")
-                        ]
-
-                        currentIndex:
-                            root.catalogueResult === "black-win"
-                            ? 1
-                            : root.catalogueResult === "white-win"
-                              ? 2
-                              : root.catalogueResult === "jigo"
-                                ? 3
-                                : root.catalogueResult === "void"
-                                  ? 4
-                                  : 0
-
-                        onActivated: function(index) {
-                            root.catalogueResult =
-                                index === 1
-                                ? "black-win"
-                                : index === 2
-                                  ? "white-win"
-                                  : index === 3
-                                    ? "jigo"
-                                    : index === 4
-                                      ? "void"
-                                      : "any"
-                        }
-                    }
-
-                    Button {
-                        text: qsTr("Search")
-                        enabled: !root.catalogueLoading
-
-                        onClicked: root.applyCatalogueSearch()
-                    }
-
-                    Button {
-                        text: qsTr("Clear fields")
-                        enabled: !root.catalogueLoading
-
-                        onClicked: {
-                            root.cataloguePlayer = ""
-                            root.catalogueVersus = ""
-                            root.catalogueColour = "either"
-                            root.catalogueEvent = ""
-                            root.catalogueDateFrom = ""
-                            root.catalogueDateTo = ""
-                            root.catalogueResult = "any"
-
-                            cataloguePlayerField.text = ""
-                            catalogueVersusField.text = ""
-                            catalogueEventField.text = ""
-                            catalogueDateFromField.text = ""
-                            catalogueDateToField.text = ""
-
-                            catalogueColourBox.currentIndex = 0
-                            catalogueResultBox.currentIndex = 0
-                        }
-                    }
-                                    ToolButton {
-                        id: advancedSortButton
-
-                        text: checked
-                              ? qsTr("Hide advanced sort")
-                              : qsTr("Advanced sort…")
-
-                        checkable: true
-                        checked: false
-
-                        ToolTip.visible: hovered
-                        ToolTip.text:
-                            qsTr(
-                                "Sort by several fields in sequence")
-                    }
-
-}
-
-                RowLayout {
+    Dialog {
+        id: catalogueSortDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Sort games")
+        width: Math.min(560, parent.width - 40)
+        standardButtons: Dialog.Close
+        contentItem: GridLayout {
                     id: advancedSortRow
-                    visible: advancedSortButton.checked
+                    columns: 3
 
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
+                    columnSpacing: Kirigami.Units.smallSpacing
+                    rowSpacing: Kirigami.Units.smallSpacing
 
                     Label {
                         text: qsTr("Order")
@@ -1803,19 +1645,192 @@ Kirigami.AbstractCard {
                         }
                     }
 
-                    Item {
+                }
+    }
+
+    Dialog {
+        id: resultSortDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Sort pattern results")
+        width: Math.min(480, parent.width - 40)
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        readonly property var columns: ["black", "white", "date", "matches"]
+        onAboutToShow: {
+            resultSortField.currentIndex = Math.max(0, columns.indexOf(root.searchSortColumn))
+            resultSortDirection.currentIndex = root.searchSortAscending ? 0 : 1
+        }
+        onAccepted: {
+            const column = columns[resultSortField.currentIndex]
+            const ascending = resultSortDirection.currentIndex === 0
+            if (root.searchModel.sortResults(column, ascending)) {
+                root.searchSortColumn = column
+                root.searchSortAscending = ascending
+                root.selectedSearchRow = -1
+                root.pendingSearchGame = null
+            } else {
+                console.warn(root.searchModel.error_message)
+            }
+        }
+        contentItem: GridLayout {
+            columns: 2
+            Label { text: qsTr("Order") }
+            ComboBox {
+                id: resultSortField
+                Layout.fillWidth: true
+                model: [qsTr("Black"), qsTr("White"), qsTr("Date"), qsTr("Matches")]
+            }
+            Label { text: qsTr("Direction") }
+            ComboBox {
+                id: resultSortDirection
+                Layout.fillWidth: true
+                model: resultSortField.currentIndex === 2
+                       ? [qsTr("Oldest first"), qsTr("Newest first")]
+                       : resultSortField.currentIndex === 3
+                         ? [qsTr("Fewest first"), qsTr("Most first")]
+                         : [qsTr("A → Z"), qsTr("Z → A")]
+            }
+        }
+    }
+
+   contentItem: ColumnLayout {
+    anchors.fill: parent
+    spacing: 0
+
+    /*
+     * The application owns the permanently visible browser tabs.
+     * Keep this existing TabBar as the state/controller for the
+     * catalogue and search-result bodies, but do not duplicate it.
+     */
+    RowLayout {
+        visible: false
+        Layout.fillWidth: true
+        spacing: 0
+
+        TabBar {
+            id: mainTabs
+
+            onCurrentIndexChanged: {
+                if (currentIndex === 0)
+                    root.selectCatalogue(false)
+                else if (currentIndex === 1)
+                    root.selectCatalogue(true)
+            }
+
+            TabButton {
+                text: qsTr("Professional games")
+            }
+
+            TabButton {
+                text: qsTr("My games")
+            }
+
+            TabButton {
+                text: qsTr("Pattern results")
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+        }
+
+    }
+
+
+
+
+
+        Frame {
+            Layout.fillWidth: true
+            visible: mainTabs.currentIndex !== 2
+            enabled: !root.catalogueLoading
+            padding: Kirigami.Units.smallSpacing
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing
+                GridLayout {
+                    id: cataloguePrimaryGrid
+                    Layout.fillWidth: true
+                    columns: wide ? 5 : 3
+                    readonly property bool wide: width >= Kirigami.Units.gridUnit * 34
+                    columnSpacing: Kirigami.Units.smallSpacing
+                    rowSpacing: Kirigami.Units.smallSpacing
+                    Label { text: qsTr("Player"); Layout.row: 0; Layout.column: 0 }
+                    TextField {
+                        id: cataloguePlayerField
+                        Layout.row: 0
+                        Layout.column: 1
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        placeholderText: qsTr("Exact player name")
+                        text: root.cataloguePlayer
+                        onTextChanged: root.cataloguePlayer = text
+                        onAccepted: root.applyCatalogueSearch()
+                    }
+                    ComboBox {
+                        id: catalogueColourBox
+                        Layout.row: 0
+                        Layout.column: 2
+                        model: [qsTr("Either colour"), qsTr("Black"), qsTr("White")]
+                        currentIndex: root.catalogueColour === "black" ? 1 : root.catalogueColour === "white" ? 2 : 0
+                        onActivated: function(index) {
+                            root.catalogueColour = index === 1 ? "black" : index === 2 ? "white" : "either"
+                        }
+                    }
+                    Label {
+                        text: qsTr("Versus")
+                        Layout.row: cataloguePrimaryGrid.wide ? 0 : 1
+                        Layout.column: cataloguePrimaryGrid.wide ? 3 : 0
+                    }
+                    TextField {
+                        id: catalogueVersusField
+                        Layout.row: cataloguePrimaryGrid.wide ? 0 : 1
+                        Layout.column: cataloguePrimaryGrid.wide ? 4 : 1
+                        Layout.columnSpan: cataloguePrimaryGrid.wide ? 1 : 2
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        placeholderText: qsTr("Exact opponent name or blank")
+                        text: root.catalogueVersus
+                        onTextChanged: root.catalogueVersus = text
+                        onAccepted: root.applyCatalogueSearch()
                     }
                 }
-
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+                    Button { text: qsTr("Search"); onClicked: root.applyCatalogueSearch() }
+                    Button {
+                        text: qsTr("Clear")
+                        onClicked: {
+                            root.cataloguePlayer = ""
+                            root.catalogueVersus = ""
+                            root.catalogueColour = "either"
+                            root.catalogueEvent = ""
+                            root.catalogueDateFrom = ""
+                            root.catalogueDateTo = ""
+                            root.catalogueResult = "any"
+                            cataloguePlayerField.text = ""
+                            catalogueVersusField.text = ""
+                            catalogueColourBox.currentIndex = 0
+                            root.applyCatalogueSearch()
+                        }
+                    }
+                    Button {
+                        text: root.appliedCatalogueExtraFilterCount > 0
+                              ? qsTr("Filters (%1)…").arg(root.appliedCatalogueExtraFilterCount) : qsTr("Filters…")
+                        onClicked: extraFiltersDialog.openFor(false)
+                    }
+                    Button {
+                        text: qsTr("Sort…")
+                        onClicked: catalogueSortDialog.open()
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Sort by several fields in sequence")
+                    }
+                }
                 Label {
                     Layout.fillWidth: true
-                    visible:
-                        root.catalogueVersus.trim().length > 0
-                        && root.cataloguePlayer.trim().length === 0
-
-                    text: qsTr(
-                        "Enter a Player as well as Versus to search a match-up.")
+                    visible: root.catalogueVersus.trim().length > 0 && root.cataloguePlayer.trim().length === 0
+                    text: qsTr("Enter a Player as well as Versus to search a match-up.")
                     color: Kirigami.Theme.neutralTextColor
                     wrapMode: Text.WordWrap
                 }
@@ -1827,180 +1842,86 @@ Kirigami.AbstractCard {
             visible: mainTabs.currentIndex === 2
             enabled: root.searchHasRun && !root.searchInProgress
             padding: Kirigami.Units.smallSpacing
-
             contentItem: ColumnLayout {
                 spacing: Kirigami.Units.smallSpacing
-
-                RowLayout {
+                GridLayout {
+                    id: resultPrimaryGrid
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Label {
-                        text: qsTr("Player")
-                    }
-
+                    columns: wide ? 5 : 3
+                    readonly property bool wide: width >= Kirigami.Units.gridUnit * 34
+                    columnSpacing: Kirigami.Units.smallSpacing
+                    rowSpacing: Kirigami.Units.smallSpacing
+                    Label { text: qsTr("Player"); Layout.row: 0; Layout.column: 0 }
                     TextField {
                         id: searchFilterPlayerField
+                        Layout.row: 0
+                        Layout.column: 1
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         placeholderText: qsTr("Exact player name")
                         text: root.searchFilterPlayer
                         onTextChanged: root.searchFilterPlayer = text
                         onAccepted: root.filterSearchResults()
                     }
-
                     ComboBox {
                         id: searchFilterColourBox
-
-                        model: [
-                            qsTr("Either colour"),
-                            qsTr("Black"),
-                            qsTr("White")
-                        ]
-
-                        currentIndex:
-                            root.searchFilterColour === "black"
-                            ? 1
-                            : root.searchFilterColour === "white"
-                              ? 2
-                              : 0
-
+                        Layout.row: 0
+                        Layout.column: 2
+                        model: [qsTr("Either colour"), qsTr("Black"), qsTr("White")]
+                        currentIndex: root.searchFilterColour === "black" ? 1 : root.searchFilterColour === "white" ? 2 : 0
                         onActivated: function(index) {
-                            root.searchFilterColour =
-                                index === 1
-                                ? "black"
-                                : index === 2
-                                  ? "white"
-                                  : "either"
+                            root.searchFilterColour = index === 1 ? "black" : index === 2 ? "white" : "either"
                         }
                     }
-
                     Label {
                         text: qsTr("Versus")
+                        Layout.row: resultPrimaryGrid.wide ? 0 : 1
+                        Layout.column: resultPrimaryGrid.wide ? 3 : 0
                     }
-
                     TextField {
                         id: searchFilterVersusField
+                        Layout.row: resultPrimaryGrid.wide ? 0 : 1
+                        Layout.column: resultPrimaryGrid.wide ? 4 : 1
+                        Layout.columnSpan: resultPrimaryGrid.wide ? 1 : 2
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         placeholderText: qsTr("Exact opponent name or blank")
                         text: root.searchFilterVersus
                         onTextChanged: root.searchFilterVersus = text
                         onAccepted: root.filterSearchResults()
                     }
                 }
-
-                RowLayout {
+                Flow {
                     Layout.fillWidth: true
                     spacing: Kirigami.Units.smallSpacing
-
-                    Label {
-                        text: qsTr("Event")
-                    }
-
-                    TextField {
-                        id: searchFilterEventField
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Tournament or event contains…")
-                        text: root.searchFilterEvent
-                        onTextChanged: root.searchFilterEvent = text
-                        onAccepted: root.filterSearchResults()
-                    }
-
-                    Label {
-                        text: qsTr("From")
-                    }
-
-                    TextField {
-                        id: searchFilterDateFromField
-                        Layout.preferredWidth:
-                            Kirigami.Units.gridUnit * 7
-                        placeholderText: qsTr("YYYY-MM-DD")
-                        text: root.searchFilterDateFrom
-                        onTextChanged:
-                            root.searchFilterDateFrom = text
-                        onAccepted: root.filterSearchResults()
-                    }
-
-                    Label {
-                        text: qsTr("To")
-                    }
-
-                    TextField {
-                        id: searchFilterDateToField
-                        Layout.preferredWidth:
-                            Kirigami.Units.gridUnit * 7
-                        placeholderText: qsTr("YYYY-MM-DD")
-                        text: root.searchFilterDateTo
-                        onTextChanged:
-                            root.searchFilterDateTo = text
-                        onAccepted: root.filterSearchResults()
-                    }
-
-                    Label {
-                        text: qsTr("Result")
-                    }
-
-                    ComboBox {
-                        id: searchFilterResultBox
-
-                        model: [
-                            qsTr("Any"),
-                            qsTr("Black win"),
-                            qsTr("White win"),
-                            qsTr("Jigo"),
-                            qsTr("Void")
-                        ]
-
-                        currentIndex:
-                            root.searchFilterResult === "black-win"
-                            ? 1
-                            : root.searchFilterResult === "white-win"
-                              ? 2
-                              : root.searchFilterResult === "jigo"
-                                ? 3
-                                : root.searchFilterResult === "void"
-                                  ? 4
-                                  : 0
-
-                        onActivated: function(index) {
-                            root.searchFilterResult =
-                                index === 1
-                                ? "black-win"
-                                : index === 2
-                                  ? "white-win"
-                                  : index === 3
-                                    ? "jigo"
-                                    : index === 4
-                                      ? "void"
-                                      : "any"
-                        }
-                    }
-
-                    Button {
-                        text: qsTr("Filter")
-                        onClicked: root.filterSearchResults()
-                    }
-
+                    Button { text: qsTr("Filter"); onClicked: root.filterSearchResults() }
                     Button {
                         text: qsTr("Clear")
-                        onClicked: root.clearSearchResultFilters()
+                        onClicked: {
+                            root.clearSearchResultFilters()
+                        }
+                    }
+                    Button {
+                        text: root.appliedSearchExtraFilterCount > 0
+                              ? qsTr("Filters (%1)…").arg(root.appliedSearchExtraFilterCount) : qsTr("Filters…")
+                        onClicked: extraFiltersDialog.openFor(true)
+                    }
+                    Button {
+                        text: qsTr("Sort…")
+                        onClicked: resultSortDialog.open()
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Sort the matching games")
                     }
                 }
-
                 Label {
                     Layout.fillWidth: true
-
-                    visible:
-                        root.searchFilterVersus.trim().length > 0
-                        && root.searchFilterPlayer.trim().length === 0
-
-                    text: qsTr(
-                        "Enter a Player as well as Versus to search a match-up.")
+                    visible: root.searchFilterVersus.trim().length > 0 && root.searchFilterPlayer.trim().length === 0
+                    text: qsTr("Enter a Player as well as Versus to search a match-up.")
                     color: Kirigami.Theme.neutralTextColor
                     wrapMode: Text.WordWrap
                 }
             }
         }
-
 
         RowLayout {
             Layout.fillWidth: true
