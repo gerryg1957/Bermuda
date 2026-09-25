@@ -2,7 +2,11 @@
 
 ## Status
 
-Design document.
+Packaging plan, with an initial Tumbleweed RPM recipe prepared for testing.
+
+Current application version: **0.8.0**. See [Building the RPM](building-rpm.md)
+for the local build and installation check. The GUI now embeds its QML and
+image resources; it does not require the source directory at runtime.
 
 ## Goals
 
@@ -41,13 +45,16 @@ The consolidated guide should remain the authoritative source-build documentatio
 
 ## Packaging order
 
-Recommended order:
+Agreed first-release order:
 
-1. openSUSE RPM;
-2. Fedora RPM;
-3. Debian/Ubuntu `.deb`;
-4. additional distributions through source-build instructions;
-5. Windows deployment/package work in parallel as the Windows port matures.
+1. openSUSE Tumbleweed RPM;
+2. Flatpak for other Linux distributions;
+3. a self-contained Windows 11 x86-64 package for ordinary users.
+
+Fedora and Debian native packages remain possible later. Flatpak must include
+Qt/Kirigami and test file access and the managed KataGo executable inside its
+sandbox. Windows must include the required Qt/KDE plugins and runtime DLLs.
+Neither target is implemented or validated yet.
 
 openSUSE is the natural first RPM target because it is Bermuda's principal development environment.
 
@@ -261,17 +268,13 @@ This is illustrative. Existing working project structure should not be reorganis
 
 ## Immediate next steps
 
-The source-build instructions and principal Rust, Qt, CXX-Qt and Kirigami dependencies have now been inspected and documented.
+1. Build the 0.8.0 RPM using `packaging/opensuse/build-rpm.sh`.
+2. Inspect its dependencies and contents, install it, and launch from KDE.
+3. Confirm that removing the package leaves user data intact.
+4. Review bundled dependency licences and release metadata before publication.
+5. Proceed to Flatpak, then Windows 11 deployment testing.
 
-Before writing the first package:
-
-1. establish the installation/runtime resource requirements;
-2. identify the files and Qt/Kirigami resources that must be installed with the application;
-3. make any source-tree assumptions compatible with an installed application;
-4. write the first openSUSE spec using the normal Bermuda build.
-
-The first packaging milestone remains:
-
-> Build a Bermuda RPM on openSUSE, install it with the package manager, launch Bermuda from the Plasma application menu, and remove it cleanly without touching user data.
-
-That gives us a sound base from which Fedora and Debian-family packaging can follow.
+The RPM recipe uses the normal Cargo release build with vendored dependencies
+and offline compilation. It is a local packaging candidate, not yet an OBS
+submission. Packaging changes should not require a separate application fork;
+new features continue in the same source tree.

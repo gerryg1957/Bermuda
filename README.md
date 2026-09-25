@@ -85,6 +85,13 @@ A demonstration of the graphical application is available here:
 
 [Watch the Bermuda demonstration](docs/bermuda-demo.webm)
 
+## Release packaging
+
+Version 0.8.0 is being prepared for release. The first package target is
+openSUSE Tumbleweed; the RPM recipe still needs installation testing before
+publication. See [building the RPM](docs/building-rpm.md). Flatpak and Windows
+11 packages are planned next.
+
 ## Building from source
 
 Packaged releases are not available yet, so the current development version must still be built from source.
@@ -144,4 +151,4 @@ and developer interfaces may change while the project is in development.
 Bermuda is free software licensed under the GNU General Public License,
 version 3 or later.
 
-See `LICENSE` for details.
+See [LICENCE](LICENCE) for details.

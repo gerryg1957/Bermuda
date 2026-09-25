@@ -29,9 +29,11 @@ fn main() {
     let mut engine = QQmlApplicationEngine::new();
 
     if let Some(engine) = engine.as_mut() {
-        let qml_url = format!("file://{}/src/qml/Main.qml", env!("CARGO_MANIFEST_DIR"));
-
-        engine.load(&QUrl::from(qml_url.as_str()));
+        // Load the interface embedded by build.rs, independent of the source
+        // checkout and the directory from which Bermuda was launched.
+        engine.load(&QUrl::from(
+            "qrc:/qt/qml/org/bermuda/app/src/qml/Main.qml",
+        ));
     }
 
     if let Some(app) = app.as_mut() {

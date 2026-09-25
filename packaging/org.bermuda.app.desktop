@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Bermuda
+GenericName=Go database and study
+Comment=Search Go game records and study positions
+Exec=bermuda-qt
+TryExec=bermuda-qt
+Icon=applications-games
+Terminal=false
+Categories=Game;BoardGame;
+Keywords=Go;Baduk;Weiqi;SGF;KataGo;

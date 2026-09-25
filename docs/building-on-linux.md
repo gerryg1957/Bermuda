@@ -1,7 +1,7 @@
 # Building and Running Bermuda on Linux
 
 **Quick-start guide for testers**  
-**Updated: 26 August 2026**
+**Updated: 25 September 2026**
 
 Bermuda is a desktop application for studying professional Go games. It is written in Rust and uses Qt 6, QML, CXX-Qt and KDE Kirigami.
 
@@ -10,6 +10,21 @@ You do **not** need to use the KDE Plasma desktop to run Bermuda. The same Bermu
 This guide is intended to get a tester from a normal Linux installation to a running Bermuda application with as little developer knowledge as possible.
 
 > **Current status:** Bermuda does not yet have packaged releases, so testers currently build it from source. Linux is the tested target. Windows is not covered by this guide and should not yet be regarded as a supported Bermuda platform.
+
+## Installing a Tumbleweed RPM
+
+The first 0.8.0 RPM recipe is ready for local testing, but no public release
+is claimed yet. Maintainers can follow [Building the RPM](building-rpm.md).
+When supplied with a tested RPM, install it with:
+
+```bash
+sudo zypper install ./bermuda-0.8.0-1.x86_64.rpm
+```
+
+Then launch **Bermuda** from the application menu. The package installs the
+application and declares its runtime dependencies; users do not need Rust or
+Qt development tools. SGF collections and optional KataGo are set up inside
+Bermuda. Package removal leaves your per-user databases and settings in place.
 
 ## Quick overview
 
@@ -172,6 +187,16 @@ On subsequent launches, Bermuda opens the Games Database automatically.
 To add another collection or a later release of an existing collection, use:
 
 **Database -> Add Games...**
+
+## Optional KataGo analysis
+
+Use **Set up KataGo** in Bermuda. The guided installer supplies a compatible
+CPU engine and network on supported systems, tests them, and saves their
+locations. Experienced users can select their own executable, network and
+configuration. See [KataGo setup](katago-setup.md).
+
+KataGo is optional: importing, browsing and searching game collections work
+without it.
 
 ## Updating Bermuda
 
