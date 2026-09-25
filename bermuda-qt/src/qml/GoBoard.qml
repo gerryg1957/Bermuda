@@ -8,6 +8,9 @@ Item {
     signal continuationPointClicked(int x, int y, int count)
     signal patternSelected(int left, int top,
                            int right, int bottom)
+    signal patternResizeStarted()
+    signal patternResizeFinished()
+    signal patternResizeCancelled()
 
         property int boardSize: 19
     property var stones: []
@@ -136,6 +139,7 @@ Item {
 
     property bool patternSelectionEnabled: false
     property bool patternSelectionAdjustable: false
+    onPatternSelectionAdjustableChanged: boardCanvas.requestPaint()
     property bool patternSelectionDragging: false
     property int patternStartX: -1
     property int patternStartY: -1
@@ -2044,20 +2048,14 @@ Item {
             const viewY = Math.round(
                 (mouseY - geometry.top) / geometry.spacing)
 
-            if (viewX < 0
-                    || viewY < 0
-                    || viewX >= root.boardSize
-                    || viewY >= root.boardSize) {
-                return null
-            }
-
             return {
-                "x": viewX,
-                "y": viewY
+                "x": Math.max(0, Math.min(root.boardSize - 1, viewX)),
+                "y": Math.max(0, Math.min(root.boardSize - 1, viewY))
             }
         }
 
         function beginPatternResize(handle) {
+            root.patternResizeStarted()
             const bounds = currentSelectionViewBounds()
 
             if (bounds === null)
@@ -2243,6 +2241,7 @@ Item {
                 })
 
                 boardCanvas.requestPaint()
+                root.patternResizeFinished()
                 return
             }
 
@@ -2294,9 +2293,12 @@ Item {
         }
 
         onCanceled: {
+            const wasResizing = resizingPatternSelection
             resizingPatternSelection = false
             patternResizeHandle = ""
             root.patternSelectionDragging = false
+            if (wasResizing)
+                root.patternResizeCancelled()
             boardCanvas.requestPaint()
         }
 

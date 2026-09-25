@@ -5277,12 +5277,13 @@ fn qml_y_to_core(board_size: u8, qml_y: u8) -> Result<u8, String> {
         ));
     }
 
-    Ok(board_size - 1 - qml_y)
+    // SGF storage and QML both count rows from the upper edge.
+    Ok(qml_y)
 }
 
 fn core_y_to_qml(board_size: u16, core_y: u16) -> u16 {
     debug_assert!(core_y < board_size);
-    board_size - 1 - core_y
+    core_y
 }
 
 fn board_stones_json(board: &Board) -> QString {
@@ -5576,5 +5577,25 @@ mod played_game_record_tests {
         assert_eq!(error, "finish the game before adding it to My Games");
 
         fs::remove_dir_all(&root).expect("remove personal test project");
+    }
+}
+
+#[cfg(test)]
+mod orientation_tests {
+    use super::*;
+
+    #[test]
+    fn sgf_and_qml_share_top_origin_coordinates() {
+        let collection = parse_collection(b"(;SZ[19];B[po])").unwrap();
+        let record = extract_main_variation(&collection).unwrap();
+        let states = replay_positions(&record).unwrap();
+        let board = &states.last().unwrap().board;
+        let stones: serde_json::Value =
+            serde_json::from_str(&board_stones_json(board).to_string()).unwrap();
+        assert_eq!(stones[0]["x"], 15);
+        assert_eq!(stones[0]["y"], 14); // Q5, not Q15
+        assert_eq!(qml_y_to_core(19, 14).unwrap(), 14);
+        assert_eq!(core_y_to_qml(19, 14), 14);
+        assert!(qml_y_to_core(19, 19).is_err());
     }
 }

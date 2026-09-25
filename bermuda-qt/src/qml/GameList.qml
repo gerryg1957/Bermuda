@@ -1134,7 +1134,7 @@ Kirigami.AbstractCard {
         if (boardX < 0 || boardX >= columns.length || coreY < 0)
             return "?"
 
-        return columns.charAt(boardX) + (coreY + 1)
+        return columns.charAt(boardX) + (searchBoardSize - coreY)
     }
 
     function setContinuationCandidates(points,
@@ -1199,7 +1199,7 @@ Kirigami.AbstractCard {
                 return b.gameCount - a.gameCount
 
             if (a.coreY !== b.coreY)
-                return b.coreY - a.coreY
+                return a.coreY - b.coreY
 
             return a.x - b.x
         })

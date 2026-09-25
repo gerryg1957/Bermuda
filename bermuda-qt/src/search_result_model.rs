@@ -2118,7 +2118,8 @@ fn qml_y_to_core(board_size: u8, qml_y: u8) -> Result<u8, String> {
         ));
     }
 
-    Ok(board_size - 1 - qml_y)
+    // SGF storage and QML both count rows from the upper edge.
+    Ok(qml_y)
 }
 
 fn coordinate_value(name: &str, value: i32) -> Result<u8, String> {
@@ -2716,5 +2717,17 @@ mod continuation_outcome_classification_tests {
         assert_eq!(classify_game_result("Void"), GameResultClass::Unknown);
         assert_eq!(classify_game_result("?"), GameResultClass::Unknown);
         assert_eq!(classify_game_result(""), GameResultClass::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod orientation_tests {
+    use super::*;
+
+    #[test]
+    fn qml_query_preserves_sgf_rows() {
+        let board = board_from_json(19, r#"[{"x":15,"y":14,"color":"black"}]"#).unwrap();
+        assert_eq!(board.colour_at(14 * 19 + 15), Some(Colour::Black));
+        assert_eq!(board.colour_at(4 * 19 + 15), None);
     }
 }

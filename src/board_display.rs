@@ -10,8 +10,8 @@ pub fn render(board: &Board) -> String {
     }
     output.push('\n');
 
-    for y in (0..board.size()).rev() {
-        output.push_str(&format!("{:>2} ", y + 1));
+    for y in 0..board.size() {
+        output.push_str(&format!("{:>2} ", board.size() - y));
 
         for x in 0..board.size() {
             let point = board.point(x, y).unwrap();

@@ -22,6 +22,7 @@ impl From<Option<Colour>> for PatternCell {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PatternRect {
     pub left: u8,
+    /// Minimum stored y (top-origin SGF row). Legacy name retained for index compatibility.
     pub bottom: u8,
     pub width: u8,
     pub height: u8,

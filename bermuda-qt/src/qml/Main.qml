@@ -90,13 +90,284 @@ ApplicationWindow {
     }
 
     BermudaApp {
-        id: gameController
+        id: workspaceGameController
+    }
+
+    // Joseki searches must not replace either retained workspace document.
+    BermudaApp {
+        id: josekiSearchController
+    }
+
+    property var josekiSearchUi: null
+    property string josekiQueryStones: ""
+    property var josekiResizeSession: null
+
+    readonly property bool showingJosekiQuery:
+        root.josekiSearchUi !== null
+        && boardPane.selectedGame !== null
+        && boardPane.selectedGame.fromSearchResults !== true
+        && gameController.stones_json === root.josekiQueryStones
+
+    function beginJosekiResize() {
+        if (!root.showingJosekiQuery || gameList.searchInProgress)
+            return
+        const session = {
+            project: gameList.searchHasRun
+                ? gameList.currentSearchProjectPath : gameList.databaseProjectPath,
+            left: boardPane.patternLeft, top: boardPane.patternTop,
+            right: boardPane.patternRight, bottom: boardPane.patternBottom
+        }
+        if (boardPane.investigatingSearch && !boardPane.adjustSearchArea())
+            return
+        root.josekiResizeSession = session
+    }
+
+    function finishJosekiResize(cancelled) {
+        const session = root.josekiResizeSession
+        root.josekiResizeSession = null
+        if (session === null)
+            return
+        if (cancelled) {
+            boardPane.patternLeft = session.left
+            boardPane.patternTop = session.top
+            boardPane.patternRight = session.right
+            boardPane.patternBottom = session.bottom
+            goBoard.setPatternSelection(
+                session.left, session.top, session.right, session.bottom)
+        }
+        boardPane.searchSelectedPattern(session.project)
+    }
+    readonly property var gameController:
+        root.josekiSearchUi !== null
+        ? josekiSearchController : workspaceGameController
+
+    function localJosekiText(value, keepLinks) {
+        // Retain the explanation, replacing only the obsolete destination.
+        const text = String(value).replace(
+            /\[([^\]\n]*)\]\((?:https?:)?\/\/(?:www\.|ps\.)?waltheri\.net(?:[/?#][^\s)]*)?\)/gi,
+            function(match, label) {
+                const localLabel = /\b(?:waltheri|walthieri)\b/i.test(label)
+                    ? qsTr("Professional games involving this position") : label
+                return keepLinks
+                    ? "[" + localLabel + "](bermuda://joseki-search)"
+                    : localLabel
+            })
+        return text.split("\n")
+            .filter(function(line) {
+                return !/\b(?:waltheri|walthieri)\b/i.test(line)
+            })
+            .join("\n")
+            .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, "\n\n")
+            .trim()
+    }
+
+    function adjustJosekiSearchArea() {
+        if (!boardPane.adjustSearchArea())
+            return false
+        root.showStudy()
+        studyToolsTabs.currentIndex = 1
+        boardPane.investigationMode = "pattern"
+        return true
+    }
+
+    function josekiSearchRectangle(stones, size) {
+        if (!Array.isArray(stones) || stones.length === 0)
+            return null
+
+        let minX = size - 1
+        let minY = size - 1
+        let maxX = 0
+        let maxY = 0
+        for (const stone of stones) {
+            const x = Number(stone.x)
+            const y = Number(stone.y)
+            if (!Number.isInteger(x) || !Number.isInteger(y)
+                    || x < 0 || y < 0 || x >= size || y >= size)
+                return null
+            minX = Math.min(minX, x)
+            minY = Math.min(minY, y)
+            maxX = Math.max(maxX, x)
+            maxY = Math.max(maxY, y)
+        }
+
+        // Choose the corner giving the smallest enclosing rectangle.
+        // A tie does not identify a unique corner; ask for a manual area.
+        if (minX + maxX === size - 1 || minY + maxY === size - 1)
+            return null
+        const onLeft = minX + maxX < size - 1
+        const onTop = minY + maxY < size - 1
+        return {
+            left: onLeft ? 0 : Math.max(0, minX - 2),
+            right: onLeft ? Math.min(size - 1, maxX + 2) : size - 1,
+            top: onTop ? 0 : Math.max(0, minY - 2),
+            bottom: onTop ? Math.min(size - 1, maxY + 2) : size - 1
+        }
+    }
+
+    Dialog {
+        id: josekiSearchNotice
+        title: qsTr("Joseki search")
+        modal: true
+        standardButtons: Dialog.Ok
+        anchors.centerIn: parent
+        width: Math.min(root.width - 40, 480)
+        property string message: ""
+        contentItem: Label {
+            text: josekiSearchNotice.message
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    function beginJosekiPatternSearch() {
+        if (!root.studyWorkspaceActive
+                || root.playingGame
+                || gameList.searchInProgress
+                || josekiModel.loading
+                || josekiModel.node_id.length === 0
+                || josekiModel.study_sgf_path.length === 0) {
+            return false
+        }
+
+        if (root.josekiSearchUi !== null)
+            return false
+
+        if (gameList.databaseProjectPath.length === 0) {
+            josekiSearchNotice.message = qsTr(
+                "Open a professional-game database before searching this Joseki.")
+            josekiSearchNotice.open()
+            return false
+        }
+
+        // Load into the separate controller before changing any visible state.
+        if (!josekiSearchController.loadJosekiStudy(
+                josekiModel.study_sgf_path,
+                josekiModel.node_id,
+                josekiModel.move_count)) {
+            josekiSearchNotice.message = josekiSearchController.error_message
+            josekiSearchNotice.open()
+            return false
+        }
+
+        let rectangle = null
+        try {
+            rectangle = root.josekiSearchRectangle(
+                JSON.parse(josekiSearchController.stones_json),
+                josekiSearchController.board_size)
+        } catch (error) {
+            console.warn("Could not determine Joseki search area:", error)
+        }
+
+        root.josekiQueryStones = josekiSearchController.stones_json
+        const previousUi = root.captureWorkspaceUi()
+        previousUi.browserExpanded = root.browserExpanded
+        previousUi.studyToolsTabIndex = studyToolsTabs.currentIndex
+        previousUi.annotationTool = boardPane.annotationTool
+        previousUi.sgfEditTool = boardPane.sgfEditTool
+        previousUi.patternResultsWorkspaceIsStudy =
+            root.patternResultsWorkspaceIsStudy
+        root.josekiSearchUi = previousUi
+        root.studyPaneMode = "document"
+        root.browserExpanded = false
+        gameList.clearSearchResults()
+        boardPane.clearMatchNavigation()
+        boardPane.resetPatternSelection()
+        boardPane.editingPosition = false
+        boardPane.searchSourceGame = null
+        boardPane.searchSourceEditingPosition = false
+        boardPane.searchSourceViewTransform = null
+        boardPane.previousSearchProjectPath = ""
+        boardPane.selectedGame = {
+            gameId: -1,
+            black: qsTr("OGS Joseki Explorer"),
+            white: qsTr("Position %1").arg(josekiModel.node_id),
+            blackRank: "", whiteRank: "", gameDate: "", result: "",
+            eventName: qsTr("Joseki pattern search"),
+            komi: "", handicap: "", fromSearchResults: false
+        }
+        boardPane.applyLoadedPosition()
+        goBoard.setViewTransform(previousUi.viewTransform)
+        studyToolsTabs.currentIndex = 1
+        boardPane.annotationTool = ""
+        boardPane.sgfEditTool = ""
+        boardPane.investigationMode = "pattern"
+        boardPane.selectingPattern = false
+        goBoard.hoverValid = false
+
+        if (rectangle === null) {
+            boardPane.selectingPattern = true
+            josekiSearchNotice.message = qsTr(
+                "This position does not identify a unique occupied corner. "
+                + "Select a search area manually, then choose Search Database.")
+            josekiSearchNotice.open()
+            return true
+        }
+
+        boardPane.patternLeft = rectangle.left
+        boardPane.patternTop = rectangle.top
+        boardPane.patternRight = rectangle.right
+        boardPane.patternBottom = rectangle.bottom
+        goBoard.setPatternSelection(
+            rectangle.left, rectangle.top, rectangle.right, rectangle.bottom)
+
+        return boardPane.searchSelectedPattern(gameList.databaseProjectPath)
+    }
+
+    function endJosekiPatternSearch() {
+        if (root.josekiSearchUi === null)
+            return true
+        if (gameList.searchInProgress)
+            return false
+
+        const previousUi = root.josekiSearchUi
+        root.josekiSearchUi = null
+        root.josekiResizeSession = null
+        root.josekiQueryStones = ""
+        root.studyPaneMode = "joseki"
+        gameList.clearSearchResults()
+        root.applyWorkspaceUi(previousUi)
+        // The shared result list now belongs to the new search, so discard
+        // its navigation state when returning to the retained document.
+        boardPane.clearMatchNavigation()
+        boardPane.resetPatternSelection()
+        boardPane.searchSourceGame = null
+        boardPane.searchSourceEditingPosition = false
+        boardPane.searchSourceViewTransform = null
+        boardPane.previousSearchProjectPath = ""
+        boardPane.investigationMode = ""
+        root.browserExpanded = previousUi.browserExpanded
+        root.patternResultsWorkspaceIsStudy =
+            previousUi.patternResultsWorkspaceIsStudy
+        studyToolsTabs.currentIndex = previousUi.studyToolsTabIndex
+        boardPane.annotationTool = previousUi.annotationTool
+        boardPane.sgfEditTool = previousUi.sgfEditTool
+        boardPane.applyJosekiPosition()
+        return true
+    }
+
+    function openJosekiDescriptionLink(link) {
+        if (String(link) === "bermuda://joseki-search") {
+            root.beginJosekiPatternSearch()
+            return
+        }
+        // Only exact Waltheri hosts enter the local search flow.
+        const match = /^(?:https?:)?\/\/([^/?#]+)(?:[/?#]|$)/i.exec(String(link))
+        const host = match === null ? "" : match[1].toLowerCase()
+        if (host === "waltheri.net"
+                || host === "www.waltheri.net"
+                || host === "ps.waltheri.net") {
+            root.beginJosekiPatternSearch()
+            return
+        }
+        Qt.openUrlExternally(link)
     }
 
     readonly property string personalProjectPath:
         gameController.personalProjectPath()
 
     function clearProjectSelection() {
+        if (!root.endJosekiPatternSearch())
+            return false
+
         gameList.clearSearchResults()
         boardPane.clearMatchNavigation()
         boardPane.resetPatternSelection()
@@ -1277,12 +1548,19 @@ menuBar: MenuBar {
             text: qsTr("Select Search &Area")
 
             enabled: !root.playingGame
-                     && boardPane.selectedGame !== null
+                     && (boardPane.selectedGame !== null
+                         || (root.studyPaneMode === "joseki"
+                             && !josekiModel.loading
+                             && josekiModel.study_sgf_path.length > 0))
                      && !gameList.searchInProgress
                      && !boardPane.investigatingSearch
 
             onTriggered: {
                 root.showStudy()
+                if (root.studyPaneMode === "joseki") {
+                    root.beginJosekiPatternSearch()
+                    return
+                }
 
                 boardPane.investigationMode = "pattern"
                 boardPane.selectingPattern = true
@@ -1533,6 +1811,9 @@ menuBar: MenuBar {
             return
         }
 
+        if (!root.endJosekiPatternSearch())
+            return
+
         root.studyPaneMode = mode
 
         if (mode === "library") {
@@ -1658,6 +1939,9 @@ menuBar: MenuBar {
     }
 
     function exchangeWorkspaceContexts() {
+        if (!root.endJosekiPatternSearch())
+            return false
+
         if (root.parkedWorkspaceUi === null)
             return false
 
@@ -1695,6 +1979,9 @@ menuBar: MenuBar {
     }
 
     function prepareStudyReplacement() {
+        if (!root.endJosekiPatternSearch())
+            return false
+
         root.studyReplacementFromBrowser = false
         root.replacementHadStudyWorkspace =
             root.studyWorkspaceAvailable
@@ -1842,6 +2129,9 @@ menuBar: MenuBar {
     }
 
     function showBrowserTab(index) {
+        if (index !== 2 && !root.endJosekiPatternSearch())
+            return
+
         root.saveStudySplitState()
 
         if (index === 2) {
@@ -1886,6 +2176,9 @@ menuBar: MenuBar {
     property bool localGameAddedToMyGames: false
 
     function returnToPlayedGame() {
+        if (!root.endJosekiPatternSearch())
+            return false
+
         if (!root.localGameSessionAvailable)
             return false
 
@@ -2257,6 +2550,8 @@ menuBar: MenuBar {
             }
         }
 
+
+
         Item {
             Layout.fillWidth: true
         }
@@ -2589,7 +2884,7 @@ menuBar: MenuBar {
                     points.map(function(point) {
                         return {
                             "x": point.x,
-                            "y": goBoard.boardSize - 1 - point.coreY,
+                            "y": point.coreY,
                             "count": point.count
                         }
                     })
@@ -3223,15 +3518,16 @@ menuBar: MenuBar {
                                                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                                                     TextArea {
+                                                        readonly property string localComment:
+                                                            root.localJosekiText(
+                                                                gameController.source_comment)
                                                         width:
                                                             sourceCommentScroll.availableWidth
                                                         implicitWidth: 0
 
                                                         text:
-                                                            gameController
-                                                                .source_comment.length > 0
-                                                            ? gameController
-                                                                .source_comment
+                                                            localComment.length > 0
+                                                            ? localComment
                                                             : qsTr(
                                                                 "No SGF comment at "
                                                                 + "this position.")
@@ -3242,14 +3538,12 @@ menuBar: MenuBar {
                                                         background: null
 
                                                         opacity:
-                                                            gameController
-                                                                .source_comment.length > 0
+                                                            localComment.length > 0
                                                             ? 1.0
                                                             : 0.55
 
                                                         font.italic:
-                                                            gameController
-                                                                .source_comment.length === 0
+                                                            localComment.length === 0
                                                     }
                                                 }
                                             }
@@ -3791,7 +4085,8 @@ menuBar: MenuBar {
                                                                      const summary =
                                                                          gameList.searchOutcomeSummary
 
-                                                                     return !root.playingGame
+                                                                     return root.josekiSearchUi === null
+                                                                            && !root.playingGame
                                                                          && boardPane.investigatingSearch
                                                                          && summary !== null
                                                                          && gameList.nextMoveInPatternCount === 0
@@ -3822,7 +4117,9 @@ menuBar: MenuBar {
                                                                          qsTr("Return to the source position and resize the current search area")
 
                                                                      onClicked:
-                                                                         boardPane.adjustSearchArea()
+                                                                         root.josekiSearchUi !== null
+                                                                         ? root.adjustJosekiSearchArea()
+                                                                         : boardPane.adjustSearchArea()
                                                                  }
                                                              }
 
@@ -4895,15 +5192,23 @@ MenuItem {
                                 Label {
                                     Layout.fillWidth: true
                                     visible:
-                                        josekiModel.description.length > 0
+                                        text.length > 0
 
-                                    text: josekiModel.description
+                                    text: {
+                                        const description = root.localJosekiText(
+                                            josekiModel.description, true)
+                                        if (description.indexOf("bermuda://joseki-search") >= 0)
+                                            return description
+                                        return description + "\n\n["
+                                            + qsTr("Professional games involving this position")
+                                            + "](bermuda://joseki-search)"
+                                    }
                                     textFormat: Text.MarkdownText
                                     wrapMode: Text.WordWrap
 
                                     onLinkActivated:
                                         function(link) {
-                                            Qt.openUrlExternally(link)
+                                            root.openJosekiDescriptionLink(link)
                                         }
                                 }
                             }
@@ -4948,6 +5253,7 @@ MenuItem {
                                 Layout.fillWidth: true
                             }
                         }
+
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -5158,6 +5464,8 @@ MenuItem {
             }
 
             function searchSelectedPattern(destinationProjectPath) {
+                if (root.studyPaneMode === "joseki")
+                    return false
                 if (destinationProjectPath.length === 0)
                     return false
 
@@ -5193,9 +5501,9 @@ MenuItem {
                     boardPane.patternBottom
                     - boardPane.patternTop + 1
 
-                const bottom =
-                    goBoard.boardSize - 1
-                    - boardPane.patternBottom
+                // The legacy API calls the minimum stored row "bottom".
+                // Stored SGF rows and QML rows both start at the top.
+                const bottom = boardPane.patternTop
 
                 goBoard.continuationPoints = []
 
@@ -5254,10 +5562,8 @@ MenuItem {
 
                 boardPane.patternLeft = left
                 boardPane.patternRight = left + width - 1
-                boardPane.patternBottom =
-                    goBoard.boardSize - 1 - bottom
-                boardPane.patternTop =
-                    boardPane.patternBottom - height + 1
+                boardPane.patternTop = bottom
+                boardPane.patternBottom = bottom + height - 1
 
                 goBoard.setPatternSelection(
                     boardPane.patternLeft,
@@ -5314,10 +5620,8 @@ MenuItem {
 
                 boardPane.patternLeft = left
                 boardPane.patternRight = left + width - 1
-                boardPane.patternBottom =
-                    goBoard.boardSize - 1 - bottom
-                boardPane.patternTop =
-                    boardPane.patternBottom - height + 1
+                boardPane.patternTop = bottom
+                boardPane.patternBottom = bottom + height - 1
 
                 goBoard.setPatternSelection(
                     boardPane.patternLeft,
@@ -5574,10 +5878,8 @@ MenuItem {
 
                 patternLeft = left
                 patternRight = left + width - 1
-                patternBottom =
-                    goBoard.boardSize - 1 - bottom
-                patternTop =
-                    patternBottom - height + 1
+                patternTop = bottom
+                patternBottom = bottom + height - 1
 
                 goBoard.setPatternSelection(
                     patternLeft,
@@ -5692,7 +5994,7 @@ MenuItem {
                     return
                 }
 
-                const visualY = goBoard.boardSize - 1 - coreY
+                const visualY = coreY
 
                 let left
                 let bottom
@@ -5779,10 +6081,8 @@ MenuItem {
                 const left = occurrence.left
                 const right = left + width - 1
 
-                const bottom =
-                    goBoard.boardSize - 1 - occurrence.bottom
-
-                const top = bottom - height + 1
+                const top = occurrence.bottom
+                const bottom = top + height - 1
 
                 patternLeft = left
                 patternTop = top
@@ -5804,9 +6104,7 @@ MenuItem {
                     continuationPoints.map(function(point) {
                         return {
                             "x": point.x,
-                            "y": goBoard.boardSize
-                                 - 1
-                                 - point.coreY,
+                            "y": point.coreY,
                             "count": point.count
                         }
                     })
@@ -6993,8 +7291,12 @@ MenuItem {
 
                           patternSelectionEnabled: boardPane.selectingPattern
                           patternSelectionAdjustable:
-                              !gameList.searchHasRun
-                              && !gameList.searchInProgress
+                              !gameList.searchInProgress
+                              && (!gameList.searchHasRun || root.showingJosekiQuery)
+
+                          onPatternResizeStarted: root.beginJosekiResize()
+                          onPatternResizeFinished: root.finishJosekiResize(false)
+                          onPatternResizeCancelled: root.finishJosekiResize(true)
 
                           onContinuationPointClicked: function(x, y, count) {
                               if (root.studyPaneMode === "joseki") {
@@ -7004,7 +7306,7 @@ MenuItem {
 
                               boardPane.filterContinuationPoint(
                                           x,
-                                          goBoard.boardSize - 1 - y,
+                                          y,
                                           count)
                           }
 
@@ -7172,7 +7474,28 @@ MenuItem {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 2
 
+                            Button {
+                                id: returnToJosekiButton
+                                text: qsTr("Return to Joseki")
+                                height: firstMoveButton.height
+                                enabled: root.josekiSearchUi !== null
+                                         && !gameList.searchInProgress
+                                         && root.josekiResizeSession === null
+                                onClicked: root.endJosekiPatternSearch()
+                            }
+
                             ToolButton {
+                                visible: root.josekiSearchUi !== null
+                                         && gameList.searchHasRun
+                                         && !root.showingJosekiQuery
+                                text: qsTr("Search position")
+                                enabled: !gameList.searchInProgress
+                                onClicked: boardPane.showSamePatternResults(
+                                    gameList.currentSearchProjectPath)
+                            }
+
+                            ToolButton {
+                                id: firstMoveButton
                                 text: "|<"
                                 enabled: gameController.move_number > 0
                                 onClicked: boardPane.showMove(0)

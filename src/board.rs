@@ -95,7 +95,7 @@ impl Board {
             _ => (b'A' + letter_index as u8 + 1) as char,
         };
 
-        Ok(format!("{}{}", letter, y + 1))
+        Ok(format!("{}{}", letter, size - y))
     }
 
     pub fn colour_at(&self, point: u16) -> Option<Colour> {

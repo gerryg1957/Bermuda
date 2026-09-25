@@ -205,7 +205,8 @@ fn analysis_point_from_core(point: u16, board_size: u8) -> Result<AnalysisPoint>
 
     Ok(AnalysisPoint {
         x: (point % size) as u8,
-        y: (point / size) as u8,
+        // Stored SGF rows are top-down; AnalysisPoint is bottom-up.
+        y: board_size - 1 - (point / size) as u8,
     })
 }
 
@@ -829,6 +830,31 @@ mod tests {
     }
 
     #[test]
+    fn sample_sgf_has_external_coordinates_and_unchanged_storage() {
+        let sgf = b"(;SZ[19];B[qd];W[dp];B[pq];W[dd];B[oc];W[jp];B[po])";
+        let collection = crate::parse_collection(sgf).unwrap();
+        let record = crate::extract_main_variation(&collection).unwrap();
+        let states = crate::replay_positions(&record).unwrap();
+        let analysis = analysis_position_from_states(&states, 7).unwrap();
+        let expected = ["R16", "D4", "Q3", "D16", "P17", "K4", "Q5"];
+        for (i, name) in expected.iter().enumerate() {
+            let point = record.moves[i].point.unwrap();
+            assert_eq!(states[i + 1].board.point_name(point).unwrap(), *name);
+            assert_eq!(format_vertex(analysis.moves[i].vertex, 19).unwrap(), *name);
+        }
+        assert_eq!(record.moves[0].point, Some(3 * 19 + 16));
+        assert_eq!(record.moves[6].point, Some(14 * 19 + 15));
+        let written = crate::write_game_record_sgf(&record).unwrap();
+        let restored = crate::extract_main_variation(
+            &crate::parse_collection(written.as_bytes()).unwrap()).unwrap();
+        assert_eq!(record, restored);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("game.bin");
+        crate::write_move_file(&path, &record).unwrap();
+        assert_eq!(crate::read_move_file(&path).unwrap(), record);
+    }
+
+    #[test]
     fn converts_ordinary_move_history() {
         let position = position_from_sgf("(;FF[4]GM[1]SZ[19];B[dd];W[pq])", 2);
 
@@ -842,11 +868,11 @@ mod tests {
             vec![
                 AnalysisMove {
                     colour: Colour::Black,
-                    vertex: AnalysisVertex::Point(AnalysisPoint { x: 3, y: 3 }),
+                    vertex: AnalysisVertex::Point(AnalysisPoint { x: 3, y: 15 }),
                 },
                 AnalysisMove {
                     colour: Colour::White,
-                    vertex: AnalysisVertex::Point(AnalysisPoint { x: 15, y: 16 }),
+                    vertex: AnalysisVertex::Point(AnalysisPoint { x: 15, y: 2 }),
                 },
             ]
         );
@@ -880,11 +906,11 @@ mod tests {
             vec![
                 AnalysisStone {
                     colour: Colour::Black,
-                    point: AnalysisPoint { x: 3, y: 3 },
+                    point: AnalysisPoint { x: 3, y: 15 },
                 },
                 AnalysisStone {
                     colour: Colour::White,
-                    point: AnalysisPoint { x: 3, y: 15 },
+                    point: AnalysisPoint { x: 3, y: 3 },
                 },
             ]
         );
@@ -901,7 +927,7 @@ mod tests {
             position.moves[0],
             AnalysisMove {
                 colour: Colour::Black,
-                vertex: AnalysisVertex::Point(AnalysisPoint { x: 3, y: 3 }),
+                vertex: AnalysisVertex::Point(AnalysisPoint { x: 3, y: 15 }),
             }
         );
     }

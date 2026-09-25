@@ -84,6 +84,11 @@ struct JosekiTreeNode {
     category: String,
     label: String,
     move_number: usize,
+    description: String,
+    tags_text: String,
+    source_description: String,
+    source_url: String,
+    markup_json: String,
     loaded: bool,
 }
 
@@ -189,6 +194,11 @@ fn update_joseki_tree(tree: &mut JosekiTree, presentation: &JosekiPresentation) 
                 category: String::new(),
                 label: String::new(),
                 move_number: move_number.saturating_sub(1),
+                description: String::new(),
+                tags_text: String::new(),
+                source_description: String::new(),
+                source_url: String::new(),
+                markup_json: "[]".to_owned(),
                 loaded: false,
             });
 
@@ -215,6 +225,11 @@ fn update_joseki_tree(tree: &mut JosekiTree, presentation: &JosekiPresentation) 
                 category: presentation.category.clone(),
                 label: String::new(),
                 move_number,
+                description: presentation.description.clone(),
+                tags_text: presentation.tags_text.clone(),
+                source_description: presentation.source_description.clone(),
+                source_url: presentation.source_url.clone(),
+                markup_json: presentation.markup_json.clone(),
                 loaded: true,
             });
 
@@ -223,6 +238,11 @@ fn update_joseki_tree(tree: &mut JosekiTree, presentation: &JosekiPresentation) 
         current.placement = presentation.current_placement.clone();
         current.category = presentation.category.clone();
         current.move_number = move_number;
+        current.description = presentation.description.clone();
+        current.tags_text = presentation.tags_text.clone();
+        current.source_description = presentation.source_description.clone();
+        current.source_url = presentation.source_url.clone();
+        current.markup_json = presentation.markup_json.clone();
         current.loaded = true;
     }
 
@@ -240,6 +260,11 @@ fn update_joseki_tree(tree: &mut JosekiTree, presentation: &JosekiPresentation) 
                 category: continuation.category.clone(),
                 label: continuation.label.clone(),
                 move_number: child_move_number,
+                description: String::new(),
+                tags_text: String::new(),
+                source_description: String::new(),
+                source_url: String::new(),
+                markup_json: "[]".to_owned(),
                 loaded: false,
             });
 
@@ -330,6 +355,243 @@ fn joseki_tree_json(tree: &JosekiTree) -> String {
     append_joseki_tree_nodes(tree, &root_id, 0, &mut next_lane, &mut visited, &mut output);
 
     serde_json::to_string(&output).unwrap_or_else(|_| "[]".to_owned())
+}
+
+fn explored_main_children(
+    tree: &JosekiTree,
+    current_node_id: &str,
+) -> Result<HashMap<String, String>, String> {
+    let current = tree
+        .nodes
+        .get(current_node_id)
+        .ok_or_else(|| format!("OGS joseki node {current_node_id} is not in the explored tree"))?;
+
+    let expected_depth = current.move_number;
+    let mut preferred = HashMap::new();
+    let mut visited = HashSet::new();
+    let mut child_id = current_node_id.to_owned();
+    let mut depth = 0usize;
+
+    loop {
+        if !visited.insert(child_id.clone()) {
+            return Err("cycle in explored OGS joseki tree".to_owned());
+        }
+
+        if child_id == "root" {
+            break;
+        }
+
+        let child = tree
+            .nodes
+            .get(&child_id)
+            .ok_or_else(|| format!("OGS joseki node {child_id} is missing"))?;
+
+        let parent_id = child
+            .parent_node_id
+            .as_ref()
+            .ok_or_else(|| format!("OGS joseki node {child_id} has no parent"))?
+            .clone();
+
+        preferred.insert(parent_id.clone(), child_id);
+        child_id = parent_id;
+        depth = depth.saturating_add(1);
+    }
+
+    if depth != expected_depth {
+        return Err(format!(
+            "explored OGS joseki path is incomplete: move {expected_depth}, path depth {depth}"
+        ));
+    }
+
+    Ok(preferred)
+}
+
+fn qml_point_to_sgf(x: i64, y: i64) -> Option<String> {
+    let x = u8::try_from(x).ok()?;
+    let y = u8::try_from(y).ok()?;
+
+    if x >= 19 || y >= 19 {
+        return None;
+    }
+
+    Some(format!("{}{}", char::from(b'a' + x), char::from(b'a' + y)))
+}
+
+fn append_joseki_markup(sgf: &mut String, markup_json: &str) {
+    let Ok(Value::Array(marks)) = serde_json::from_str::<Value>(markup_json) else {
+        return;
+    };
+
+    for mark in marks {
+        if mark.get("type").and_then(Value::as_str) != Some("label") {
+            continue;
+        }
+
+        let Some(x) = mark.get("x").and_then(Value::as_i64) else {
+            continue;
+        };
+        let Some(y) = mark.get("y").and_then(Value::as_i64) else {
+            continue;
+        };
+        let Some(text) = mark.get("text").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(point) = qml_point_to_sgf(x, y) else {
+            continue;
+        };
+
+        let label = sgf_escape(text).replace(':', "\\:");
+        sgf.push_str(&format!("LB[{point}:{label}]"));
+    }
+}
+
+fn joseki_tree_node_comment(node: &JosekiTreeNode) -> String {
+    let mut details = Vec::new();
+
+    if node.loaded {
+        if !node.description.trim().is_empty() {
+            details.push(node.description.trim().to_owned());
+        }
+
+        if !node.category.trim().is_empty() {
+            details.push(format!("Last move: {}", node.category.trim()));
+        }
+
+        if !node.label.trim().is_empty() {
+            details.push(format!("Variation: {}", node.label.trim()));
+        }
+
+        if !node.tags_text.trim().is_empty() {
+            details.push(format!("Tags: {}", node.tags_text.trim()));
+        }
+
+        if !node.source_description.trim().is_empty() {
+            details.push(format!("Source: {}", node.source_description.trim()));
+        }
+
+        if !node.source_url.trim().is_empty() {
+            details.push(node.source_url.trim().to_owned());
+        }
+    } else {
+        if !node.category.trim().is_empty() {
+            details.push(node.category.trim().to_owned());
+        }
+
+        if !node.label.trim().is_empty() {
+            details.push(format!("variation {}", node.label.trim()));
+        }
+    }
+
+    details.push(format!("OGS Joseki Explorer position {}", node.node_id));
+    details.join("\n\n")
+}
+
+fn append_explored_joseki_node(
+    sgf: &mut String,
+    node: &JosekiTreeNode,
+    root: bool,
+) -> Result<(), String> {
+    if !root {
+        let colour = if node.move_number % 2 == 1 { 'B' } else { 'W' };
+        let point = ogs_coordinate_to_sgf(&node.placement)?;
+        sgf.push_str(&format!(";{colour}[{point}]"));
+    }
+
+    let comment = joseki_tree_node_comment(node);
+    if !comment.is_empty() {
+        sgf.push_str(&format!("C[{}]", sgf_escape(&comment)));
+    }
+
+    append_joseki_markup(sgf, &node.markup_json);
+    Ok(())
+}
+
+fn append_explored_joseki_descendants(
+    sgf: &mut String,
+    tree: &JosekiTree,
+    parent_id: &str,
+    preferred: &HashMap<String, String>,
+    ancestry: &mut HashSet<String>,
+) -> Result<(), String> {
+    let parent = tree
+        .nodes
+        .get(parent_id)
+        .ok_or_else(|| format!("OGS joseki node {parent_id} is missing"))?;
+
+    let mut children = parent
+        .children
+        .iter()
+        .filter(|child| tree.nodes.contains_key(*child))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if let Some(preferred_child) = preferred.get(parent_id)
+        && let Some(index) = children.iter().position(|child| child == preferred_child)
+    {
+        children.swap(0, index);
+    }
+
+    if children.len() == 1 {
+        let child_id = &children[0];
+
+        if !ancestry.insert(child_id.clone()) {
+            return Err("cycle in explored OGS joseki tree".to_owned());
+        }
+
+        let child = tree
+            .nodes
+            .get(child_id)
+            .ok_or_else(|| format!("OGS joseki node {child_id} is missing"))?;
+
+        append_explored_joseki_node(sgf, child, false)?;
+        append_explored_joseki_descendants(sgf, tree, child_id, preferred, ancestry)?;
+        ancestry.remove(child_id);
+        return Ok(());
+    }
+
+    for child_id in children {
+        if !ancestry.insert(child_id.clone()) {
+            return Err("cycle in explored OGS joseki tree".to_owned());
+        }
+
+        let child = tree
+            .nodes
+            .get(&child_id)
+            .ok_or_else(|| format!("OGS joseki node {child_id} is missing"))?;
+
+        sgf.push('(');
+        append_explored_joseki_node(sgf, child, false)?;
+        append_explored_joseki_descendants(sgf, tree, &child_id, preferred, ancestry)?;
+        sgf.push(')');
+
+        ancestry.remove(&child_id);
+    }
+
+    Ok(())
+}
+
+fn build_explored_study_sgf(tree: &JosekiTree, current_node_id: &str) -> Result<String, String> {
+    let preferred = explored_main_children(tree, current_node_id)?;
+
+    let root = tree
+        .nodes
+        .get("root")
+        .ok_or_else(|| "the explored OGS joseki tree has no root".to_owned())?;
+
+    let mut sgf = format!(
+        "(;GM[1]FF[4]CA[UTF-8]SZ[19]GN[{}]",
+        sgf_escape(&format!("OGS Joseki Explorer position {current_node_id}"))
+    );
+
+    append_explored_joseki_node(&mut sgf, root, true)?;
+
+    let mut ancestry = HashSet::new();
+    ancestry.insert("root".to_owned());
+
+    append_explored_joseki_descendants(&mut sgf, tree, "root", &preferred, &mut ancestry)?;
+
+    sgf.push(')');
+    Ok(sgf)
 }
 
 impl ffi::JosekiModel {
@@ -429,13 +691,27 @@ fn finish_load(
 
     match result {
         Ok(presentation) => {
-            let tree_json = {
+            let (tree_json, explored_study_sgf) = {
                 let mut rust = model.as_mut().rust_mut();
 
                 update_joseki_tree(&mut rust.tree, &presentation);
 
-                joseki_tree_json(&rust.tree)
+                (
+                    joseki_tree_json(&rust.tree),
+                    build_explored_study_sgf(&rust.tree, &presentation.node_id).ok(),
+                )
             };
+
+            /*
+             * parse_position() has already written a single-position Study
+             * snapshot. Replace it with the complete explored tree when the
+             * accumulated path back to root is available. If it is not (for
+             * example after opening a deep OGS node directly), the snapshot
+             * remains a valid fallback.
+             */
+            if let Some(sgf) = explored_study_sgf {
+                let _ = fs::write(&presentation.study_sgf_path, sgf);
+            }
 
             let status = if presentation.using_cache {
                 format!(
@@ -699,6 +975,7 @@ fn parse_position(
         &tags_text,
         &source_description,
         &source_url,
+        &markup_json,
         &continuations,
     )?;
 
@@ -858,7 +1135,7 @@ fn parse_ogs_coordinate(coordinate: &str) -> Result<Option<(u8, u8, i32, i32)>, 
 
     let x = u8::try_from(x).map_err(|_| "OGS coordinate overflow".to_owned())?;
 
-    let core_y = row - 1;
+    let core_y = 19 - row;
     let qml_y = i32::from(19 - row);
 
     Ok(Some((x, core_y, i32::from(x), qml_y)))
@@ -911,7 +1188,7 @@ fn board_stones_json(board: &Board) -> String {
 
         let x = point % size;
         let core_y = point / size;
-        let qml_y = size - 1 - core_y;
+        let qml_y = core_y;
 
         stones.push(serde_json::json!({
             "x": x,
@@ -1005,6 +1282,7 @@ fn build_study_sgf(
     tags: &str,
     source_description: &str,
     source_url: &str,
+    markup_json: &str,
     continuations: &[JosekiContinuation],
 ) -> Result<String, String> {
     let mut details = Vec::new();
@@ -1040,6 +1318,7 @@ fn build_study_sgf(
 
     if moves.is_empty() {
         sgf.push_str(&format!("C[{current_comment}]"));
+        append_joseki_markup(&mut sgf, markup_json);
     }
 
     for (index, coordinate) in moves.iter().enumerate() {
@@ -1050,6 +1329,7 @@ fn build_study_sgf(
 
         if index + 1 == moves.len() {
             sgf.push_str(&format!("C[{current_comment}]"));
+            append_joseki_markup(&mut sgf, markup_json);
         }
     }
 
@@ -1106,9 +1386,9 @@ mod tests {
 
     #[test]
     fn parses_ogs_coordinates() {
-        assert_eq!(parse_ogs_coordinate("Q16").unwrap(), Some((15, 15, 15, 3)));
+        assert_eq!(parse_ogs_coordinate("Q16").unwrap(), Some((15, 3, 15, 3)));
 
-        assert_eq!(parse_ogs_coordinate("D4").unwrap(), Some((3, 3, 3, 15)));
+        assert_eq!(parse_ogs_coordinate("D4").unwrap(), Some((3, 15, 3, 15)));
 
         assert_eq!(parse_ogs_coordinate("pass").unwrap(), None);
     }
