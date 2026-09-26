@@ -35,9 +35,9 @@ select a pattern, and search.
 Bermuda is intended to be installed and used as a normal desktop application,
 launched from an application menu or icon.
 
-RPM and Flatpak candidates for 0.8.0 have been built and locally tested.
-Publication is being prepared; see the [candidate release notes](docs/releases/0.8.0.md)
-for installation steps and limitations. Source-build instructions remain below.
+The 0.8.0 Linux testing release has been published. Version 0.8.1 is being
+prepared to fix disappearing game trees when resizing panes; see the
+[0.8.1 candidate notes](docs/releases/0.8.1.md). Source-build instructions remain below.
 
 ### First launch
 
@@ -86,9 +86,10 @@ A demonstration of the graphical application is available here:
 
 ## Release packaging
 
-Version 0.8.0 is being prepared as a Linux testing release. The
+Version 0.8.1 is being prepared as a corrective Linux testing release. The
 [Tumbleweed RPM](docs/building-rpm.md) and [Flatpak](docs/building-flatpak.md)
-have passed local installation tests and signature verification. Windows 11
+passed local installation tests and signature verification for 0.8.0; the
+0.8.1 packages need their own checks. Windows 11
 packaging is planned next. See [release preparation](docs/packaging.md).
 
 ## Building from source

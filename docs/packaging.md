@@ -4,7 +4,7 @@
 
 Packaging plan, with an initial Tumbleweed RPM recipe prepared for testing.
 
-Current application version: **0.8.0**. See [Building the RPM](building-rpm.md)
+Current application version: **0.8.1**. See [Building the RPM](building-rpm.md)
 for the local build and installation check. The GUI now embeds its QML and
 image resources; it does not require the source directory at runtime.
 
@@ -281,7 +281,9 @@ These are local tests, not proof of compatibility with every Linux machine.
 Clean-machine dependency checks, broader portal checks and a complete bundled
 licence review remain outstanding. Windows has no package yet.
 
-The candidate release notes are in [releases/0.8.0.md](releases/0.8.0.md).
+The current candidate release notes are in [releases/0.8.1.md](releases/0.8.1.md).
+The 0.8.1 layout fix was confirmed in the development build; package validation
+is still pending. The 0.8.0 results above remain historical results.
 After committing the source and packaging work, stage the existing signed
 packages and create a signed checksum list with:
 
@@ -290,7 +292,7 @@ bash packaging/prepare-release.sh
 ```
 
 The script expects the previously verified packages under
-`~/bermuda-packages/0.8.0` and the public key under `~/bermuda-packages`.
+`~/bermuda-packages/<current Cargo version>` and the public key under `~/bermuda-packages`.
 It writes a new `github-pre-release` directory and refuses to overwrite one.
 It asks GnuPG to sign the checksums using the existing Bermuda key. It does
 not rebuild, install, tag, push or publish anything. Do not publish unsigned
@@ -301,8 +303,9 @@ application sources used to build both packages. Documentation added after
 the builds does not require recompiling the application. Changes to runtime
 code do require a new build, signing and verification.
 
-A proposed first tag is `v0.8.0-rc1`, with GitHub's **pre-release** option set.
-The application and package version remain 0.8.0. Review the release notes,
+For this update use a new tag such as `v0.8.1-rc1`, with GitHub's **pre-release**
+option set. The application and package version are 0.8.1. Keep the published
+0.8.0 release and its signed files intact. Review the release notes,
 source correspondence and licence status before uploading the staged assets.
 The staging script's Git commit record identifies the preparation checkout;
 it is not, by itself, proof of either binary's build provenance.

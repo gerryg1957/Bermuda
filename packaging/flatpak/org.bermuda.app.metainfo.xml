@@ -17,6 +17,9 @@
   <url type="bugtracker">https://github.com/gerryg1957/Bermuda/issues</url>
   <provides><binary>bermuda-qt</binary></provides>
   <releases>
+    <release version="0.8.1" date="2026-09-26" type="development">
+      <description><p>Keep game and joseki trees visible when resizing panes.</p></description>
+    </release>
     <release version="0.8.0" date="2026-09-25" type="development"/>
   </releases>
 </component>

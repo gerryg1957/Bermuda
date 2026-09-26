@@ -1,6 +1,6 @@
 # Local Tumbleweed release candidate. OBS policy review is a later step.
 Name:           bermuda
-Version:        0.8.0
+Version:        0.8.1
 Release:        1
 Summary:        Go game database and study application
 License:        GPL-3.0-or-later
@@ -52,5 +52,8 @@ install -D -m 0644 packaging/org.bermuda.app.desktop %{buildroot}%{_datadir}/app
 %{_datadir}/applications/org.bermuda.app.desktop
 
 %changelog
+* Sat Sep 26 2026 Bermuda contributors
+- Keep game and joseki trees visible when resizing panes.
+
 * Fri Sep 25 2026 Bermuda contributors
 - Prepare initial 0.8.0 Tumbleweed package.
