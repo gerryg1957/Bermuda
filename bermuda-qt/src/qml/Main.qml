@@ -6764,6 +6764,30 @@ MenuItem {
                 Frame {
                     id: boardFrame
 
+                    readonly property bool hasGameTree:
+                        root.studyPaneMode !== "joseki"
+                        && gameController.sgf_tree_json !== "[]"
+
+                    readonly property bool hasJosekiTree:
+                        root.studyPaneMode === "joseki"
+                        && josekiModel.tree_json !== "[]"
+
+                    /*
+                     * Variations are part of study navigation, not optional
+                     * decoration in the space left over by a square board.
+                     * Reserve a readable tree column before sizing the goban.
+                     * Wider layouts can still give the tree all spare space.
+                     */
+                    readonly property real treeColumnMinimumWidth:
+                        hasGameTree || hasJosekiTree
+                        ? Math.min(Kirigami.Units.gridUnit * 10,
+                                   Math.max(0, availableWidth) * 0.4)
+                        : 0
+
+                    readonly property real treeColumnSpacing:
+                        treeColumnMinimumWidth > 0
+                        ? Kirigami.Units.smallSpacing : 0
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
@@ -6802,10 +6826,7 @@ MenuItem {
                                 goBoard.x
                                 - Kirigami.Units.smallSpacing)
 
-                        visible:
-                            root.studyPaneMode !== "joseki"
-                            && gameController.sgf_tree_json !== "[]"
-                            && width >= Kirigami.Units.gridUnit * 8
+                        visible: boardFrame.hasGameTree && width > 0
 
                         padding: 4
                         clip: true
@@ -7247,10 +7268,7 @@ MenuItem {
                                 goBoard.x
                                 - Kirigami.Units.smallSpacing)
 
-                        visible:
-                            root.studyPaneMode === "joseki"
-                            && josekiModel.tree_json !== "[]"
-                            && width >= Kirigami.Units.gridUnit * 8
+                        visible: boardFrame.hasJosekiTree && width > 0
 
                         padding: 4
                         clip: true
@@ -7686,12 +7704,13 @@ MenuItem {
 
 
                         anchors.right: parent.right
-                        anchors.rightMargin: boardFrame.rightPadding
                         anchors.verticalCenter: parent.verticalCenter
 
-                        width: Math.min(
-                            boardFrame.availableWidth,
-                            boardFrame.availableHeight)
+                        width: Math.max(0, Math.min(
+                            boardFrame.availableWidth
+                                - boardFrame.treeColumnMinimumWidth
+                                - boardFrame.treeColumnSpacing,
+                            boardFrame.availableHeight))
                         height: width
 
                         /*
