@@ -72,6 +72,7 @@ mod ffi {
         #[qproperty(QString, katago_install_status)]
         #[qproperty(QString, katago_install_paths_json)]
         #[qproperty(QString, katago_analysis_text)]
+        #[qproperty(i32, katago_analysis_visits)]
         #[qproperty(QString, katago_candidate_points_json)]
         type BermudaApp = super::BermudaAppRust;
 
@@ -271,6 +272,10 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "showSgfNode"]
         fn show_sgf_node(self: Pin<&mut BermudaApp>, node_id: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "kataGoHardwareReport"]
+        fn katago_hardware_report(self: &BermudaApp) -> QString;
 
         #[qinvokable]
         #[cxx_name = "kataGoInstallPlan"]
@@ -479,6 +484,7 @@ pub struct BermudaAppRust {
     katago_install_paths_json: QString,
     katago_install_cancel: Option<Arc<AtomicBool>>,
     katago_analysis_text: QString,
+    katago_analysis_visits: i32,
     katago_candidate_points_json: QString,
 
     loaded_document: Option<LoadedDocument>,
@@ -517,6 +523,7 @@ impl Default for BermudaAppRust {
             katago_install_paths_json: QString::default(),
             katago_install_cancel: None,
             katago_analysis_text: QString::default(),
+            katago_analysis_visits: 0,
             katago_candidate_points_json: QString::from("[]"),
 
             loaded_document: None,
@@ -539,6 +546,7 @@ struct KataGoLatestRequest {
 
 struct KataGoPresentation {
     text: String,
+    visits: i32,
     candidate_points_json: String,
 }
 
@@ -562,13 +570,14 @@ fn queue_katago_completion(
 
             match completion {
                 Ok(presentation) => {
-                    app.as_mut().set_katago_analysis_succeeded(true);
+                    app.as_mut().set_katago_analysis_visits(presentation.visits);
                     app.as_mut()
                         .set_katago_analysis_text(QString::from(presentation.text));
 
                     app.as_mut().set_katago_candidate_points_json(QString::from(
                         presentation.candidate_points_json,
                     ));
+                    app.as_mut().set_katago_analysis_succeeded(true);
                 }
 
                 Err(error) => {
@@ -776,6 +785,7 @@ fn start_katago_worker(qt_thread: cxx_qt::CxxQtThread<ffi::BermudaApp>) -> KataG
                                     format_katago_analysis(&analysis, board_size).map(|text| {
                                         KataGoPresentation {
                                             text,
+                                            visits: analysis.visits.min(i32::MAX as u64) as i32,
                                             candidate_points_json,
                                         }
                                     })
@@ -890,6 +900,11 @@ fn cancel_katago_analysis_impl(mut app: Pin<&mut ffi::BermudaApp>, report_cancel
     app.as_mut().set_error_message(QString::default());
     app.as_mut()
         .set_katago_candidate_points_json(QString::from("[]"));
+
+    app.as_mut().set_katago_analysis_succeeded(false);
+    if !report_cancelled {
+        app.as_mut().set_katago_analysis_text(QString::default());
+    }
 
     if !app.as_ref().rust().katago_analysis_in_progress {
         return true;
@@ -2321,6 +2336,10 @@ impl ffi::BermudaApp {
         }
     }
 
+    fn katago_hardware_report(&self) -> QString {
+        QString::from(crate::katago_install::hardware_report())
+    }
+
     fn katago_install_plan(&self, faster: bool) -> QString {
         QString::from(crate::katago_install::summary(faster))
     }
@@ -2854,6 +2873,11 @@ impl ffi::BermudaApp {
 
         match result {
             Ok((position, tree_json, current_tree_node, markup_json)) => {
+                // Every successful position presentation invalidates the previous
+                // analysis, including new games and sibling variations at the
+                // same move number. Cancel before publishing the new board so
+                // queued completions cannot repopulate it with obsolete results.
+                let _ = cancel_katago_analysis_impl(self.as_mut(), false);
                 self.as_mut().set_board_size(position.board_size);
                 self.as_mut().set_stones_json(position.stones_json);
                 self.as_mut().set_move_number(position.move_number);
@@ -2895,6 +2919,7 @@ impl ffi::BermudaApp {
     }
 
     fn reset_position_display(mut self: Pin<&mut Self>) {
+        let _ = cancel_katago_analysis_impl(self.as_mut(), false);
         self.as_mut().set_board_size(19);
         self.as_mut().set_stones_json(QString::from("[]"));
         self.as_mut().set_move_number(0);
@@ -4286,7 +4311,9 @@ fn update_study_move(
                 .as_ref()
                 .expect("Study tree was created above");
 
-            bermuda::extend_study_move(&mut collection, tree, node_id, mv)?
+            // Play moves follows an existing child or creates an alternative,
+            // preserving the original continuation without a separate UI mode.
+            bermuda::branch_study_move(&mut collection, tree, node_id, mv)?
         };
 
         /*

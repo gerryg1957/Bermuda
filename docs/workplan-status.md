@@ -112,10 +112,11 @@ Implemented Study functionality includes:
 - Done / return to Study Library;
 - a clearer **Annotate / Moves / Edit** tool organisation.
 
-Branch now has a distinct meaning:
-
-- **Branch** adds one or more sibling continuations from a fixed branch point;
-- **Add move** extends the selected continuation.
+Interaction update (2026-09-29, pending GUI validation): **Play moves** replaces
+both Add move and the fixed-point Branch mode. A different next move creates a
+variation and follows it; an existing next move is followed without duplication.
+Subsequent moves extend the selected line. Original continuations are preserved.
+See [Study and My Games](study-and-my-games.md) for the revised workflow.
 
 There is therefore no planned **Insert move** command. It does not solve a
 separate normal Study task.

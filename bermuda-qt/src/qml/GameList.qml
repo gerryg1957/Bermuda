@@ -41,6 +41,7 @@ Kirigami.AbstractCard {
     property int selectedRow: -1
     property int databaseSelectedRow: -1
     property int myGamesSelectedRow: -1
+    property var selectedMyGame: null
     property int selectedSearchRow: -1
 
     property bool databaseProjectLoaded: false
@@ -350,6 +351,7 @@ Kirigami.AbstractCard {
     function resetCatalogueSelection(myGames) {
         if (myGames) {
             myGamesSelectedRow = -1
+            selectedMyGame = null
 
             if (showingMyGames)
                 selectedRow = -1
@@ -1923,45 +1925,15 @@ Kirigami.AbstractCard {
             }
         }
 
-        RowLayout {
+        Flow {
             Layout.fillWidth: true
             visible: mainTabs.currentIndex === 1
             spacing: Kirigami.Units.smallSpacing
 
-            Item {
-                implicitWidth:
-                    removeSelectedMyGameButton.implicitWidth + 6
-                implicitHeight:
-                    removeSelectedMyGameButton.implicitHeight + 6
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: 6
-                    color: Kirigami.Theme.highlightColor
-                    opacity:
-                        removeSelectedMyGameButton.enabled ? 0.45 : 0.0
-                }
-
-                Button {
-                    id: removeSelectedMyGameButton
-
-                    anchors.centerIn: parent
-
-                    text: qsTr("Remove selected game…")
-                    highlighted: root.removeSelectedMyGameEnabled
-                    enabled: root.removeSelectedMyGameEnabled
-
-                    onClicked:
-                        root.removeSelectedMyGameRequested()
-
-                    ToolTip.visible: hovered
-                    ToolTip.text:
-                        qsTr("Remove selected game from My games")
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
+            Button {
+                text: qsTr("Remove selected game…")
+                enabled: root.removeSelectedMyGameEnabled
+                onClicked: root.removeSelectedMyGameRequested()
             }
         }
 
@@ -2625,10 +2597,8 @@ Kirigami.AbstractCard {
                             : "transparent"
                 }
 
-                onClicked: {
-                    root.selectedRow = index
-
-                    root.gameSelected({
+                function gameDetails() {
+                    return {
                         gameId: gameId,
                         gameSourceId: gameSourceId,
                         black: blackPlayer,
@@ -2638,7 +2608,15 @@ Kirigami.AbstractCard {
                         eventName: event,
                         komi: rowDelegate.komi,
                         fromSearchResults: false
-                    })
+                    }
+                }
+
+                onClicked: {
+                    root.selectedRow = index
+                    const game = gameDetails()
+                    if (root.showingMyGames)
+                        root.selectedMyGame = game
+                    root.gameSelected(game)
                 }
 
                 contentItem: RowLayout {

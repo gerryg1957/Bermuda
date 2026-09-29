@@ -52,6 +52,74 @@ pub fn summary(faster: bool) -> String {
     }
 }
 
+/// Read-only inventory. A visible device is not proof of a usable compute runtime.
+pub fn hardware_report() -> String {
+    let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let mut lines = vec![format!("System: {} / {}; {} logical processors available.",
+        std::env::consts::OS, std::env::consts::ARCH, logical)];
+    #[cfg(target_arch = "x86_64")]
+    lines.push(format!("CPU instructions: AVX2 {}; FMA {}.",
+        if std::is_x86_feature_detected!("avx2") { "available" } else { "unavailable" },
+        if std::is_x86_feature_detected!("fma") { "available" } else { "unavailable" }));
+    #[cfg(target_os = "linux")]
+    {
+        let pci_names = ["/usr/share/hwdata/pci.ids", "/usr/share/misc/pci.ids"]
+            .iter().find_map(|path| fs::read_to_string(path).ok()).unwrap_or_default();
+        let mut devices = Vec::new();
+        if let Ok(entries) = fs::read_dir("/sys/class/drm") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let Some(number) = name.strip_prefix("card") else { continue };
+                if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) { continue; }
+                let device = entry.path().join("device");
+                let read = |field: &str| fs::read_to_string(device.join(field)).unwrap_or_default().trim().to_owned();
+                let vendor = read("vendor").trim_start_matches("0x").to_owned();
+                let id = read("device").trim_start_matches("0x").to_owned();
+                if vendor.is_empty() || id.is_empty() { continue; }
+                let label = pci_device_name(&pci_names, &vendor, &id)
+                    .unwrap_or_else(|| format!("PCI {vendor}:{id}"));
+                let memory = read("mem_info_vram_total").parse::<u64>().ok()
+                    .filter(|bytes| *bytes > 0)
+                    .map(|bytes| format!("; {:.1} GiB reported VRAM", bytes as f64 / 1_073_741_824.0))
+                    .unwrap_or_default();
+                devices.push(format!("{name}: {label}{memory}"));
+            }
+        }
+        devices.sort();
+        if devices.is_empty() {
+            lines.push("Graphics inventory unavailable here. This does not mean the computer has no GPU.".into());
+        } else {
+            lines.push("Visible graphics devices (compute support not tested):".into());
+            lines.extend(devices);
+        }
+        if std::env::var_os("FLATPAK_ID").is_some() || Path::new("/.flatpak-info").exists() {
+            lines.push("Running inside Flatpak: device visibility does not guarantee that its compute libraries are available inside the sandbox.".into());
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    lines.push("Graphics inventory is not yet available on this platform.".into());
+    lines.join("\n")
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn pci_device_name(database: &str, vendor: &str, device: &str) -> Option<String> {
+    let mut vendor_name = None;
+    for line in database.lines() {
+        if line.is_empty() || line.starts_with('#') { continue; }
+        if !line.starts_with('\t') {
+            if vendor_name.is_some() { break; }
+            if let Some((id, name)) = line.split_once("  ") {
+                if id == vendor { vendor_name = Some(name.trim()); }
+            }
+        } else if vendor_name.is_some() && !line.starts_with("\t\t") {
+            if let Some((id, name)) = line.trim_start_matches('\t').split_once("  ") {
+                if id == device { return Some(format!("{} {}", vendor_name.unwrap(), name.trim())); }
+            }
+        }
+    }
+    vendor_name.map(|name| format!("{name} (PCI {vendor}:{device})"))
+}
+
 fn check_cancel(cancel: &AtomicBool) -> Result<(), String> {
     if cancel.load(Ordering::Relaxed) { Err("Installation cancelled. Your saved setup has not changed.".into()) } else { Ok(()) }
 }
@@ -191,6 +259,15 @@ pub fn install(root: &Path, faster: bool, cancel: &AtomicBool, progress: impl Fn
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn graphics_names_stay_with_their_pci_vendor() {
+        let db = "1002  AMD\n\t1234  Card A\n10de  NVIDIA\n\t1234  Card B\n";
+        assert_eq!(pci_device_name(db, "1002", "1234"), Some("AMD Card A".into()));
+        assert_eq!(pci_device_name(db, "10de", "1234"), Some("NVIDIA Card B".into()));
+        assert_eq!(pci_device_name(db, "ffff", "1234"), None);
+        assert_eq!(pci_device_name(db, "1002", "ffff"), Some("AMD (PCI 1002:ffff)".into()));
+    }
+
     #[test]
     fn packages_follow_platform_and_cpu_capabilities() {
         assert!(package("linux", "x86_64", true).unwrap().0.contains("eigenavx2-linux"));

@@ -82,6 +82,22 @@ ApplicationWindow {
      *   ready    - show the normal Bermuda workspace.
      */
     property string startupMode: "detecting"
+    property bool startupMinimumElapsed: false
+
+    function finishStartupIfReady() {
+        if (startupMode === "loading" && gameList.projectLoaded
+                && startupMinimumElapsed)
+            startupMode = "ready"
+    }
+
+    Timer {
+        id: startupDisplayTimer
+        interval: 1800
+        onTriggered: {
+            root.startupMinimumElapsed = true
+            root.finishStartupIfReady()
+        }
+    }
 
     onProjectPathChanged: {
         if (root.projectPath.length > 0
@@ -91,6 +107,11 @@ ApplicationWindow {
 
     BermudaApp {
         id: workspaceGameController
+    }
+
+    // Collection removal must not replace a retained Study document.
+    BermudaApp {
+        id: collectionManagementController
     }
 
     // Joseki searches must not replace either retained workspace document.
@@ -113,6 +134,15 @@ ApplicationWindow {
 
         property var environment: ({})
         property bool guided: true
+        property bool showInstallOptions: false
+        property string hardwareReport: ""
+        property bool showHardwareReport: false
+        property int benchmarkStep: -1
+        property var benchmarkRows: []
+        property int testGeneration: 0
+        readonly property bool hasSavedSetup:
+            katagoSettings.model.length > 0 || fromEnvironment("model")
+        readonly property bool benchmarking: benchmarkStep >= 0
         property bool guidedTest: false
         property bool guidedSaved: false
         property bool guidedDownloaded: false
@@ -123,7 +153,7 @@ ApplicationWindow {
         property double testStartedAt: 0
         property string testElapsed: ""
         readonly property bool busy: katagoSetupController.katago_analysis_in_progress
-                                     || katagoSetupController.katago_installing
+                                     || katagoSetupController.katago_installing || benchmarking
 
         function saveSelection() {
             if (!fromEnvironment("executable")) katagoSettings.executable = katagoExecutableField.text
@@ -131,6 +161,99 @@ ApplicationWindow {
             if (!fromEnvironment("config")) katagoSettings.config = katagoConfigField.text
             workspaceGameController.releaseKataGo()
             josekiSearchController.releaseKataGo()
+        }
+        function loadSavedSelection() {
+            guidedDownloaded = false
+            guidedSaved = false
+            guidedTest = false
+            katagoExecutableField.text = fromEnvironment("executable") ? environment.executable : katagoSettings.executable
+            katagoModelField.text = fromEnvironment("model") ? environment.model : katagoSettings.model
+            katagoConfigField.text = fromEnvironment("config") ? environment.config : katagoSettings.config
+        }
+        function refreshHardware() {
+            showHardwareReport = true
+            hardwareReport = katagoSetupController.kataGoHardwareReport()
+            installPlan = JSON.parse(katagoSetupController.kataGoInstallPlan(katagoSpeed.currentIndex === 1))
+        }
+        function startBenchmark() {
+            guidedTest = false
+            invalidate()
+            if (!prepareConfig()) return
+            workspaceGameController.releaseKataGo()
+            josekiSearchController.releaseKataGo()
+            katagoSetupController.releaseKataGo()
+            benchmarkRows = []
+            benchmarkStep = 0
+            runBenchmarkPosition()
+        }
+        function runBenchmarkPosition() {
+            // Separate synthetic positions, all Black to play; never edit the user's game.
+            const positions = [[], [[3,3,"black"],[15,15,"white"]],
+                [[3,3,"black"],[15,15,"white"],[15,3,"black"],[3,15,"white"]],
+                [[3,3,"black"],[5,3,"white"],[4,5,"black"],[3,5,"white"],
+                 [15,15,"black"],[15,3,"white"],[3,15,"black"],[15,5,"white"]]]
+            if (!katagoSetupController.newPosition(19)) {
+                stopTest(katagoSetupController.error_message)
+                return
+            }
+            for (const stone of positions[benchmarkStep]) {
+                if (!katagoSetupController.editPositionPoint(stone[0], stone[1], stone[2])) {
+                    stopTest(katagoSetupController.error_message)
+                    return
+                }
+            }
+            testPending = true
+            testStartedAt = Date.now()
+            statusText = benchmarkStep === 0 ? qsTr("Preparing the engine (not timed in the speed results)…")
+                : qsTr("Speed test: position %1 of 3, up to 100 visits…").arg(benchmarkStep)
+            if (katagoSetupController.analyseCurrentPosition(benchmarkStep === 0 ? 10 : 100, "6.5",
+                    katagoExecutableField.text, katagoModelField.text, katagoConfigField.text)) {
+                katagoSetupTimer.restart()
+            } else stopTest(katagoSetupController.error_message)
+        }
+        function finishBenchmarkPosition() {
+            if (!benchmarking || !testPending) return
+            testPending = false
+            katagoSetupTimer.stop()
+            if (benchmarkStep > 0) {
+                const seconds = Math.max(0.001, (Date.now() - testStartedAt) / 1000)
+                const visits = katagoSetupController.katago_analysis_visits
+                benchmarkRows = benchmarkRows.concat([{seconds: seconds, visits: visits}])
+            }
+            benchmarkStep++
+            if (benchmarkStep < 4) {
+                const generation = testGeneration
+                Qt.callLater(function() {
+                    if (katagoSetupDialog.opened && benchmarking && generation === testGeneration)
+                        runBenchmarkPosition()
+                })
+                return
+            }
+            benchmarkStep = -1
+            let seconds = 0
+            let visits = 0
+            let lines = []
+            for (let i = 0; i < benchmarkRows.length; i++) {
+                const row = benchmarkRows[i]
+                seconds += row.seconds
+                visits += row.visits
+                lines.push(qsTr("Position %1: %2 visits in %3 s (%4 visits/s)")
+                    .arg(i + 1).arg(row.visits).arg(row.seconds.toFixed(2))
+                    .arg((row.visits / row.seconds).toFixed(1)))
+            }
+            statusText = lines.join("\n") + "\n\n"
+                + qsTr("Overall: %1 visits/s. Engine startup excluded; request and display overhead included.\nCompare repeated runs with the same network and configuration. This is a small speed sample, not a playing-strength rating. Settings have not changed.")
+                    .arg((visits / seconds).toFixed(1))
+        }
+        function prepareConfig() {
+            if (katagoConfigField.text.trim().length === 0 && !fromEnvironment("config")) {
+                katagoConfigField.text = katagoSetupController.defaultKataGoConfig()
+                if (katagoConfigField.text.length === 0) {
+                    statusText = katagoSetupController.error_message
+                    return false
+                }
+            }
+            return true
         }
         function beginGuidedInstall() {
             invalidate()
@@ -145,6 +268,7 @@ ApplicationWindow {
                                    katagoModelField.text, katagoConfigField.text])
         }
         function invalidate() {
+            testGeneration++
             testedSelection = ""
             statusText = ""
             testElapsed = ""
@@ -154,13 +278,7 @@ ApplicationWindow {
         }
         function startTest() {
             invalidate()
-            if (katagoConfigField.text.trim().length === 0 && !fromEnvironment("config")) {
-                katagoConfigField.text = katagoSetupController.defaultKataGoConfig()
-                if (katagoConfigField.text.length === 0) {
-                    statusText = katagoSetupController.error_message
-                    return
-                }
-            }
+            if (!prepareConfig()) return
             katagoSetupController.newPosition(19)
             testPending = true
             testStartedAt = Date.now()
@@ -174,6 +292,8 @@ ApplicationWindow {
             }
         }
         function stopTest(message) {
+            testGeneration++
+            benchmarkStep = -1
             testPending = false
             katagoSetupTimer.stop()
             katagoSetupController.releaseKataGo()
@@ -186,17 +306,20 @@ ApplicationWindow {
             guidedTest = false
             guidedDownloaded = false
             environment = JSON.parse(katagoSetupController.kataGoEnvironmentJson())
-            guided = katagoSettings.model.length === 0 && Object.keys(environment).length === 0
+            guided = true
+            showInstallOptions = !hasSavedSetup
+            benchmarkStep = -1
             katagoSpeed.currentIndex = 0
-            installPlan = JSON.parse(katagoSetupController.kataGoInstallPlan(false))
-            katagoExecutableField.text = fromEnvironment("executable") ? environment.executable : katagoSettings.executable
-            katagoModelField.text = fromEnvironment("model") ? environment.model : katagoSettings.model
-            katagoConfigField.text = fromEnvironment("config") ? environment.config : katagoSettings.config
+            refreshHardware()
+            showHardwareReport = false
+            loadSavedSelection()
             katagoAdvanced.checked = katagoConfigField.text.length > 0
             katagoGetHelp.checked = katagoModelField.text.length === 0
             invalidate()
         }
         onClosed: {
+            testGeneration++
+            benchmarkStep = -1
             katagoSetupController.cancelKataGoInstall()
             guidedTest = false
             testPending = false
@@ -220,6 +343,10 @@ ApplicationWindow {
             function onKatago_analysis_succeededChanged() {
                 if (!katagoSetupDialog.testPending || !katagoSetupController.katago_analysis_succeeded)
                     return
+                if (katagoSetupDialog.benchmarking) {
+                    katagoSetupDialog.finishBenchmarkPosition()
+                    return
+                }
                 katagoSetupTimer.stop()
                 katagoSetupDialog.testPending = false
                 katagoSetupDialog.testElapsed =
@@ -230,34 +357,38 @@ ApplicationWindow {
                     katagoSetupDialog.guidedSaved = true
                     katagoSetupDialog.statusText = qsTr("KataGo is installed, tested and ready to use. Your settings have been saved.")
                 } else {
-                    katagoSetupDialog.statusText = qsTr("Setup works: KataGo completed an analysis. Choose Save to use these settings.")
+                    katagoSetupDialog.statusText = katagoSetupDialog.guided
+                        ? qsTr("Your saved setup works: KataGo completed an analysis. Settings have not changed.")
+                        : qsTr("Setup works: KataGo completed an analysis. Choose Save to use these settings.")
                 }
             }
             function onKatago_analysis_textChanged() {
-                if (katagoSetupDialog.testPending && !katagoSetupDialog.busy
+                if (katagoSetupDialog.testPending && !katagoSetupController.katago_analysis_in_progress
                         && katagoSetupController.error_message.length > 0) {
                     katagoSetupTimer.stop()
-                    katagoSetupDialog.testPending = false
-                    katagoSetupDialog.statusText = katagoSetupController.error_message
+                    katagoSetupDialog.stopTest(katagoSetupController.error_message)
                 }
             }
         }
 
         contentItem: ScrollView {
+            id: katagoSetupScroll
             clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             contentWidth: availableWidth
             ColumnLayout {
-                width: parent.width
+                width: katagoSetupScroll.availableWidth
                 spacing: 10
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     text: qsTr("KataGo adds AI analysis to Bermuda. Database search and study work without it.")
                 }
-                RowLayout {
+                Flow {
                     Layout.fillWidth: true
+                    spacing: 8
                     RadioButton {
-                        text: qsTr("Install KataGo for me")
+                        text: qsTr("Guided setup")
                         checked: katagoSetupDialog.guided
                         enabled: !katagoSetupDialog.busy
                         onClicked: {
@@ -269,7 +400,7 @@ ApplicationWindow {
                         }
                     }
                     RadioButton {
-                        text: qsTr("Use my own installation")
+                        text: qsTr("Advanced: my own installation")
                         checked: !katagoSetupDialog.guided
                         enabled: !katagoSetupDialog.busy
                         onClicked: {
@@ -282,7 +413,80 @@ ApplicationWindow {
                 ColumnLayout {
                     Layout.fillWidth: true
                     visible: katagoSetupDialog.guided
-                    Label { text: qsTr("How would you like analysis to use your computer?") }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: katagoSetupDialog.hasSavedSetup
+                            ? qsTr("Your saved KataGo setup is available. Test it, check changed hardware, or set up a replacement below.")
+                            : qsTr("Bermuda can install and configure CPU analysis for you. No file paths are needed.")
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WrapAnywhere
+                        visible: katagoSetupDialog.hasSavedSetup
+                        text: qsTr("Saved network: %1").arg(String(katagoSetupDialog.fromEnvironment("model")
+                            ? katagoSetupDialog.environment.model : katagoSettings.model).split(/[\\/]/).pop())
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Use Check hardware after adding or replacing a graphics card. GPU engines and custom networks are available through Advanced; guided installation currently provides CPU analysis.")
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Button {
+                            text: qsTr("Test saved setup")
+                            visible: katagoSetupDialog.hasSavedSetup
+                            enabled: !katagoSetupDialog.busy
+                            onClicked: {
+                                katagoSetupDialog.loadSavedSelection()
+                                katagoSetupDialog.guidedTest = false
+                                katagoSetupDialog.startTest()
+                            }
+                        }
+                        Button {
+                            text: qsTr("Test performance")
+                            visible: katagoSetupDialog.hasSavedSetup
+                            enabled: !katagoSetupDialog.busy
+                            onClicked: {
+                                katagoSetupDialog.loadSavedSelection()
+                                katagoSetupDialog.startBenchmark()
+                            }
+                        }
+                        Button {
+                            text: qsTr("Check hardware")
+                            enabled: !katagoSetupDialog.busy
+                            onClicked: katagoSetupDialog.refreshHardware()
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WrapAnywhere
+                        visible: katagoSetupDialog.showHardwareReport
+                        text: katagoSetupDialog.hardwareReport
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: katagoSetupDialog.showHardwareReport
+                        text: qsTr("Adding or replacing a graphics card needs a compatible GPU engine and runtime. Hardware detection alone does not establish that KataGo can use it. Automatic GPU installation and measured network recommendations are not available yet; custom GPU setups can be tested under Advanced.")
+                    }
+                    Button {
+                        text: qsTr("Help me replace my CPU setup")
+                        visible: katagoSetupDialog.hasSavedSetup && !katagoSetupDialog.showInstallOptions
+                        enabled: !katagoSetupDialog.busy
+                        onClicked: katagoSetupDialog.showInstallOptions = true
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: katagoSetupDialog.guided && katagoSetupDialog.showInstallOptions
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("How would you like analysis to use your computer?")
+                    }
                     ComboBox {
                         id: katagoSpeed
                         Layout.fillWidth: true
@@ -304,7 +508,7 @@ ApplicationWindow {
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                        text: qsTr("This installs CPU analysis. You can switch to a graphics-accelerated engine or a different network later using your own installation. Existing engines and networks are left untouched.")
+                        text: qsTr("This installs the same compact network with your chosen CPU settings. These choices control CPU use, not network strength. Your saved setup changes only after the new installation passes its test.")
                     }
                     Label {
                         Layout.fillWidth: true
@@ -317,7 +521,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         visible: Object.keys(katagoSetupDialog.environment).length > 0
                         wrapMode: Text.WordWrap
-                        text: qsTr("Your launch environment already selects a KataGo installation. Use ‘Use my own installation’ to view and test it.")
+                        text: qsTr("Your launch environment already selects a KataGo installation. Open Advanced to view it, or test the saved setup above.")
                     }
                     Button {
                         text: katagoSetupDialog.guidedSaved ? qsTr("Installed")
@@ -363,6 +567,8 @@ ApplicationWindow {
                     TextField {
                         id: katagoExecutableField
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: 240
                         placeholderText: qsTr("Leave blank to find katago on PATH")
                         enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("executable")
                         onTextChanged: katagoSetupDialog.invalidate()
@@ -373,12 +579,18 @@ ApplicationWindow {
                         onClicked: katagoPathPicker.choose("executable")
                     }
                 }
-                Label { text: qsTr("Neural-network file (including a custom network)") }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Neural-network file (including a custom network)")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     TextField {
                         id: katagoModelField
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: 240
                         placeholderText: qsTr("Choose a compatible model file")
                         enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("model")
                         onTextChanged: katagoSetupDialog.invalidate()
@@ -403,6 +615,8 @@ ApplicationWindow {
                         TextField {
                             id: katagoConfigField
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 240
                             placeholderText: qsTr("Bermuda starting configuration")
                             enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("config")
                             onTextChanged: katagoSetupDialog.invalidate()
@@ -439,7 +653,9 @@ ApplicationWindow {
                 }
             }
         }
-        footer: DialogButtonBox {
+        footer: Flow {
+            padding: 12
+            spacing: 8
             Button {
                 text: qsTr("Test setup")
                 visible: !katagoSetupDialog.guided
@@ -447,8 +663,14 @@ ApplicationWindow {
                 onClicked: katagoSetupDialog.startTest()
             }
             Button {
+                text: qsTr("Test performance")
+                visible: !katagoSetupDialog.guided
+                enabled: !katagoSetupDialog.busy && katagoModelField.text.trim().length > 0
+                onClicked: katagoSetupDialog.startBenchmark()
+            }
+            Button {
                 text: qsTr("Stop test")
-                visible: katagoSetupController.katago_analysis_in_progress
+                visible: katagoSetupController.katago_analysis_in_progress || katagoSetupDialog.benchmarking
                 onClicked: katagoSetupDialog.stopTest(qsTr("Test cancelled. Settings have not been saved."))
             }
             Button {
@@ -2131,11 +2353,15 @@ menuBar: MenuBar {
 
         Action {
             text: qsTr("Remove Selected Game from My &Games…")
-            enabled: gameList.showingMyGames
-                     && gameList.removeSelectedMyGameEnabled
+            enabled: root.studyingMyGame
+                || (root.browserExpanded && gameList.removeSelectedMyGameEnabled)
 
-            onTriggered:
-                gameList.removeSelectedMyGameRequested()
+            onTriggered: {
+                if (root.studyingMyGame)
+                    root.requestMyGameRemoval(boardPane.selectedGame)
+                else
+                    gameList.removeSelectedMyGameRequested()
+            }
         }
 
         MenuSeparator {}
@@ -2746,28 +2972,63 @@ menuBar: MenuBar {
         return false
     }
 
+    readonly property bool studyingMyGame:
+        root.studyWorkspaceActive && root.studyPaneMode === "document"
+        && !root.playingGame && boardPane.selectedGame !== null
+        && boardPane.selectedGame.fromMyGames === true
+        && boardPane.selectedGame.gameSourceId >= 0
+
+    function requestMyGameRemoval(game) {
+        if (game === null || game.gameSourceId === undefined
+                || game.gameSourceId < 0)
+            return
+        removeMyGameDialog.gameToRemove = game
+        removeMyGameDialog.open()
+    }
+
+    function removedGameReference(game, sourceId) {
+        if (game === null || game.fromMyGames !== true
+                || game.gameSourceId !== sourceId)
+            return game
+        return Object.assign({}, game, { fromMyGames: false, gameSourceId: -1 })
+    }
+
     function removeSelectedMyGame() {
-        const game = boardPane.selectedGame
-
-        if (game === null
-                || !gameList.showingMyGames
-                || gameList.searchResultsSelected
-                || game.fromSearchResults === true
-                || game.gameId < 0
-                || game.gameSourceId === undefined
-                || game.gameSourceId < 0) {
+        const game = removeMyGameDialog.gameToRemove
+        if (game === null || game.gameSourceId === undefined
+                || game.gameSourceId < 0)
             return false
-        }
 
-        if (gameController.removeGameFromMyGames(
-                    game.gameSourceId)) {
-            clearProjectSelection()
+        if (collectionManagementController.removeGameFromMyGames(game.gameSourceId)) {
+            // Preserve any open Study copy, but stop offering removal twice.
+            boardPane.selectedGame = root.removedGameReference(
+                boardPane.selectedGame, game.gameSourceId)
+            if (root.parkedWorkspaceUi !== null) {
+                root.parkedWorkspaceUi.selectedGame = root.removedGameReference(
+                    root.parkedWorkspaceUi.selectedGame, game.gameSourceId)
+            }
             gameList.reloadMyGamesProject()
+            root.showBrowserTab(1)
             return true
         }
 
-        console.warn(gameController.error_message)
+        removalErrorDialog.message = collectionManagementController.error_message
+        removalErrorDialog.open()
         return false
+    }
+
+    Dialog {
+        id: removalErrorDialog
+        property string message: ""
+        title: qsTr("Could not remove game")
+        modal: true
+        anchors.centerIn: parent
+        standardButtons: Dialog.Ok
+        contentItem: Label {
+            width: 360
+            text: removalErrorDialog.message
+            wrapMode: Text.WordWrap
+        }
     }
 
     property bool includeHandicapGames: false
@@ -2805,6 +3066,7 @@ menuBar: MenuBar {
 
     Dialog {
         id: removeMyGameDialog
+        property var gameToRemove: null
 
         modal: true
         anchors.centerIn: parent
@@ -2818,14 +3080,14 @@ menuBar: MenuBar {
             wrapMode: Text.WordWrap
 
             text: {
-                const game = boardPane.selectedGame
+                const game = removeMyGameDialog.gameToRemove
 
                 if (game === null)
                     return ""
 
                 return qsTr(
                     "Remove %1 — %2 from My games?\n\n"
-                    + "Any SGF you saved separately will not be affected.")
+                    + "Saved studies and separately saved SGFs will not be affected.")
                     .arg(game.black)
                     .arg(game.white)
             }
@@ -2863,6 +3125,7 @@ menuBar: MenuBar {
     }
 
     Component.onCompleted: {
+        Qt.callLater(function() { startupDisplayTimer.start() })
         /*
          * Start with the user's previous Browser/Board proportions.
          * A new installation has no saved state and therefore uses the
@@ -3171,8 +3434,9 @@ menuBar: MenuBar {
                         Label {
                             Layout.fillWidth: true
 
-                            text: qsTr(
-                                "Opening professional games database…")
+                            text: gameList.projectLoaded
+                                ? qsTr("Ready to study")
+                                : qsTr("Opening professional games database…")
                             color: "#172033"
                             font.pixelSize: 22
                             horizontalAlignment: Text.AlignHCenter
@@ -3182,6 +3446,7 @@ menuBar: MenuBar {
                             Layout.alignment: Qt.AlignHCenter
                             Layout.preferredWidth: 620
                             Layout.preferredHeight: 10
+                            visible: !gameList.projectLoaded
 
                             Rectangle {
                                 anchors.fill: parent
@@ -3242,10 +3507,18 @@ menuBar: MenuBar {
                         Label {
                             Layout.fillWidth: true
 
-                            text: qsTr(
-                                "Preparing database and search tools…")
+                            text: gameList.projectLoaded
+                                ? qsTr("Your professional games database is ready.")
+                                : qsTr("Preparing database and search tools…")
                             color: "#64748b"
                             horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Button {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Continue")
+                            enabled: gameList.projectLoaded
+                            onClicked: root.startupMode = "ready"
                         }
 
                         Item {
@@ -3289,9 +3562,7 @@ menuBar: MenuBar {
             myGamesProjectPath: root.personalProjectPath
 
             onProjectLoadedChanged: {
-                if (root.startupMode === "loading"
-                        && projectLoaded)
-                    root.startupMode = "ready"
+                root.finishStartupIfReady()
             }
 
             onShowingMyGamesChanged:
@@ -3326,14 +3597,15 @@ menuBar: MenuBar {
 
             removeSelectedMyGameEnabled:
                 gameList.showingMyGames
-                && boardPane.selectedGame !== null
-                && boardPane.selectedGame.gameId >= 0
-                && boardPane.selectedGame.gameSourceId !== undefined
-                && boardPane.selectedGame.gameSourceId >= 0
-                && boardPane.selectedGame.fromSearchResults !== true
+                && !gameList.searchResultsSelected
+                && gameList.selectedMyGame !== null
+                && gameList.selectedMyGame.gameSourceId >= 0
 
-            onRemoveSelectedMyGameRequested:
-                removeMyGameDialog.open()
+            onRemoveSelectedMyGameRequested: {
+                if (!gameList.removeSelectedMyGameEnabled)
+                    return
+                root.requestMyGameRemoval(gameList.selectedMyGame)
+            }
 
                        onGameSelected: function(game) {
                 if (!game.fromSearchResults)
@@ -3341,8 +3613,8 @@ menuBar: MenuBar {
 
                 /*
                  * My Games is a review collection rather than a browsing
-                 * catalogue. Opening one of its ordinary rows should make
-                 * that game the Study document immediately.
+                 * catalogue. Explicitly opening a selected row makes
+                 * that game the Study document.
                  *
                  * Search-result rows deliberately stay in the existing
                  * Pattern Results workflow.
@@ -3350,6 +3622,8 @@ menuBar: MenuBar {
                 const openMyGameInStudy =
                     gameList.showingMyGames
                     && game.fromSearchResults !== true
+
+                game.fromMyGames = openMyGameInStudy
 
                 if (openMyGameInStudy
                         && !root.prepareStudyReplacement()) {
@@ -4980,9 +5254,6 @@ menuBar: MenuBar {
 
                                                                                 TabBar {
                                             id: studyActionTabs
-                                            property int branchSourceNode: -1
-                                            property int branchSourceMove: -1
-
                                             visible:
                                                 !root.playingGame
                                                 && boardPane.selectedGame !== null
@@ -5013,8 +5284,6 @@ menuBar: MenuBar {
 
                                                 if (currentIndex !== 1) {
                                                     boardPane.sgfEditTool = ""
-                                                    branchSourceNode = -1
-                                                    branchSourceMove = -1
                                                 }
                                             }
                                         }
@@ -5108,26 +5377,24 @@ RowLayout {
                                             Layout.rightMargin: 8
                                             spacing: 4
 
-                                            RowLayout {
-            visible: studyActionTabs.currentIndex === 1
+                                            Flow {
+                                                visible: studyActionTabs.currentIndex === 1
                                                 Layout.fillWidth: true
                                                 spacing: 4
 
                                                 Button {
-                                                    text: qsTr("Add move")
+                                                    text: qsTr("Play moves")
                                                                                                         checkable: true
                                                     checked: boardPane.sgfEditTool === "move"
                                                     highlighted: checked
 
                                                     ToolTip.visible: hovered
                                                     ToolTip.text: qsTr(
-                                                        "Click an empty point to add a continuation. "
-                                                        + "Clicking an existing continuation follows it.")
+                                                        "Play a different move to create a variation. "
+                                                        + "An existing continuation is followed without duplicating it.")
 
                                                                                                         onClicked: {
                                                         boardPane.annotationTool = ""
-                                                        studyActionTabs.branchSourceNode = -1
-                                                        studyActionTabs.branchSourceMove = -1
                                                         boardPane.sgfEditTool = checked ? "move" : ""
                                                     }
                                                 }
@@ -5142,29 +5409,7 @@ RowLayout {
                                                                                                         onClicked: {
                                                         boardPane.annotationTool = ""
 
-                                                        const branching =
-                                                            boardPane.sgfEditTool === "branch"
-
-                                                        if (branching) {
-                                                            if (studyActionTabs.branchSourceNode < 0
-                                                                    || !gameController.showStudyStructureNode(
-                                                                        studyActionTabs.branchSourceNode)) {
-                                                                console.warn(gameController.error_message)
-                                                                return
-                                                            }
-                                                        }
-
-                                                        const ok = branching
-                                                            ? gameController.addStudyBranchPass()
-                                                            : gameController.addStudyPass()
-
-                                                        if (ok) {
-                                                            if (branching
-                                                                    && !gameController.showStudyStructureNode(
-                                                                        studyActionTabs.branchSourceNode)) {
-                                                                console.warn(gameController.error_message)
-                                                            }
-
+                                                        if (gameController.addStudyPass()) {
                                                             boardPane.applyLoadedPosition()
                                                         } else {
                                                             console.warn(gameController.error_message)
@@ -5172,30 +5417,36 @@ RowLayout {
                                                     }
                                                 }
 
-                                                Label {
-                                                    visible: boardPane.sgfEditTool === "branch"
-                                                    text: qsTr("Branching from move %1 — add alternatives here").arg(studyActionTabs.branchSourceMove)
-                                                    font.italic: true
-                                                    color: Kirigami.Theme.highlightColor
-                                                }
-
                                                 Button {
-                                                    visible: boardPane.sgfEditTool === "branch"
-                                                    text: qsTr("Cancel")
+                                                    visible: boardPane.sgfEditTool === "move"
+                                                    text: qsTr("Done")
 
                                                     ToolTip.visible: hovered
-                                                    ToolTip.text: qsTr("Cancel branch creation.")
+                                                    ToolTip.text: qsTr("Stop adding moves. The variation is kept.")
 
                                                     onClicked: {
                                                         boardPane.sgfEditTool = ""
-                                                        studyActionTabs.branchSourceNode = -1
-                                                        studyActionTabs.branchSourceMove = -1
                                                     }
                                                 }
 
-                                                Item {
-                                                    Layout.fillWidth: true
-                                                }
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                visible: studyActionTabs.currentIndex === 1
+                                                wrapMode: Text.WordWrap
+                                                text: boardPane.sgfEditTool === "move"
+                                                    ? qsTr("Click to play moves. A different continuation creates a variation; the original line is kept. Click a tree node to switch lines, or Done to stop playing moves.")
+                                                    : qsTr("Choose Play moves to try a variation from this position. Click a node in the game tree to follow an existing line.")
+                                            }
+
+                                            Label {
+                                                Layout.fillWidth: true
+                                                visible: studyActionTabs.currentIndex === 1
+                                                    && gameController.error_message.length > 0
+                                                text: gameController.error_message
+                                                color: Kirigami.Theme.negativeTextColor
+                                                wrapMode: Text.WordWrap
                                             }
 
                                             RowLayout {
@@ -5215,23 +5466,7 @@ RowLayout {
                                                     Menu {
                                                         id: studyTreeEditMenu
 
-                                                                                                                MenuItem {
-                                                            text: qsTr("Branch")
-                                                            enabled:
-                                                                gameController.studyBranchAvailable(
-                                                                    gameController.move_number)
-
-                                                                                                                        onTriggered: {
-                                                                boardPane.annotationTool = ""
-                                                                studyActionTabs.branchSourceNode =
-                                                                    gameController.sgf_tree_current_node
-                                                                studyActionTabs.branchSourceMove =
-                                                                    gameController.move_number
-                                                                studyActionTabs.currentIndex = 1
-                                                                boardPane.sgfEditTool = "branch"
-                                                            }
-                                                        }
-MenuItem {
+                                                        MenuItem {
                                                             text: qsTr("Insert node")
 
                                                             onTriggered: {
@@ -5291,6 +5526,11 @@ MenuItem {
                                                 Item {
                                                     Layout.fillWidth: true
                                                 }
+                                            }
+                                            Button {
+                                                visible: root.studyingMyGame
+                                                text: qsTr("Remove from My Games…")
+                                                onClicked: root.requestMyGameRemoval(boardPane.selectedGame)
                                             }
                                         }
 
@@ -5366,8 +5606,6 @@ MenuItem {
                                                 onClicked: {
                                                     boardPane.annotationTool = ""
                                                     boardPane.sgfEditTool = ""
-                                                    studyActionTabs.branchSourceNode = -1
-                                                    studyActionTabs.branchSourceMove = -1
                                                     root.showStudyPaneMode("library")
                                                 }
                                             }
@@ -6840,6 +7078,13 @@ MenuItem {
                                 font.bold: true
                             }
 
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Click a node to follow a variation.")
+                                wrapMode: Text.WordWrap
+                                font: Kirigami.Theme.smallFont
+                            }
+
                             Flickable {
                                 id: sgfTreeFlick
 
@@ -7719,7 +7964,7 @@ MenuItem {
                          * remaining a separate non-clickable data source.
                          */
                         katagoCandidatePoints: {
-                            if (root.studyPaneMode === "joseki")
+                            if (root.playingGame || root.studyPaneMode === "joseki")
                                 return []
 
                             if (boardPane.investigationMode !== "katago")
@@ -7791,36 +8036,12 @@ MenuItem {
                                   return
                               }
 
-                                                            if (boardPane.sgfEditTool === "move"
-                                      || boardPane.sgfEditTool === "branch") {
-                                  const branching =
-                                      boardPane.sgfEditTool === "branch"
-
-                                  if (branching) {
-                                      if (studyActionTabs.branchSourceNode < 0
-                                              || !gameController.showStudyStructureNode(
-                                                  studyActionTabs.branchSourceNode)) {
-                                          console.warn(gameController.error_message)
-                                          return
-                                      }
-                                  }
-
-                                  const ok = branching
-                                      ? gameController.addStudyBranch(x, y)
-                                      : gameController.addStudyMove(x, y)
-
-                                  if (ok) {
-                                      if (branching
-                                              && !gameController.showStudyStructureNode(
-                                                  studyActionTabs.branchSourceNode)) {
-                                          console.warn(gameController.error_message)
-                                      }
-
+                              if (boardPane.sgfEditTool === "move") {
+                                  if (gameController.addStudyMove(x, y)) {
                                       boardPane.applyLoadedPosition()
                                   } else {
                                       console.warn(gameController.error_message)
                                   }
-
                                   return
                               }
 

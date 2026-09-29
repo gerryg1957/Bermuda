@@ -2,7 +2,7 @@
 
 ## Status
 
-Packaging plan, with an initial Tumbleweed RPM recipe prepared for testing.
+Packaging plan, with locally tested Tumbleweed RPM and Flatpak recipes.
 
 Current application version: **0.8.1**. See [Building the RPM](building-rpm.md)
 for the local build and installation check. The GUI now embeds its QML and
@@ -59,6 +59,32 @@ database and guided KataGo checks, including a restart. Its bundle signature
 was verified. Windows packaging is not implemented yet.
 
 openSUSE is the natural first RPM target because it is Bermuda's principal development environment.
+
+## Linux distribution direction
+
+Flatpak is the preferred direction for a common Linux release, including on
+Tumbleweed. Keep the RPM recipe as a native alternative while assessing this;
+there is no requirement to build every Linux package format for every release.
+Do not retire the RPM route until custom KataGo/GPU operation has been validated
+inside Flatpak. Guided CPU KataGo installation has passed local Flatpak checks.
+
+Remaining Flatpak checks before making it the sole supported Linux package:
+
+- Import/export through file choosers, including an external SGF directory.
+- A custom engine and model, with all engine dependencies available inside the
+  Flatpak runtime; a host executable selected in a file chooser is not proof
+  of binary/runtime compatibility.
+- A real GPU analysis on supported hardware, including the required GPU driver
+  integration. The current manifest permits DRI devices but does not package
+  OpenCL, CUDA or TensorRT engine dependencies or claim GPU support.
+- A clean-machine installation and upgrade preserving the user's database and
+  settings. Native and Flatpak profiles are separate; switching package types
+  is not an automatic profile migration.
+
+A downloadable bundle is the current distribution route. Automatic app updates
+need a published Flatpak repository or Flathub release; publishing a GitHub
+bundle alone does not supply that service. Keep both existing package recipes
+and release assets while completing these checks.
 
 ## Linux installation layout
 
