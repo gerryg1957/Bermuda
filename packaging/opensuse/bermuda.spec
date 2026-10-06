@@ -40,11 +40,13 @@ cargo test --release --frozen -p bermuda --lib
 desktop-file-validate packaging/org.bermuda.app.desktop
 
 %install
+install -D -m 0644 packaging/flatpak/org.bermuda.app.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/org.bermuda.app.svg
 install -D -m 0755 target/release/bermuda-qt %{buildroot}%{_bindir}/bermuda-qt
 install -D -m 0755 target/release/bermuda %{buildroot}%{_bindir}/bermuda
 install -D -m 0644 packaging/org.bermuda.app.desktop %{buildroot}%{_datadir}/applications/org.bermuda.app.desktop
 
 %files
+%{_datadir}/icons/hicolor/scalable/apps/org.bermuda.app.svg
 %license LICENCE third-party-licenses
 %doc README.md docs/katago-setup.md docs/building-on-linux.md
 %{_bindir}/bermuda
@@ -52,6 +54,10 @@ install -D -m 0644 packaging/org.bermuda.app.desktop %{buildroot}%{_datadir}/app
 %{_datadir}/applications/org.bermuda.app.desktop
 
 %changelog
+* Tue Oct 06 2026 Bermuda contributors
+- Update to 0.8.2 with study editing, startup and KataGo setup improvements.
+- Use the Bermuda Go-board icon for the desktop launcher.
+
 * Sat Sep 26 2026 Bermuda contributors
 - Keep game and joseki trees visible when resizing panes.
 

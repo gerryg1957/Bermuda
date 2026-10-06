@@ -23,7 +23,8 @@ paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=repo).decode().sp
 allowed_roots = {'src', 'tests', 'data', 'bermuda-qt'}
 allowed_files = {'Cargo.toml', 'Cargo.lock', 'LICENCE', 'README.md'}
 paths = [p for p in paths if p and (p in allowed_files or pathlib.Path(p).parts[0] in allowed_roots)]
-paths += ['packaging/org.bermuda.app.desktop', 'packaging/opensuse/bermuda.spec',
+paths += ['packaging/flatpak/org.bermuda.app.svg',
+          'packaging/org.bermuda.app.desktop', 'packaging/opensuse/bermuda.spec',
           'packaging/opensuse/build-rpm.sh', 'docs/katago-setup.md', 'docs/building-on-linux.md']
 for name in paths:
     source = repo / name
