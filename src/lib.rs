@@ -73,7 +73,7 @@ pub use study_document::{
     StudyDocumentError, StudyDocumentMetadata, StudyOrigin,
 };
 pub use study_edit::{
-    StudyMoveInsertion, branch_study_move, delete_study_from_source, extend_study_move,
+    StudyMoveInsertion, branch_study_move_after_source, study_position_at_source, branch_study_move, delete_study_from_source, extend_study_move,
     insert_study_move, insert_study_node, insert_study_node_after_source, promote_study_variation,
 };
 pub use study_tree::{

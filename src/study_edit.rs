@@ -63,6 +63,76 @@ pub fn branch_study_move(
     insert_study_move(collection, study, node_id, mv)
 }
 
+/// Replay exactly through a literal node, excluding later setup/comment nodes.
+pub fn study_position_at_source(
+    collection: &Collection,
+    source: &StudySourceLocation,
+) -> Result<crate::PositionState, String> {
+    let mut prefix = collection.clone();
+    let root = prefix.trees.first_mut().ok_or("SGF collection is empty")?;
+    let mut tree = root;
+    for &index in &source.variation_path {
+        let child = tree.variations.get(index).cloned().ok_or("invalid SGF variation path")?;
+        tree.variations = vec![child];
+        tree = &mut tree.variations[0];
+    }
+    if source.sequence_index >= tree.sequence.len() { return Err("invalid SGF node index".into()); }
+    tree.sequence.truncate(source.sequence_index + 1);
+    tree.variations.clear();
+    let replay = crate::build_study_tree(&prefix).map_err(|e| e.to_string())?;
+    let id = *replay.main_path.last().ok_or("SGF has no replay position")?;
+    Ok(replay.nodes[id].position.clone())
+}
+
+/// Add a continuation immediately after the selected literal node. Either colour
+/// is allowed in a Study; legality is still checked and existing siblings survive.
+pub fn branch_study_move_after_source(
+    collection: &mut Collection,
+    source: &StudySourceLocation,
+    mv: Move,
+) -> Result<StudyMoveInsertion, String> {
+    let position = study_position_at_source(collection, source)?;
+    let mut board = position.board;
+    board.play(mv).map_err(|e| format!("illegal Study move: {e}"))?;
+    let move_node = sgf_move_node(mv, board.size())?;
+    let matches = |node: &Node| move_node.properties.iter().all(|(key, values)| node.values(key) == values.as_slice());
+    let tree = game_tree_at_mut(collection, &source.variation_path)?;
+    let split = source.sequence_index + 1;
+    if let Some(next) = tree.sequence.get(split) {
+        if matches(next) {
+            return Ok(StudyMoveInsertion { source: StudySourceLocation {
+                variation_path: source.variation_path.clone(), sequence_index: split,
+            }, inserted: false });
+        }
+    } else {
+        for (index, child) in tree.variations.iter().enumerate() {
+            if child.sequence.first().is_some_and(&matches) {
+                let mut path = source.variation_path.clone();
+                path.push(index);
+                return Ok(StudyMoveInsertion { source: StudySourceLocation {
+                    variation_path: path, sequence_index: 0,
+                }, inserted: false });
+            }
+        }
+    }
+    if split < tree.sequence.len() {
+        let suffix = tree.sequence.split_off(split);
+        let variations = std::mem::take(&mut tree.variations);
+        tree.variations.push(GameTree { sequence: suffix, variations });
+    } else if tree.variations.is_empty() {
+        tree.sequence.push(move_node);
+        return Ok(StudyMoveInsertion { source: StudySourceLocation {
+            variation_path: source.variation_path.clone(), sequence_index: split,
+        }, inserted: true });
+    }
+    let mut path = source.variation_path.clone();
+    path.push(tree.variations.len());
+    tree.variations.push(GameTree { sequence: vec![move_node], variations: vec![] });
+    Ok(StudyMoveInsertion { source: StudySourceLocation {
+        variation_path: path, sequence_index: 0,
+    }, inserted: true })
+}
+
 /// Insert one empty SGF node immediately after one literal SGF node.
 ///
 /// Unlike `insert_study_node`, this operates on an exact SGF source address
@@ -547,6 +617,54 @@ pub fn delete_study_from_source(
 mod tests {
     use super::*;
     use crate::{build_study_tree, parse_collection};
+
+    #[test]
+    fn literal_branches_keep_inserted_node_and_old_continuation() {
+        let mut collection = parse_collection(b"(;SZ[19];B[dd];C[before];;C[after];W[pp])").unwrap();
+        let source = StudySourceLocation { variation_path: vec![], sequence_index: 3 };
+        let position = study_position_at_source(&collection, &source).unwrap();
+        let point = position.board.point(5, 5).unwrap();
+        let black = Move { colour: Colour::Black, point: Some(point) };
+        let inserted = branch_study_move_after_source(&mut collection, &source, black).unwrap();
+        assert!(inserted.inserted);
+        assert_eq!(collection.trees[0].sequence.len(), 4);
+        assert_eq!(collection.trees[0].sequence[2].first("C"), Some("before"));
+        let original = &collection.trees[0].variations[0];
+        assert_eq!(original.sequence[0].first("C"), Some("after"));
+        assert_eq!(original.sequence[1].first("W"), Some("pp"));
+        assert_eq!(collection.trees[0].variations[1].sequence[0].first("B"), Some("ff"));
+        assert!(!branch_study_move_after_source(&mut collection, &source, black).unwrap().inserted);
+        let white = Move { colour: Colour::White, point: Some(point) };
+        assert!(branch_study_move_after_source(&mut collection, &source, white).unwrap().inserted);
+        assert_eq!(collection.trees[0].variations.len(), 3);
+        build_study_tree(&collection).unwrap();
+    }
+
+    #[test]
+    fn literal_position_excludes_later_setup_and_preserves_nested_path() {
+        let collection = parse_collection(b"(;SZ[19];B[dd](;W[pp])(;W[qq];;AB[ff];B[gg]))").unwrap();
+        let source = StudySourceLocation { variation_path: vec![1], sequence_index: 1 };
+        let position = study_position_at_source(&collection, &source).unwrap();
+        let point = position.board.point(5, 5).unwrap();
+        let mut edited = collection.clone();
+        branch_study_move_after_source(&mut edited, &source, Move { colour: Colour::White, point: Some(point) }).unwrap();
+        assert_eq!(edited.trees[0].variations[0], collection.trees[0].variations[0]);
+        assert_eq!(edited.trees[0].variations[1].variations[0].sequence[0].first("AB"), Some("ff"));
+    }
+
+    #[test]
+    fn literal_branch_illegal_move_does_not_mutate_collection_and_pass_works() {
+        let mut collection = parse_collection(b"(;SZ[19];B[dd];)").unwrap();
+        let original = collection.clone();
+        let source = StudySourceLocation { variation_path: vec![], sequence_index: 2 };
+        let point = study_position_at_source(&collection, &source).unwrap().board.point(3, 3).unwrap();
+        assert!(branch_study_move_after_source(&mut collection, &source, Move { colour: Colour::White, point: Some(point) }).is_err());
+        assert_eq!(collection, original);
+        let result = branch_study_move_after_source(&mut collection, &source, Move { colour: Colour::Black, point: None }).unwrap();
+        assert_eq!(result.source.sequence_index, 3);
+        assert_eq!(collection.trees[0].sequence[3].first("B"), Some(""));
+        assert_eq!(study_position_at_source(&collection, &result.source).unwrap().occurrence.side_to_move, Colour::White);
+    }
 
     #[test]
     fn promotes_nearest_side_variation_without_losing_siblings() {

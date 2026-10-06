@@ -43,3 +43,13 @@ KataGo results belong to the position being analysed. Loading, navigating or
 editing a position clears the previous results and cancels obsolete work.
 Returning to a previously analysed position requires a new analysis; persistent
 analysis storage is a separate future feature.
+
+## Inserted SGF nodes
+
+Insert node creates a selectable empty node. Select it and use Add/Edit comment
+in the SGF comment panel to annotate that exact node; neighbouring comments stay
+on their own nodes. Under Study → Moves, choose Play moves and optionally
+Next: Black or Next: White. The choice applies to the next move or pass, then
+returns to automatic alternation. A new continuation branches immediately after
+the selected node and preserves the previous continuation. Undo/Redo and Study
+saving apply to these edits as usual.

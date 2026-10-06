@@ -1949,7 +1949,7 @@ ApplicationWindow {
         function openForCurrentPosition() {
             moveNumber = gameController.move_number
             studyCommentField.text =
-                gameController.source_comment
+                gameController.selectedStudyComment()
             studyCommentError.text = ""
             open()
         }
@@ -5399,6 +5399,14 @@ RowLayout {
                                                     }
                                                 }
 
+                                                ComboBox {
+                                                    id: studyNextColour
+                                                    model: [qsTr("Next: automatic"), qsTr("Next: Black"), qsTr("Next: White")]
+                                                    property string colour: currentIndex === 1 ? "black" : currentIndex === 2 ? "white" : "auto"
+                                                    ToolTip.visible: hovered
+                                                    ToolTip.text: qsTr("Choose the colour of the next move or pass. Subsequent moves alternate automatically.")
+                                                }
+
                                                 Button {
                                                     text: qsTr("Pass")
 
@@ -5409,7 +5417,8 @@ RowLayout {
                                                                                                         onClicked: {
                                                         boardPane.annotationTool = ""
 
-                                                        if (gameController.addStudyPass()) {
+                                                        if (gameController.addStudyPass(studyNextColour.colour)) {
+                                                            studyNextColour.currentIndex = 0
                                                             boardPane.applyLoadedPosition()
                                                         } else {
                                                             console.warn(gameController.error_message)
@@ -5437,7 +5446,7 @@ RowLayout {
                                                 wrapMode: Text.WordWrap
                                                 text: boardPane.sgfEditTool === "move"
                                                     ? qsTr("Click to play moves. A different continuation creates a variation; the original line is kept. Click a tree node to switch lines, or Done to stop playing moves.")
-                                                    : qsTr("Choose Play moves to try a variation from this position. Click a node in the game tree to follow an existing line.")
+                                                    : qsTr("Select a tree node, then choose Play moves. Next: Black or Next: White sets the first move colour. Use Add/Edit comment above to annotate the selected node.")
                                             }
 
                                             Label {
@@ -8037,7 +8046,8 @@ RowLayout {
                               }
 
                               if (boardPane.sgfEditTool === "move") {
-                                  if (gameController.addStudyMove(x, y)) {
+                                  if (gameController.addStudyMove(x, y, studyNextColour.colour)) {
+                                      studyNextColour.currentIndex = 0
                                       boardPane.applyLoadedPosition()
                                   } else {
                                       console.warn(gameController.error_message)
