@@ -27,18 +27,37 @@ stage=$(mktemp -d "$release_dir/.github-pre-release.XXXXXX")
 printf 'Staging directory: %s\n' "$stage"
 python3 - "$repo_dir" "$release_dir" "$stage" "$version" "$rpm_release" <<'PY'
 from pathlib import Path
-import shutil, subprocess, sys, tomllib
+import hashlib, re, shutil, subprocess, sys, tomllib, zipfile
 repo, release, stage = map(Path, sys.argv[1:4])
 version, rpm_release = sys.argv[4:6]
 assert tomllib.loads((repo/'Cargo.toml').read_text())['package']['version'] == version
 assert tomllib.loads((repo/'bermuda-qt/Cargo.toml').read_text())['package']['version'] == version
+windows = release/f'bermuda-{version}-windows-x64.zip'
+windows_checksum = release/f'bermuda-{version}-windows-x64.sha256'
+expected_name = windows.name
+checksum_parts = windows_checksum.read_text(encoding='utf-8-sig').strip().split()
+assert len(checksum_parts) == 2 and checksum_parts[1].lstrip('*') == expected_name, 'Unexpected Windows checksum filename'
+assert re.fullmatch(r'[0-9a-fA-F]{64}', checksum_parts[0]), 'Invalid Windows checksum'
+with windows.open('rb') as stream:
+    actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+assert actual == checksum_parts[0].lower(), 'Windows ZIP does not match its build checksum'
+with zipfile.ZipFile(windows) as archive:
+    info_names = [n for n in archive.namelist() if n.endswith('/BUILD-INFO.txt')]
+    assert len(info_names) == 1, 'Windows ZIP must contain one BUILD-INFO.txt'
+    windows_info = archive.read(info_names[0]).decode('utf-8-sig')
+assert f'Bermuda {version}' in windows_info.splitlines(), 'Windows package version mismatch'
+windows_commit = re.search(r'^Commit: ([0-9a-f]{40})$', windows_info, re.M)
+# PowerShell writes CRLF; normalise before matching the source record.
+if windows_commit is None:
+    windows_commit = re.search(r'^Commit: ([0-9a-f]{40})$', windows_info.replace('\r\n', '\n'), re.M)
+assert windows_commit, 'Windows package lacks a source commit'
 key = release.parent/'bermuda-signing-key.asc'
 listing = subprocess.check_output(['gpg','--show-keys','--with-colons',str(key)],text=True)
 fingerprint = next(line.split(':')[9] for line in listing.splitlines() if line.startswith('fpr:'))
 assert fingerprint == '671AE6477ACE75C95BC695A5EC2793D4263A81A4', 'Unexpected signing public key'
 for source in [release/f'RPMS/x86_64/bermuda-{version}-{rpm_release}.x86_64.rpm',
                release/f'SRPMS/bermuda-{version}-{rpm_release}.src.rpm',
-               release/f'bermuda-{version}-x86_64-signed.flatpak', key]:
+               release/f'bermuda-{version}-x86_64-signed.flatpak', windows, windows_checksum, key]:
     if not source.is_file() or source.stat().st_size == 0:
         raise SystemExit(f'Missing or empty release input: {source}')
     shutil.copy2(source,stage/source.name)
@@ -46,12 +65,15 @@ shutil.copy2(repo/f'docs/releases/{version}.md',stage/'RELEASE-NOTES.md')
 commit = subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()
 (stage/'SOURCE-COMMIT.txt').write_text(
     f'Release preparation Git commit: {commit}\n'
+    f'Windows build Git commit (from bundled BUILD-INFO.txt): {windows_commit[1]}\n'
     'This records the preparation checkout, not independently verified binary provenance.\n'
     'Confirm that its application source matches the builds before tagging.\n')
 PY
 cd "$stage"
 sha256sum "bermuda-$version-$rpm_release.x86_64.rpm" "bermuda-$version-$rpm_release.src.rpm" \
-    "bermuda-$version-x86_64-signed.flatpak" bermuda-signing-key.asc \
+    "bermuda-$version-x86_64-signed.flatpak" \
+    "bermuda-$version-windows-x64.zip" "bermuda-$version-windows-x64.sha256" \
+    bermuda-signing-key.asc \
     RELEASE-NOTES.md SOURCE-COMMIT.txt > SHA256SUMS
 if [[ -t 0 ]]; then export GPG_TTY=$(tty); fi
 gpg --local-user 671AE6477ACE75C95BC695A5EC2793D4263A81A4 \
