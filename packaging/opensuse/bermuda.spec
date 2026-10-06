@@ -1,6 +1,6 @@
 # Local Tumbleweed release candidate. OBS policy review is a later step.
 Name:           bermuda
-Version:        0.8.1
+Version:        0.8.2
 Release:        1
 Summary:        Go game database and study application
 License:        GPL-3.0-or-later
