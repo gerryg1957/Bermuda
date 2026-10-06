@@ -1,0 +1,52 @@
+name: Windows package
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/windows.yml'
+      - 'packaging/windows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          arch: win64_msvc2022_64
+          modules: qtshadertools
+          cache: true
+      - name: Prepare Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup override set stable
+          rustup target add x86_64-pc-windows-msvc
+      - name: Build and check package
+        run: ./packaging/windows/build-windows.ps1
+      - name: Save Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bermuda-Windows-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Save check logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-check-logs
+          path: windows-build/logs/*
+          if-no-files-found: ignore
+          retention-days: 14

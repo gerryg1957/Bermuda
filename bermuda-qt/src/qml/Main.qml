@@ -71,7 +71,10 @@ ApplicationWindow {
                 || path === root.legacyManagedProjectPath
     }
 
-    property string projectPath: Qt.application.arguments.length > 1
+    readonly property bool startupSmokeTest:
+        Qt.application.arguments.indexOf("--smoke-test") !== -1
+
+    property string projectPath: !startupSmokeTest && Qt.application.arguments.length > 1
         ? Qt.application.arguments[1]
         : ""
 
@@ -3125,6 +3128,13 @@ menuBar: MenuBar {
     }
 
     Component.onCompleted: {
+        if (root.startupSmokeTest) {
+            Qt.callLater(function() {
+                console.info("BERMUDA_STARTUP_OK")
+                Qt.quit()
+            })
+            return
+        }
         Qt.callLater(function() { startupDisplayTimer.start() })
         /*
          * Start with the user's previous Browser/Board proportions.

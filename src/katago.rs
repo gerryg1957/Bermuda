@@ -254,7 +254,13 @@ pub struct KataGoProcess {
 
 impl KataGoProcess {
     pub fn start(configuration: &KataGoConfiguration) -> Result<Self> {
-        let mut child = Command::new(&configuration.executable)
+        let mut command = Command::new(&configuration.executable);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW; retain protocol pipes.
+        }
+        let mut child = command
             .current_dir(&configuration.working_directory)
             .arg("analysis")
             .arg("-model")

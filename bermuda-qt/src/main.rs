@@ -1,3 +1,7 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
+#[cfg(target_os = "windows")]
+mod windows_check;
 mod app;
 mod katago_install;
 mod database_operation_model;
@@ -11,6 +15,14 @@ use cxx_qt_lib_extras::QApplication;
 use std::env;
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    if let Some(result) = windows_check::run_if_requested() {
+        if let Err(error) = result {
+            eprintln!("Windows check failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     // Confirm that the GUI crate is connected to bermuda.
     Board::new(19).expect("create 19x19 board");
 
@@ -23,7 +35,8 @@ fn main() {
     QGuiApplication::set_desktop_file_name(&QString::from("org.bermuda.app"));
 
     if env::var("QT_QUICK_CONTROLS_STYLE").is_err() {
-        QQuickStyle::set_style(&QString::from("org.kde.desktop"));
+        let style = if cfg!(target_os = "windows") { "Fusion" } else { "org.kde.desktop" };
+        QQuickStyle::set_style(&QString::from(style));
     }
 
     let mut engine = QQmlApplicationEngine::new();

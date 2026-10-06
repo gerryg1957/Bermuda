@@ -2,3 +2,6 @@ target/
 *.moves
 
 bermuda-qt/.qmlls.ini
+
+windows-build/
+dist/
