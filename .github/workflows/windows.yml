@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/windows.yml'
       - 'packaging/windows/**'
+      - 'bermuda-qt/src/qml/**'
+      - 'tests/file-paths.cjs'
 
 permissions:
   contents: read

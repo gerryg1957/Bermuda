@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import "FilePaths.js" as FilePaths
 
 Dialog {
     id: root
@@ -25,13 +26,7 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
 
     function pathFromUrl(url) {
-        let path = decodeURIComponent(
-                    new URL(url.toString()).pathname)
-
-        if (path.length > 1)
-            path = path.replace(/\/+$/, "")
-
-        return path
+        return FilePaths.directoryPathFromUrl(url, Qt.platform.os)
     }
 
     function joinedPath(parentPath, name) {

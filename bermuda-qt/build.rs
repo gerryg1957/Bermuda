@@ -30,7 +30,7 @@ fn main() {
             .qml_file("src/qml/GoBoard.qml")
             .qml_file("src/qml/ReplyInfluenceAnalysis.qml"),
     )
-    .qrc_resources(["src/qml/assets/lgc-logo.png"])
+    .qrc_resources(["src/qml/assets/lgc-logo.png", "src/qml/FilePaths.js"])
     .file("src/app.rs")
     .file("src/database_operation_model.rs")
     .file("src/joseki_model.rs")

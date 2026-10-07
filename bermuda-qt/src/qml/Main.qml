@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
 import org.bermuda.app
+import "FilePaths.js" as FilePaths
 
 ApplicationWindow {
     id: root
@@ -18,27 +19,8 @@ ApplicationWindow {
 
     minimumWidth: 900
     minimumHeight: 600
-       function localPathFromUrl(url) {
-        const text = url.toString()
-
-        if (text.length === 0)
-            return ""
-
-        const parsed = new URL(text)
-        let path = decodeURIComponent(parsed.pathname)
-
-        /*
-         * URL paths for Windows drive letters conventionally begin
-         * with '/', for example /C:/Users/...
-         */
-        if (Qt.platform.os === "windows"
-                && path.length >= 3
-                && path.charAt(0) === "/"
-                && path.charAt(2) === ":") {
-            path = path.substring(1)
-        }
-
-        return path
+    function localPathFromUrl(url) {
+        return FilePaths.localPathFromUrl(url, Qt.platform.os)
     }
 
     function managedProjectPathForDirectory(directoryName) {
@@ -1250,8 +1232,7 @@ ApplicationWindow {
     ]
 
     onAccepted: {
-        const fileUrl = new URL(selectedFile)
-        const filePath = decodeURIComponent(fileUrl.pathname)
+        const filePath = root.localPathFromUrl(selectedFile)
         const fileName = filePath.substring(
                            filePath.lastIndexOf("/") + 1)
 
@@ -1628,9 +1609,7 @@ ApplicationWindow {
         ]
 
         onAccepted: {
-            const fileUrl = new URL(selectedFile)
-            let filePath =
-                decodeURIComponent(fileUrl.pathname)
+            let filePath = root.localPathFromUrl(selectedFile)
 
             if (!filePath.toLowerCase().endsWith(".sgf"))
                 filePath += ".sgf"
@@ -3130,6 +3109,23 @@ menuBar: MenuBar {
     Component.onCompleted: {
         if (root.startupSmokeTest) {
             Qt.callLater(function() {
+                if (FilePaths.directoryPathFromUrl("file:///C:/", "windows") !== "C:/"
+                        || FilePaths.localPathFromUrl("file://server/Go%20Records/test.sgf", "windows")
+                           !== "//server/Go Records/test.sgf") {
+                    console.error("File URL conversion check failed")
+                    Qt.exit(1)
+                    return
+                }
+                const argument = Qt.application.arguments.indexOf("--smoke-sgf-url")
+                if (argument !== -1) {
+                    const url = Qt.application.arguments[argument + 1]
+                    if (!url || !gameController.loadSgf(root.localPathFromUrl(url))) {
+                        console.error("SGF open check failed: " + gameController.error_message)
+                        Qt.exit(1)
+                        return
+                    }
+                    console.info("BERMUDA_SGF_OPEN_OK")
+                }
                 console.info("BERMUDA_STARTUP_OK")
                 Qt.quit()
             })

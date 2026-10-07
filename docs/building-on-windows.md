@@ -19,7 +19,9 @@ The Rust compiler version and source commit are recorded in BUILD-INFO.txt.
 
 The workflow then runs the deployed app with SDK search paths removed, in a path
 containing spaces and with temporary application-data paths. It requires a QML
-startup success marker. It also invokes Bermuda's real guided CPU installer,
+startup success marker and opens an SGF through the same URL-to-path converter as
+the file dialogs, using spaces, Unicode, percent and hash characters in its path.
+It also invokes Bermuda's real guided CPU installer,
 verifies its downloads, and requires an actual KataGo analysis result. Downloads
 are used only for that check and are not included in the distributed ZIP.
 
@@ -55,9 +57,15 @@ Qt 6.9.3 MSVC 2022 x64 kit (including ShaderTools) on PATH. Run:
 ```
 
 Use a fresh checkout or remove the previous `windows-build` staging directory
-before rerunning locally. Output is `dist/bermuda-VERSION-windows-x64.zip`.
+before rerunning locally. Output is `dist/bermuda-VERSION-REVISION-windows-x64.zip`.
 
 The Windows ICO is derived from `packaging/flatpak/org.bermuda.app.svg`.
 Regenerate it with `python packaging/windows/make-icon.py` after changing the SVG;
 the script requires CairoSVG and Pillow. The committed ICO avoids adding Python
 image dependencies to the normal build.
+
+Windows package revisions are recorded in `packaging/windows/package-revision.txt`.
+Revision 1 corrects file-dialog paths in the original 0.8.2 Windows preview. The
+application's Cargo version stays 0.8.2; the Windows package and About dialog
+identify the corrected build as 0.8.2-1. Linux packages retain their own revision
+numbering. This does not require rebuilding the existing Linux packages.

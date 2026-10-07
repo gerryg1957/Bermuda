@@ -33,11 +33,15 @@ foreach ($module in @('extra-cmake-modules', 'kirigami')) {
     cmake --install $moduleBuild
 }
 
-cargo test --release --locked -p bermuda --lib --target x86_64-pc-windows-msvc
-cargo build --release --locked --workspace --target x86_64-pc-windows-msvc
 $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
 $version = ($metadata.packages | Where-Object name -eq 'bermuda-qt').version
-$name = "bermuda-$version-windows-x64"
+$revision = (Get-Content "$PSScriptRoot/package-revision.txt" -Raw).Trim()
+if ($revision -notmatch '^[1-9][0-9]*$') { throw 'Invalid Windows package revision' }
+$env:BERMUDA_PACKAGE_VERSION = "$version-$revision"
+node tests/file-paths.cjs
+cargo test --release --locked -p bermuda --lib --target x86_64-pc-windows-msvc
+cargo build --release --locked --workspace --target x86_64-pc-windows-msvc
+$name = "bermuda-$version-$revision-windows-x64"
 $stage = Join-Path $work $name
 if (Test-Path $stage) { throw "Package directory already exists: $stage. Use a fresh build directory." }
 New-Item -ItemType Directory $stage | Out-Null
@@ -91,7 +95,7 @@ Get-ChildItem $vendor -Recurse -File | Where-Object {
     Copy-Item $_.FullName $destination
 }
 $commit = (git rev-parse HEAD).Trim()
-@("Bermuda $version", "Source: https://github.com/gerryg1957/Bermuda", "Commit: $commit",
+@("Bermuda $version", "Windows package revision: $revision", "Source: https://github.com/gerryg1957/Bermuda", "Commit: $commit",
   "Rust: $(rustc --version)", "Qt: $(& qmake -query QT_VERSION)", 'KDE Frameworks: 6.18.0',
   "Kirigami commit: $(git -C $work/kirigami rev-parse HEAD)") |
     Set-Content "$stage/BUILD-INFO.txt" -Encoding utf8
@@ -115,7 +119,15 @@ try {
     New-Item -ItemType Directory -Force $env:APPDATA, $env:LOCALAPPDATA | Out-Null
     $env:QT_FORCE_STDERR_LOGGING = '1'
     $env:QT_QUICK_BACKEND = 'software'
-    $app = Start-Process "$deployed/Bermuda.exe" -ArgumentList '--smoke-test' `
+    # Exercise the same URL conversion used by Open SGF, with spaces, Unicode,
+    # a literal percent and a hash in the filename (all require URL decoding).
+    $sgfDirectory = Join-Path $check 'SGF files'
+    New-Item -ItemType Directory -Force $sgfDirectory | Out-Null
+    $sgf = Join-Path $sgfDirectory 'étude 100% #1.sgf'
+    '(;FF[4]GM[1]SZ[19];B[pd];W[dd])' | Set-Content $sgf -Encoding utf8
+    $sgfUrl = ([Uri]::new($sgf)).AbsoluteUri
+    $app = Start-Process "$deployed/Bermuda.exe" `
+        -ArgumentList "--smoke-test --smoke-sgf-url `"$sgfUrl`"" `
         -WorkingDirectory $deployed -PassThru `
         -RedirectStandardOutput "$logs/startup.out" -RedirectStandardError "$logs/startup.err"
     if (-not $app.WaitForExit(60000)) {
@@ -126,6 +138,7 @@ try {
     $output = (Get-Content "$logs/startup.out", "$logs/startup.err" -Raw) -join "`n"
     Write-Host $output
     if ($app.ExitCode -ne 0 -or $output -notmatch 'BERMUDA_STARTUP_OK' -or
+        $output -notmatch 'BERMUDA_SGF_OPEN_OK' -or
         $output -match 'failed to load component|is not installed|Type .* unavailable') {
         throw 'Packaged QML startup check failed'
     }

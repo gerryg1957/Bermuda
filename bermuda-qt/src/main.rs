@@ -29,7 +29,9 @@ fn main() {
     let mut app = QApplication::new();
 
     if let Some(app) = app.as_mut() {
-        app.set_application_version(&QString::from(env!("CARGO_PKG_VERSION")));
+        let version = option_env!("BERMUDA_PACKAGE_VERSION")
+            .unwrap_or(env!("CARGO_PKG_VERSION"));
+        app.set_application_version(&QString::from(version));
     }
 
     QGuiApplication::set_desktop_file_name(&QString::from("org.bermuda.app"));

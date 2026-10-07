@@ -12,6 +12,13 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
 rpm_release=$(python3 -c 'import re; from pathlib import Path; print(re.search(r"^Release:\s+(\d+)\s*$", Path("packaging/opensuse/bermuda.spec").read_text(), re.M)[1])')
+windows_suffix=""
+if [[ -f packaging/windows/package-revision.txt ]]; then
+    windows_revision=$(cat packaging/windows/package-revision.txt)
+    [[ "$windows_revision" =~ ^[1-9][0-9]*$ ]] || { printf 'Invalid Windows package revision\n' >&2; exit 1; }
+    windows_suffix="-$windows_revision"
+fi
+windows_name="bermuda-$version$windows_suffix-windows-x64"
 release_dir="$HOME/bermuda-packages/$version"
 if [[ ! -d "$release_dir" ]]; then
     printf 'Build, sign and save the packages in %s first.\n' "$release_dir" >&2
@@ -25,15 +32,16 @@ fi
 stage=$(mktemp -d "$release_dir/.github-pre-release.XXXXXX")
 # Keep partial output on failure for inspection; never overwrite old release assets.
 printf 'Staging directory: %s\n' "$stage"
-python3 - "$repo_dir" "$release_dir" "$stage" "$version" "$rpm_release" <<'PY'
+python3 - "$repo_dir" "$release_dir" "$stage" "$version" "$rpm_release" "$windows_name" <<'PY'
 from pathlib import Path
 import hashlib, re, shutil, subprocess, sys, tomllib, zipfile
 repo, release, stage = map(Path, sys.argv[1:4])
 version, rpm_release = sys.argv[4:6]
+windows_name = sys.argv[6]
 assert tomllib.loads((repo/'Cargo.toml').read_text())['package']['version'] == version
 assert tomllib.loads((repo/'bermuda-qt/Cargo.toml').read_text())['package']['version'] == version
-windows = release/f'bermuda-{version}-windows-x64.zip'
-windows_checksum = release/f'bermuda-{version}-windows-x64.sha256'
+windows = release/f'{windows_name}.zip'
+windows_checksum = release/f'{windows_name}.sha256'
 expected_name = windows.name
 checksum_parts = windows_checksum.read_text(encoding='utf-8-sig').strip().split()
 assert len(checksum_parts) == 2 and checksum_parts[1].lstrip('*') == expected_name, 'Unexpected Windows checksum filename'
@@ -72,7 +80,7 @@ PY
 cd "$stage"
 sha256sum "bermuda-$version-$rpm_release.x86_64.rpm" "bermuda-$version-$rpm_release.src.rpm" \
     "bermuda-$version-x86_64-signed.flatpak" \
-    "bermuda-$version-windows-x64.zip" "bermuda-$version-windows-x64.sha256" \
+    "$windows_name.zip" "$windows_name.sha256" \
     bermuda-signing-key.asc \
     RELEASE-NOTES.md SOURCE-COMMIT.txt > SHA256SUMS
 if [[ -t 0 ]]; then export GPG_TTY=$(tty); fi
