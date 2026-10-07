@@ -17,6 +17,7 @@ const cases = [
     ['file:///home/gerry/Go%20Records/game.sgf', 'linux', '/home/gerry/Go Records/game.sgf'],
     ['file:///Users/player/%E6%A3%8B.sgf', 'osx', '/Users/player/棋.sgf'],
     ['file:///C:/literal-posix-name.sgf', 'linux', '/C:/literal-posix-name.sgf'],
+    ['file:///C:/bad%name.sgf', 'windows', ''],
     ['', 'windows', ''],
     ['https://example.org/game.sgf', 'windows', ''],
 ];

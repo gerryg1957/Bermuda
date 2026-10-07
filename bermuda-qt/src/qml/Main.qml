@@ -3109,25 +3109,34 @@ menuBar: MenuBar {
     Component.onCompleted: {
         if (root.startupSmokeTest) {
             Qt.callLater(function() {
-                if (FilePaths.directoryPathFromUrl("file:///C:/", "windows") !== "C:/"
-                        || FilePaths.localPathFromUrl("file://server/Go%20Records/test.sgf", "windows")
-                           !== "//server/Go Records/test.sgf") {
-                    console.error("File URL conversion check failed")
-                    Qt.exit(1)
-                    return
-                }
-                const argument = Qt.application.arguments.indexOf("--smoke-sgf-url")
-                if (argument !== -1) {
-                    const url = Qt.application.arguments[argument + 1]
-                    if (!url || !gameController.loadSgf(root.localPathFromUrl(url))) {
-                        console.error("SGF open check failed: " + gameController.error_message)
+                try {
+                    if (FilePaths.directoryPathFromUrl("file:///C:/", "windows") !== "C:/"
+                            || FilePaths.localPathFromUrl("file://server/Go%20Records/test.sgf", "windows")
+                               !== "//server/Go Records/test.sgf"
+                            || FilePaths.localPathFromUrl("file:///C:/%C3%A9tude%20100%25%20%231.sgf", "windows")
+                               !== "C:/étude 100% #1.sgf"
+                            || FilePaths.localPathFromUrl("file:///C:/literal%2520name.sgf", "windows")
+                               !== "C:/literal%20name.sgf") {
+                        console.error("File URL conversion check failed")
                         Qt.exit(1)
                         return
                     }
-                    console.info("BERMUDA_SGF_OPEN_OK")
+                    const argument = Qt.application.arguments.indexOf("--smoke-sgf-url")
+                    if (argument !== -1) {
+                        const url = Qt.application.arguments[argument + 1]
+                        if (!url || !gameController.loadSgf(root.localPathFromUrl(url))) {
+                            console.error("SGF open check failed: " + gameController.error_message)
+                            Qt.exit(1)
+                            return
+                        }
+                        console.info("BERMUDA_SGF_OPEN_OK")
+                    }
+                    console.info("BERMUDA_STARTUP_OK")
+                    Qt.quit()
+                } catch (error) {
+                    console.error("Startup check exception: " + error)
+                    Qt.exit(1)
                 }
-                console.info("BERMUDA_STARTUP_OK")
-                Qt.quit()
             })
             return
         }

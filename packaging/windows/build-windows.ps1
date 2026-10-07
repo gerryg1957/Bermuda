@@ -132,6 +132,7 @@ try {
         -RedirectStandardOutput "$logs/startup.out" -RedirectStandardError "$logs/startup.err"
     if (-not $app.WaitForExit(60000)) {
         Stop-Process -Id $app.Id -Force
+        Get-Content "$logs/startup.out", "$logs/startup.err" -ErrorAction SilentlyContinue
         throw 'Packaged GUI did not finish its startup check within 60 seconds'
     }
     $app.Refresh()

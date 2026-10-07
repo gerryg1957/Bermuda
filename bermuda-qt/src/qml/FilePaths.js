@@ -8,12 +8,20 @@ function localPathFromUrl(url, platform) {
     if (text.length === 0)
         return ""
 
-    const parsed = new URL(text)
-    if (parsed.protocol !== "file:")
+    // Qt's URL.pathname is already decoded, unlike the browser/Node API.
+    // Read the encoded path from the original URL so decoding happens once
+    // in every runtime, including literal percent signs and encoded hashes.
+    const parts = /^file:\/\/([^/]*)(\/[^?#]*)(?:[?#].*)?$/i.exec(text)
+    if (parts === null)
         return ""
 
-    let path = decodeURIComponent(parsed.pathname)
-    const host = parsed.hostname
+    let path
+    try {
+        path = decodeURIComponent(parts[2])
+    } catch (error) {
+        return ""
+    }
+    const host = parts[1]
     if (host.length > 0 && host.toLowerCase() !== "localhost")
         return "//" + host + path
 
