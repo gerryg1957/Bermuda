@@ -44,6 +44,8 @@ struct GameListRow {
 #[derive(Default)]
 pub struct GameListModelRust {
     rows: Vec<GameListRow>,
+    database_name: QString,
+    database_game_count: i64,
     error_message: QString,
     loading: bool,
     loading_more: bool,
@@ -82,6 +84,8 @@ pub mod ffi {
         #[qml_element]
         #[base = QAbstractListModel]
         #[qproperty(QString, error_message)]
+        #[qproperty(QString, database_name)]
+        #[qproperty(i64, database_game_count)]
         #[qproperty(bool, loading)]
         #[qproperty(bool, loading_more)]
         #[qproperty(bool, has_more)]
@@ -536,6 +540,8 @@ impl ffi::GameListModel {
         mut query: GameListQuery,
     ) -> bool {
         let path = project_path.to_string();
+        self.as_mut().set_database_name(QString::default());
+        self.as_mut().set_database_game_count(0);
 
         /*
          * Catalogue queries are deliberately paged. GameListQuery's default
@@ -570,7 +576,19 @@ impl ffi::GameListModel {
         let qt_thread = self.qt_thread();
 
         std::thread::spawn(move || {
-            let result = load_catalogue_page(&path, &query, occurrence_mode);
+            let result = load_catalogue_page(&path, &query, occurrence_mode).and_then(|rows| {
+                let project = ProjectManager::new()
+                    .open(&path)
+                    .map_err(|e| e.to_string())?;
+                // Count canonical games, not sources, filtered rows or loaded pages.
+                // This runs in the worker and does not load the corpus into memory.
+                let connection =
+                    bermuda::database::open(&project.database_root()).map_err(|e| e.to_string())?;
+                let count: i64 = connection
+                    .query_row("SELECT COUNT(*) FROM games", [], |r| r.get(0))
+                    .map_err(|e| e.to_string())?;
+                Ok((rows, project.name().to_owned(), count))
+            });
 
             let _ = qt_thread.queue(move |mut model| {
                 if model.rust().load_generation != generation {
@@ -578,7 +596,9 @@ impl ffi::GameListModel {
                 }
 
                 match result {
-                    Ok(rows) => {
+                    Ok((rows, name, count)) => {
+                        model.as_mut().set_database_name(QString::from(name));
+                        model.as_mut().set_database_game_count(count);
                         let has_more = page_limit > 0 && rows.len() == page_limit as usize;
 
                         model.as_mut().begin_reset_model();

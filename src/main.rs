@@ -864,6 +864,13 @@ fn build_position_index(project_path: PathBuf) -> Result<()> {
         &project,
         || false,
         |progress| {
+            if progress.stage == index_build::IndexBuildStage::Finalising {
+                println!("Finalising search index (remaining time unknown)…");
+                return;
+            }
+            if progress.stage == index_build::IndexBuildStage::Complete {
+                return;
+            }
             if progress.processed_games == 0 || progress.processed_games == last_reported {
                 return;
             }

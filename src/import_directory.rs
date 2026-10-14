@@ -121,7 +121,11 @@ where
         None,
     ));
 
-    for entry in WalkDir::new(directory).follow_links(false) {
+    for entry in WalkDir::new(directory)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| !is_macos_metadata(entry.path()))
+    {
         if is_cancelled() {
             let summary = ImportSummary {
                 total_sgf_files: discovered_sgf_files,
@@ -175,7 +179,11 @@ where
     let mut importer = Importer::open_project(project)?;
     let mut error_messages = Vec::new();
 
-    for entry in WalkDir::new(directory).follow_links(false) {
+    for entry in WalkDir::new(directory)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| !is_macos_metadata(entry.path()))
+    {
         if is_cancelled() {
             let summary = finish_summary(project, summary, started, &error_messages)?;
 
@@ -289,6 +297,15 @@ fn finish_summary(
     Ok(summary)
 }
 
+// Archive metadata can retain an .sgf suffix without containing a game.
+// Check components too, so selecting a metadata directory itself is harmless.
+fn is_macos_metadata(path: &Path) -> bool {
+    path.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        name == "__MACOSX" || name.starts_with("._")
+    })
+}
+
 fn is_sgf(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -357,6 +374,48 @@ mod tests {
 
         assert!(!is_sgf(Path::new("game.txt")));
         assert!(!is_sgf(Path::new("game")));
+    }
+
+    #[test]
+    fn excludes_archive_metadata_from_counts_and_import() -> Result<()> {
+        let (_temporary, project, directory) = create_project_with_sgfs()?;
+        fs::create_dir_all(directory.join("__MACOSX/1989"))?;
+        fs::write(directory.join("__MACOSX/1989/._game.sgf"), b"metadata")?;
+        fs::write(directory.join("__MACOSX/1989/game.sgf"), b"metadata")?;
+        fs::write(directory.join("._one.SGF"), b"metadata")?;
+        // Ordinary hidden folders must still be imported.
+        fs::create_dir(directory.join(".games"))?;
+        fs::write(
+            directory.join(".games/three.sgf"),
+            "(;FF[4]GM[1]SZ[19];B[qq];W[dd])",
+        )?;
+        // A malformed real SGF must still produce an error.
+        fs::write(directory.join("broken.sgf"), b"not a game")?;
+        let outcome = run_with_progress(&project, "Test", "1", &directory, || false, |_| {})?;
+        let ImportDirectoryOutcome::Completed(summary) = outcome else {
+            panic!("import should complete");
+        };
+        assert_eq!(summary.total_sgf_files, 4);
+        assert_eq!(summary.processed, 4);
+        assert_eq!(summary.imported, 3);
+        assert_eq!(summary.errors, 1);
+        let log = fs::read_to_string(summary.error_log.unwrap())?;
+        assert!(log.contains("broken.sgf"));
+        assert!(!log.contains("__MACOSX"));
+        let outcome = run_with_progress(
+            &project,
+            "Test",
+            "1",
+            &directory.join("__MACOSX"),
+            || false,
+            |_| {},
+        )?;
+        let ImportDirectoryOutcome::Completed(summary) = outcome else {
+            panic!("empty import should complete");
+        };
+        assert_eq!(summary.total_sgf_files, 0);
+        assert_eq!(summary.errors, 0);
+        Ok(())
     }
 
     #[test]

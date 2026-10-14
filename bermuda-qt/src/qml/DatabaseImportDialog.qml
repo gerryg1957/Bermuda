@@ -8,6 +8,7 @@ Dialog {
     id: root
 
     property var operationModel
+    property string defaultParentFolder: ""
     property string currentProjectPath: ""
     property string mode: "create"
     property string formError: ""
@@ -56,7 +57,7 @@ Dialog {
         currentProjectPath = ""
 
         databaseNameField.text = ""
-        parentFolderField.text = ""
+        parentFolderField.text = root.defaultParentFolder
 
         resetCommonFields()
         open()
@@ -102,9 +103,11 @@ Dialog {
                 return false
             }
 
-            if (databaseName.indexOf("/") >= 0) {
+            if (databaseName.indexOf("/") >= 0
+                    || databaseName.indexOf("\\") >= 0
+                    || databaseName === "." || databaseName === "..") {
                 formError = qsTr(
-                            "The database name must not contain '/'.")
+                            "Enter a database name, not a path.")
                 return false
             }
 
@@ -223,7 +226,7 @@ Dialog {
 
         Label {
             Layout.fillWidth: true
-            visible: root.mode === "add"
+            visible: root.mode === "add" || root.mode === "managed-add"
 
             text: qsTr("Database")
             font.bold: true
@@ -231,7 +234,7 @@ Dialog {
 
         TextField {
             Layout.fillWidth: true
-            visible: root.mode === "add"
+            visible: root.mode === "add" || root.mode === "managed-add"
 
             text: root.currentProjectPath
             readOnly: true
@@ -260,7 +263,7 @@ Dialog {
             Layout.fillWidth: true
             visible: root.mode === "create"
 
-            text: qsTr("Parent folder")
+            text: qsTr("Database location")
             font.bold: true
         }
 
@@ -278,7 +281,7 @@ Dialog {
             }
 
             Button {
-                text: qsTr("Choose…")
+                text: qsTr("Choose another location…")
                 onClicked: parentFolderDialog.open()
             }
         }

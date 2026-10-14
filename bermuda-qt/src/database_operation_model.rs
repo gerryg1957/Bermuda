@@ -13,10 +13,14 @@ use std::{
 };
 
 use bermuda::{
+    database_task::{self, DatabaseTask},
     import_directory::{self, ImportDirectoryOutcome, ImportProgress, ImportStage, ImportSummary},
-    index_build::{self, IndexBuildOutcome, IndexBuildProgress, IndexBuildSummary},
+    index_build::{
+        self, IndexBuildOutcome, IndexBuildProgress, IndexBuildStage, IndexBuildSummary,
+    },
     project::Project,
     project_manager::ProjectManager,
+    task_progress::ProgressEstimate,
 };
 
 #[cxx_qt::bridge]
@@ -33,6 +37,14 @@ mod ffi {
         #[qproperty(bool, in_progress)]
         #[qproperty(bool, cancel_requested)]
         #[qproperty(bool, cancelled)]
+        #[qproperty(bool, cancelled_during_import)]
+        #[qproperty(QString, database_name)]
+        #[qproperty(bool, includes_index)]
+        #[qproperty(bool, can_continue)]
+        #[qproperty(QString, pending_project_path)]
+        #[qproperty(QString, pending_database_name)]
+        #[qproperty(QString, continuation_message)]
+        #[qproperty(QString, continuation_error)]
         #[qproperty(QString, operation_name)]
         #[qproperty(QString, stage)]
         #[qproperty(QString, status_message)]
@@ -56,6 +68,7 @@ mod ffi {
         #[qproperty(i64, index_errors)]
         #[qproperty(f64, elapsed_seconds)]
         #[qproperty(f64, rate)]
+        #[qproperty(f64, remaining_seconds)]
         type DatabaseOperationModel = super::DatabaseOperationModelRust;
 
         #[qinvokable]
@@ -93,6 +106,23 @@ mod ffi {
         fn cancel_operation(self: Pin<&mut DatabaseOperationModel>);
 
         #[qinvokable]
+        #[cxx_name = "databaseChoices"]
+        fn database_choices(
+            &self,
+            managed_path: &QString,
+            legacy_path: &QString,
+            remembered_json: &QString,
+        ) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "refreshContinuation"]
+        fn refresh_continuation(self: Pin<&mut DatabaseOperationModel>, project_path: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "continueSetup"]
+        fn continue_setup(self: Pin<&mut DatabaseOperationModel>) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "clearStatus"]
         fn clear_status(self: Pin<&mut DatabaseOperationModel>);
     }
@@ -104,7 +134,15 @@ pub struct DatabaseOperationModelRust {
     pub(crate) in_progress: bool,
     pub(crate) cancel_requested: bool,
     pub(crate) cancelled: bool,
+    pub(crate) cancelled_during_import: bool,
 
+    pub(crate) database_name: QString,
+    pub(crate) includes_index: bool,
+    pub(crate) can_continue: bool,
+    pub(crate) pending_project_path: QString,
+    pub(crate) pending_database_name: QString,
+    pub(crate) continuation_message: QString,
+    pub(crate) continuation_error: QString,
     pub(crate) operation_name: QString,
     pub(crate) stage: QString,
     pub(crate) status_message: QString,
@@ -132,6 +170,9 @@ pub struct DatabaseOperationModelRust {
 
     pub(crate) elapsed_seconds: f64,
     pub(crate) rate: f64,
+    pub(crate) remaining_seconds: f64,
+    estimate: ProgressEstimate,
+    estimate_stage: String,
 
     cancel_token: Option<Arc<AtomicBool>>,
     operation_id: u64,
@@ -143,7 +184,15 @@ impl Default for DatabaseOperationModelRust {
             in_progress: false,
             cancel_requested: false,
             cancelled: false,
+            cancelled_during_import: false,
 
+            database_name: QString::default(),
+            includes_index: false,
+            can_continue: false,
+            pending_project_path: QString::default(),
+            pending_database_name: QString::default(),
+            continuation_message: QString::default(),
+            continuation_error: QString::default(),
             operation_name: QString::default(),
             stage: QString::default(),
             status_message: QString::default(),
@@ -171,6 +220,9 @@ impl Default for DatabaseOperationModelRust {
 
             elapsed_seconds: 0.0,
             rate: 0.0,
+            remaining_seconds: -1.0,
+            estimate: ProgressEstimate::default(),
+            estimate_stage: String::new(),
 
             cancel_token: None,
             operation_id: 0,
@@ -240,6 +292,22 @@ enum BackgroundCompletion {
 }
 
 impl ffi::DatabaseOperationModel {
+    fn database_choices(
+        &self,
+        managed_path: &QString,
+        legacy_path: &QString,
+        remembered_json: &QString,
+    ) -> QString {
+        let remembered: Vec<PathBuf> =
+            serde_json::from_str(&remembered_json.to_string()).unwrap_or_default();
+        let choices = bermuda::database_choices::discover(
+            Path::new(&managed_path.to_string()),
+            Path::new(&legacy_path.to_string()),
+            &remembered,
+        );
+        QString::from(serde_json::to_string(&choices).unwrap_or_else(|_| "[]".into()))
+    }
+
     fn create_database(
         self: Pin<&mut Self>,
         project_name: &QString,
@@ -258,7 +326,7 @@ impl ffi::DatabaseOperationModel {
             build_index,
         };
 
-        start_operation(self, request)
+        start_operation(self, request, false)
     }
 
     fn add_games(
@@ -277,7 +345,7 @@ impl ffi::DatabaseOperationModel {
             update_index,
         };
 
-        start_operation(self, request)
+        start_operation(self, request, false)
     }
 
     fn update_position_index(self: Pin<&mut Self>, project_path: &QString) -> bool {
@@ -285,7 +353,7 @@ impl ffi::DatabaseOperationModel {
             project_path: PathBuf::from(project_path.to_string()),
         };
 
-        start_operation(self, request)
+        start_operation(self, request, false)
     }
 
     fn cancel_operation(mut self: Pin<&mut Self>) {
@@ -298,6 +366,83 @@ impl ffi::DatabaseOperationModel {
             self.as_mut()
                 .set_status_message(QString::from("Cancelling…"));
         }
+    }
+
+    fn refresh_continuation(mut self: Pin<&mut Self>, project_path: &QString) {
+        if self.as_ref().get_ref().rust().in_progress {
+            return;
+        }
+        self.as_mut().set_can_continue(false);
+        self.as_mut().set_pending_project_path(project_path.clone());
+        self.as_mut().set_pending_database_name(QString::default());
+        self.as_mut().set_continuation_message(QString::default());
+        self.as_mut().set_continuation_error(QString::default());
+        let path = PathBuf::from(project_path.to_string());
+        if path.as_os_str().is_empty() {
+            return;
+        }
+        match database_task::load(&path) {
+            Ok(Some(task)) => {
+                let name = ProjectManager::new()
+                    .open(&path)
+                    .map(|p| p.name().to_owned())
+                    .unwrap_or_else(|_| path.display().to_string());
+                self.as_mut().set_pending_database_name(QString::from(name));
+                self.as_mut().set_continuation_message(QString::from(match task {
+                DatabaseTask::Import { .. } => "Import unfinished. Continue will check the source folder and recognise files already imported.",
+                DatabaseTask::Index => "Search preparation unfinished. Continue will keep games already indexed and finish the remaining work.",
+            }));
+                self.as_mut().set_can_continue(true);
+            }
+            Ok(None) => {}
+            Err(error) => self.as_mut().set_continuation_error(QString::from(format!(
+                "Cannot read saved setup: {error:#}"
+            ))),
+        }
+    }
+
+    fn continue_setup(mut self: Pin<&mut Self>) -> bool {
+        if self.as_ref().get_ref().rust().in_progress {
+            return false;
+        }
+        let project_path = PathBuf::from(
+            self.as_ref()
+                .get_ref()
+                .rust()
+                .pending_project_path
+                .to_string(),
+        );
+        let task = match database_task::load(&project_path) {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                self.as_mut().set_error_message(QString::from(
+                    "No unfinished setup was found for this database.",
+                ));
+                return false;
+            }
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(format!(
+                    "Cannot read saved setup: {error:#}"
+                )));
+                return false;
+            }
+        };
+        let request = match task {
+            DatabaseTask::Import {
+                directory,
+                source,
+                version,
+                build_index,
+            } => DatabaseOperationRequest::AddGames {
+                project_path,
+                sgf_directory: directory,
+                source_name: source,
+                source_version: version,
+                update_index: build_index,
+            },
+            DatabaseTask::Index => DatabaseOperationRequest::UpdateIndex { project_path },
+        };
+        start_operation(self, request, true)
     }
 
     fn clear_status(mut self: Pin<&mut Self>) {
@@ -316,6 +461,7 @@ impl ffi::DatabaseOperationModel {
 fn start_operation(
     mut model: Pin<&mut ffi::DatabaseOperationModel>,
     request: DatabaseOperationRequest,
+    continuing: bool,
 ) -> bool {
     if model.as_ref().get_ref().rust().in_progress {
         model
@@ -331,6 +477,35 @@ fn start_operation(
         return false;
     }
 
+    if !continuing && !matches!(&request, DatabaseOperationRequest::Create { .. }) {
+        match database_task::load(request.project_path()) {
+            Ok(None) => {}
+            Ok(Some(_)) => {
+                model.as_mut().set_error_message(QString::from(
+                    "This database has unfinished work. Choose Continue setup first.",
+                ));
+                return false;
+            }
+            Err(error) => {
+                model.as_mut().set_error_message(QString::from(format!(
+                    "Cannot read saved setup: {error:#}"
+                )));
+                return false;
+            }
+        }
+    }
+    let database_name = match &request {
+        DatabaseOperationRequest::Create { project_name, .. } => project_name.clone(),
+        _ => ProjectManager::new()
+            .open(request.project_path())
+            .map(|p| p.name().to_owned())
+            .unwrap_or_else(|_| request.project_path().display().to_string()),
+    };
+    let includes_index = match &request {
+        DatabaseOperationRequest::Create { build_index, .. } => *build_index,
+        DatabaseOperationRequest::AddGames { update_index, .. } => *update_index,
+        DatabaseOperationRequest::UpdateIndex { .. } => true,
+    };
     let operation_name = request.operation_name();
     let project_path = request.project_path().to_path_buf();
 
@@ -349,6 +524,11 @@ fn start_operation(
     }
 
     reset_display(model.as_mut());
+    model
+        .as_mut()
+        .set_database_name(QString::from(database_name));
+    model.as_mut().set_includes_index(includes_index);
+    model.as_mut().set_can_continue(false);
 
     model
         .as_mut()
@@ -425,6 +605,21 @@ fn execute_operation(
                     };
                 }
             };
+
+            if let Err(error) = database_task::save(
+                &project_path,
+                &DatabaseTask::Import {
+                    directory: sgf_directory.clone(),
+                    source: source_name.clone(),
+                    version: source_version.clone(),
+                    build_index,
+                },
+            ) {
+                return BackgroundCompletion::Failed {
+                    project_path,
+                    error: format!("Cannot save setup: {error:#}"),
+                };
+            }
 
             if cancel_token.load(Ordering::Relaxed) {
                 Ok(ExecutionOutcome::Cancelled(OperationSummary {
@@ -506,6 +701,14 @@ fn execute_operation(
 
     match result {
         Ok(ExecutionOutcome::Completed(mut summary)) => {
+            if let Err(error) = database_task::clear(&project_path) {
+                return BackgroundCompletion::Failed {
+                    project_path,
+                    error: format!(
+                        "Work completed but its saved task could not be cleared: {error:#}"
+                    ),
+                };
+            }
             summary.elapsed_seconds = started.elapsed().as_secs_f64();
 
             BackgroundCompletion::Completed(summary)
@@ -540,6 +743,16 @@ fn execute_import_and_optional_index(
     operation_id: u64,
     started: Instant,
 ) -> Result<ExecutionOutcome, String> {
+    database_task::save(
+        project.root(),
+        &DatabaseTask::Import {
+            directory: sgf_directory.to_path_buf(),
+            source: source_name.to_owned(),
+            version: source_version.to_owned(),
+            build_index,
+        },
+    )
+    .map_err(|e| format!("Cannot save import continuation: {e:#}"))?;
     let mut last_update: Option<Instant> = None;
     let mut last_stage: Option<ImportStage> = None;
 
@@ -598,6 +811,8 @@ fn execute_import_and_optional_index(
         return Ok(ExecutionOutcome::Completed(summary));
     }
 
+    database_task::save(project.root(), &DatabaseTask::Index)
+        .map_err(|e| format!("Cannot save search preparation: {e:#}"))?;
     if cancel_token.load(Ordering::Relaxed) {
         return Ok(ExecutionOutcome::Cancelled(summary));
     }
@@ -627,34 +842,32 @@ fn execute_index(
         "Building position index…",
     );
 
+    database_task::save(project.root(), &DatabaseTask::Index)
+        .map_err(|e| format!("Cannot save search preparation: {e:#}"))?;
     let mut last_update: Option<Instant> = None;
 
     let index_cancel = Arc::clone(&cancel_token);
 
-    let index_outcome = index_build::run_with_progress(
-        project,
-        move || index_cancel.load(Ordering::Relaxed),
-        |progress| {
-            let now = Instant::now();
+    let index_outcome = index_build::run_with_cancel_token(project, index_cancel, |progress| {
+        let now = Instant::now();
 
-            let final_update =
-                progress.total_games > 0 && progress.processed_games == progress.total_games;
+        let final_update =
+            progress.total_games > 0 && progress.processed_games == progress.total_games;
 
-            let should_send = progress.processed_games == 0
-                || final_update
-                || last_update.is_none_or(|previous| {
-                    now.duration_since(previous) >= Duration::from_millis(100)
-                });
+        let should_send = progress.stage != IndexBuildStage::Indexing
+            || progress.processed_games == 0
+            || final_update
+            || last_update
+                .is_none_or(|previous| now.duration_since(previous) >= Duration::from_millis(100));
 
-            if !should_send {
-                return;
-            }
+        if !should_send {
+            return;
+        }
 
-            last_update = Some(now);
+        last_update = Some(now);
 
-            queue_index_progress(progress_thread, operation_id, progress);
-        },
-    )
+        queue_index_progress(progress_thread, operation_id, progress);
+    })
     .map_err(|error| error.to_string())?;
 
     match index_outcome {
@@ -686,11 +899,38 @@ fn queue_stage(
 
             model.as_mut().set_stage(QString::from(stage));
 
-            model.as_mut().set_status_message(QString::from(message));
+            if !model.as_ref().get_ref().rust().cancel_requested {
+                model.as_mut().set_status_message(QString::from(message));
+            }
 
             model.as_mut().set_current_item(QString::default());
         })
         .ok();
+}
+
+fn update_estimate(
+    mut model: Pin<&mut ffi::DatabaseOperationModel>,
+    stage: &str,
+    elapsed: f64,
+    completed: i64,
+    total: i64,
+) {
+    let estimate = {
+        let mut rust = model.as_mut().rust_mut();
+        if rust.estimate_stage != stage {
+            rust.estimate = ProgressEstimate::default();
+            rust.estimate_stage = stage.to_owned();
+        }
+        if stage == "importing" || stage == "indexing" {
+            rust.estimate
+                .update(elapsed, completed.max(0) as u64, total.max(0) as u64)
+        } else {
+            None
+        }
+    };
+    let (rate, remaining) = estimate.unwrap_or((0.0, -1.0));
+    model.as_mut().set_rate(rate);
+    model.as_mut().set_remaining_seconds(remaining);
 }
 
 fn queue_import_progress(
@@ -730,7 +970,6 @@ fn queue_import_progress(
     let errors = usize_to_i64(progress.errors);
 
     let elapsed_seconds = progress.elapsed_seconds;
-    let rate = progress.rate();
 
     qt_thread
         .queue(move |mut model| {
@@ -740,7 +979,9 @@ fn queue_import_progress(
 
             model.as_mut().set_stage(QString::from(stage));
 
-            model.as_mut().set_status_message(QString::from(message));
+            if !model.as_ref().get_ref().rust().cancel_requested {
+                model.as_mut().set_status_message(QString::from(message));
+            }
 
             model.as_mut().set_current_item(QString::from(current_item));
 
@@ -761,7 +1002,7 @@ fn queue_import_progress(
 
             model.as_mut().set_elapsed_seconds(elapsed_seconds);
 
-            model.as_mut().set_rate(rate);
+            update_estimate(model.as_mut(), stage, elapsed_seconds, processed, total);
         })
         .ok();
 }
@@ -771,6 +1012,11 @@ fn queue_index_progress(
     operation_id: u64,
     progress: IndexBuildProgress,
 ) {
+    let (stage, message) = match progress.stage {
+        IndexBuildStage::Indexing => ("indexing", "Indexing games…"),
+        IndexBuildStage::Finalising => ("finalising-index", "Finalising search index…"),
+        IndexBuildStage::Complete => ("index-finished", "Position index ready"),
+    };
     let current_item = progress
         .current_move_file
         .as_ref()
@@ -788,7 +1034,6 @@ fn queue_index_progress(
     let errors = usize_to_i64(progress.errors);
 
     let elapsed_seconds = progress.elapsed_seconds;
-    let rate = progress.rate();
 
     qt_thread
         .queue(move |mut model| {
@@ -796,11 +1041,11 @@ fn queue_index_progress(
                 return;
             }
 
-            model.as_mut().set_stage(QString::from("indexing"));
+            model.as_mut().set_stage(QString::from(stage));
 
-            model
-                .as_mut()
-                .set_status_message(QString::from("Building position index…"));
+            if !model.as_ref().get_ref().rust().cancel_requested {
+                model.as_mut().set_status_message(QString::from(message));
+            }
 
             model.as_mut().set_current_item(QString::from(current_item));
 
@@ -816,7 +1061,7 @@ fn queue_index_progress(
 
             model.as_mut().set_elapsed_seconds(elapsed_seconds);
 
-            model.as_mut().set_rate(rate);
+            update_estimate(model.as_mut(), stage, elapsed_seconds, processed, total);
         })
         .ok();
 }
@@ -845,13 +1090,16 @@ fn finish_operation(
         }
 
         BackgroundCompletion::Cancelled(summary) => {
+            model.as_mut().set_cancelled_during_import(
+                summary.import_summary.is_some() && summary.index_summary.is_none(),
+            );
             apply_summary(model.as_mut(), &summary);
 
             model.as_mut().set_stage(QString::from("cancelled"));
 
             model
                 .as_mut()
-                .set_status_message(QString::from("Operation cancelled"));
+                .set_status_message(QString::from("Stopped. Your progress is saved."));
 
             model.as_mut().set_cancelled(true);
             model.as_mut().set_error_message(QString::default());
@@ -881,6 +1129,8 @@ fn finish_operation(
     model.as_mut().set_in_progress(false);
 
     model.as_mut().rust_mut().cancel_token = None;
+    let path = model.as_ref().get_ref().rust().result_project_path.clone();
+    model.as_mut().refresh_continuation(&path);
 }
 
 fn apply_summary(mut model: Pin<&mut ffi::DatabaseOperationModel>, summary: &OperationSummary) {
@@ -950,6 +1200,7 @@ fn apply_summary(mut model: Pin<&mut ffi::DatabaseOperationModel>, summary: &Ope
 fn reset_display(mut model: Pin<&mut ffi::DatabaseOperationModel>) {
     model.as_mut().set_cancel_requested(false);
     model.as_mut().set_cancelled(false);
+    model.as_mut().set_cancelled_during_import(false);
 
     model.as_mut().set_status_message(QString::default());
 
@@ -980,6 +1231,10 @@ fn reset_display(mut model: Pin<&mut ffi::DatabaseOperationModel>) {
 
     model.as_mut().set_elapsed_seconds(0.0);
     model.as_mut().set_rate(0.0);
+    model.as_mut().set_remaining_seconds(-1.0);
+    let mut rust = model.as_mut().rust_mut();
+    rust.estimate = ProgressEstimate::default();
+    rust.estimate_stage.clear();
 }
 
 fn validate_request(request: &DatabaseOperationRequest) -> Result<(), String> {

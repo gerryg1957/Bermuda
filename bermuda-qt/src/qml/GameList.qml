@@ -14,6 +14,11 @@ Kirigami.AbstractCard {
     signal continuationFilterCleared()
     signal sourceContinuationMapReady(var points)
 
+    readonly property string databaseName: databaseGameModel.database_name
+    readonly property real databaseGameCount: databaseGameModel.database_game_count
+    readonly property bool databaseLoading: databaseGameModel.loading
+    readonly property string databaseError: databaseGameModel.error_message
+
     property string databaseProjectPath: ""
     property string myGamesProjectPath: ""
     property bool showingMyGames: false

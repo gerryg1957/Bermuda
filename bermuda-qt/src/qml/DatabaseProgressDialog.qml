@@ -68,12 +68,47 @@ Dialog {
         ? operationModel.processed_sgf_files
         : operationModel.processed_index_games
 
+    readonly property string phaseText: {
+        const stage = operationModel.stage
+        if (stage === "discovering" || stage === "importing")
+            return operationModel.includes_index
+                ? qsTr("Step 1 of 2 · Import games") : qsTr("Import games")
+        if (stage === "indexing")
+            return operationModel.operation_name === "update-index"
+                ? qsTr("Prepare games for searching")
+                : qsTr("Step 2 of 2 · Prepare games for searching")
+        if (stage === "finalising-index")
+            return qsTr("Finishing · Prepare the search index")
+        return ""
+    }
+
     function countText(current, total) {
         return qsTr("%1 of %2").arg(current).arg(total)
     }
 
     contentItem: ColumnLayout {
         spacing: 10
+
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("Database: %1").arg(operationModel.database_name)
+            font.bold: true
+            wrapMode: Text.Wrap
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: operationModel.result_project_path
+            wrapMode: Text.WrapAnywhere
+            opacity: 0.7
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: root.phaseText.length > 0 && operationModel.in_progress
+            text: root.phaseText
+            font.bold: true
+        }
 
         Label {
             Layout.fillWidth: true
@@ -253,11 +288,35 @@ Dialog {
 
         Label {
             Layout.fillWidth: true
+            visible: operationModel.in_progress
+                     && (root.importing || root.indexing
+                         || operationModel.stage === "finalising-index")
+            wrapMode: Text.Wrap
+            text: {
+                if (operationModel.cancel_requested)
+                    return qsTr("Stopping safely…")
+                if (operationModel.stage === "finalising-index")
+                    return qsTr("All games have been processed. Preparing the search index; remaining time is not yet known.")
+                if (root.progressValue >= root.progressMaximum)
+                    return qsTr("Finishing this phase…")
+                const seconds = operationModel.remaining_seconds
+                if (seconds < 0)
+                    return qsTr("Estimating time remaining for this phase…")
+                if (seconds < 60)
+                    return qsTr("Less than a minute remaining for this phase")
+                return qsTr("About %1 minutes remaining for this phase")
+                    .arg(Math.ceil(seconds / 60))
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
             visible: operationModel.cancelled
 
-            text: qsTr(
-                      "The operation was cancelled. Work already "
-                      + "completed remains valid and has not been rolled back.")
+            text: qsTr("Completed work has been kept.") + " "
+                  + (operationModel.can_continue
+                     ? operationModel.continuation_message
+                     : qsTr("Close this window to return to the database."))
 
             wrapMode: Text.Wrap
             font.bold: true
@@ -310,6 +369,14 @@ Dialog {
 
                 onClicked:
                     operationModel.cancelOperation()
+            }
+
+            Button {
+                visible: !operationModel.in_progress
+                         && operationModel.can_continue
+                         && operationModel.pending_project_path === operationModel.result_project_path
+                text: qsTr("Continue setup")
+                onClicked: operationModel.continueSetup()
             }
 
             Button {

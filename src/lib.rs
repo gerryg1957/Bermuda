@@ -2,6 +2,8 @@ pub mod board;
 pub mod board_display;
 pub mod canonical;
 pub mod database;
+pub mod database_choices;
+pub mod database_task;
 pub mod game;
 pub mod game_catalogue;
 pub mod game_list;
@@ -33,6 +35,7 @@ pub mod study_document;
 pub mod study_edit;
 pub mod study_structure;
 pub mod study_tree;
+pub mod task_progress;
 
 mod game_date;
 

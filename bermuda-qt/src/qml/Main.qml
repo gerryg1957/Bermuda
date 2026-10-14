@@ -85,6 +85,7 @@ ApplicationWindow {
     }
 
     onProjectPathChanged: {
+        Qt.callLater(root.refreshDatabaseContinuation)
         if (root.projectPath.length > 0
                 && root.startupMode !== "ready")
             root.startupMode = "loading"
@@ -985,6 +986,58 @@ ApplicationWindow {
         goBoard.lastMoveNumber = 0
     }
 
+    function rememberDatabase(path) {
+        if (!path || path.length === 0)
+            return
+        let paths = []
+        try { paths = JSON.parse(uiSettings.knownDatabasePathsJson) } catch (error) {}
+        if (!Array.isArray(paths)) paths = []
+        paths = paths.filter(function(p) { return typeof p === "string" && p !== path })
+        paths.unshift(path)
+        uiSettings.knownDatabasePathsJson = JSON.stringify(paths.slice(0, 30))
+    }
+
+    function openDatabasePath(path) {
+        if (!gameController.projectExists(path)) {
+            databaseChooser.open()
+            databaseChooser.formError = qsTr("This database is no longer available: %1").arg(path)
+            return false
+        }
+        if (root.clearProjectSelection() === false)
+            return false
+        if (root.projectPath === path)
+            gameList.reloadDatabaseProject()
+        else
+            root.projectPath = path
+        root.showBrowserTab(0)
+        return true
+    }
+
+    function defaultDatabasePath() {
+        if (root.managedProjectPath.length > 0
+                && gameController.projectExists(root.managedProjectPath))
+            return root.managedProjectPath
+        if (root.legacyManagedProjectPath.length > 0
+                && gameController.projectExists(root.legacyManagedProjectPath))
+            return root.legacyManagedProjectPath
+        return ""
+    }
+
+    function comparableDatabasePath(path) {
+        let value = path.replace(/\\/g, "/").replace(/^\/\/\?\//, "").replace(/\/+$/, "")
+        return Qt.platform.os === "windows" ? value.toLowerCase() : value
+    }
+
+    function refreshDatabaseContinuation() {
+        databaseOperation.refreshContinuation(root.projectPath)
+    }
+
+    function continueDatabaseSetup() {
+        databaseOperation.refreshContinuation(root.projectPath)
+        databaseOperation.continueSetup()
+        databaseProgressDialog.open()
+    }
+
     function applyFinishedDatabaseOperation() {
         const operation = databaseOperation.operation_name
         const resultPath =
@@ -1005,6 +1058,11 @@ ApplicationWindow {
 
     DatabaseOperationModel {
         id: databaseOperation
+
+        onIn_progressChanged: {
+            if (!in_progress)
+                Qt.callLater(root.refreshDatabaseContinuation)
+        }
 
         onStageChanged: {
             if (stage === "complete"
@@ -1034,6 +1092,8 @@ ApplicationWindow {
         id: databaseImportDialog
 
         operationModel: databaseOperation
+        defaultParentFolder: root.managedProjectPath.substring(
+                                 0, root.managedProjectPath.lastIndexOf("/"))
         currentProjectPath: root.projectPath
 
         onOperationStarted:
@@ -1096,6 +1156,92 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: databaseChooser
+        title: qsTr("Switch database")
+        modal: true
+        width: Math.min(760, root.width - 48)
+        height: Math.min(560, root.height - 48)
+        property string defaultPath: ""
+        property var choices: []
+        property string formError: ""
+        onAboutToShow: {
+            formError = ""
+            defaultPath = root.defaultDatabasePath()
+            let remembered = []
+            try { remembered = JSON.parse(uiSettings.knownDatabasePathsJson) } catch (error) {}
+            if (!Array.isArray(remembered)) remembered = []
+            if (root.projectPath.length > 0) remembered.push(root.projectPath)
+            choices = JSON.parse(databaseOperation.databaseChoices(
+                root.managedProjectPath, root.legacyManagedProjectPath,
+                JSON.stringify(remembered))).filter(function(choice) {
+                    function comparablePath(path) {
+                        return path.replace(/\\/g, "/").replace(/^\/\/\?\//, "")
+                    }
+                    return comparablePath(choice.path) !== comparablePath(root.personalProjectPath)
+                })
+        }
+        contentItem: ColumnLayout {
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Choose a database. Bermuda lists databases in its usual locations and remembers others you open with Browse.")
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: databaseChooser.formError.length > 0
+                text: databaseChooser.formError
+                wrapMode: Text.WrapAnywhere
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: databaseChooser.choices
+                ScrollBar.vertical: ScrollBar {}
+                delegate: ItemDelegate {
+                    required property var modelData
+                    width: ListView.view.width
+                    contentItem: ColumnLayout {
+                        Label {
+                            text: (modelData.is_default === true
+                                   || (databaseChooser.defaultPath.length > 0
+                                       && root.comparableDatabasePath(modelData.path)
+                                          === root.comparableDatabasePath(databaseChooser.defaultPath)))
+                                ? qsTr("%1 — Default").arg(modelData.name)
+                                : modelData.name
+                            font.bold: true
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.recovery_error || (modelData.unfinished ? qsTr("Setup incomplete") : qsTr("Available"))
+                            wrapMode: Text.Wrap
+                        }
+                        Label { text: modelData.path; Layout.fillWidth: true; elide: Text.ElideMiddle; opacity: 0.7 }
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: modelData.path
+                    onClicked: {
+                        if (root.openDatabasePath(modelData.path))
+                            databaseChooser.close()
+                    }
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: databaseChooser.choices.length === 0
+                    text: qsTr("No databases found. Use Browse to locate one.")
+                }
+            }
+            RowLayout {
+                Button { text: qsTr("Browse…"); onClicked: { databaseChooser.close(); openDatabaseDialog.open() } }
+                Item { Layout.fillWidth: true }
+                Button { text: qsTr("Close"); onClicked: databaseChooser.close() }
+            }
+        }
+    }
+
   FolderDialog {
       id: openDatabaseDialog
 
@@ -1105,8 +1251,7 @@ ApplicationWindow {
           const folderPath =
               root.localPathFromUrl(selectedFolder)
 
-          root.clearProjectSelection()
-          root.projectPath = folderPath
+          root.openDatabasePath(folderPath)
       }
   }
 
@@ -2288,6 +2433,18 @@ menuBar: MenuBar {
     Menu {
         title: qsTr("&Database")
 
+        Action {
+            text: qsTr("Switch database…")
+            enabled: !databaseOperation.in_progress
+            onTriggered: databaseChooser.open()
+        }
+
+        Action {
+            text: qsTr("Continue setup…")
+            enabled: databaseOperation.can_continue && !databaseOperation.in_progress
+            onTriggered: root.continueDatabaseSetup()
+        }
+
 
 
         Action {
@@ -2380,7 +2537,7 @@ menuBar: MenuBar {
 
                 enabled: !databaseOperation.in_progress
 
-                onTriggered: openDatabaseDialog.open()
+                onTriggered: databaseChooser.open()
             }
 
             Action {
@@ -3087,6 +3244,7 @@ menuBar: MenuBar {
 
         property alias windowWidth: root.width
         property alias windowHeight: root.height
+        property string knownDatabasePathsJson: "[]"
         property int katagoVisitBudget: 200
         property var browserSplitViewStateV3
         property var studySplitViewStateV1
@@ -3107,6 +3265,7 @@ menuBar: MenuBar {
     }
 
     Component.onCompleted: {
+        Qt.callLater(root.refreshDatabaseContinuation)
         if (root.startupSmokeTest) {
             Qt.callLater(function() {
                 try {
@@ -3162,24 +3321,15 @@ menuBar: MenuBar {
         if (root.projectPath.length > 0)
             root.startupMode = "loading"
 
-        if (root.projectPath.length === 0
-                && root.managedProjectPath.length > 0) {
-            if (gameController.projectExists(
-                    root.managedProjectPath)) {
-                root.projectPath = root.managedProjectPath
-            } else if (root.legacyManagedProjectPath.length > 0
-                    && gameController.projectExists(
-                        root.legacyManagedProjectPath)) {
-                /*
-                 * Compatibility with managed databases created before
-                 * the application was renamed from MoyoDB to Bermuda.
-                 */
-                root.projectPath = root.legacyManagedProjectPath
-            } else {
+        if (root.projectPath.length === 0) {
+            // Open the default directly; the chooser is only for switching.
+            const defaultPath = root.defaultDatabasePath()
+            if (defaultPath.length > 0)
+                root.projectPath = defaultPath
+            else
                 root.startupMode = "welcome"
-            }
         }
-    
+
         if (root.startupMode === "detecting") {
             root.startupMode = root.projectPath.length > 0
                     ? "loading"
@@ -3269,9 +3419,31 @@ menuBar: MenuBar {
 
 
 
-        Item {
+        Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.maximumWidth: Math.min(implicitWidth, 400)
+            Layout.leftMargin: 16
+            horizontalAlignment: Text.AlignLeft
+            elide: Text.ElideMiddle
+            text: root.projectPath.length === 0
+                ? qsTr("No professional database open")
+                : gameList.databaseLoading ? qsTr("Opening database…")
+                : !gameList.databaseProjectLoaded ? qsTr("Database could not be opened")
+                : qsTr("Database: %1").arg(gameList.databaseName)
+            HoverHandler { id: databaseIdentityHover }
+            ToolTip.visible: databaseIdentityHover.hovered
+            ToolTip.text: root.projectPath
+                          + (gameList.databaseError.length > 0
+                             ? "\n" + gameList.databaseError : "")
         }
+        Label {
+            Layout.leftMargin: 8
+            visible: root.projectPath.length > 0
+                     && gameList.databaseProjectLoaded && !gameList.databaseLoading
+            text: qsTr("· %1 games").arg(Number(gameList.databaseGameCount).toLocaleString(Qt.locale(), "f", 0))
+        }
+        Item { Layout.fillWidth: true }
     }
 
     Rectangle {
@@ -3550,13 +3722,45 @@ menuBar: MenuBar {
         }
     }
 
+    Pane {
+        id: databaseSetupNotice
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: browserTabStrip.bottom
+        visible: !databaseOperation.in_progress
+                 && (databaseOperation.can_continue
+                     || databaseOperation.continuation_error.length > 0)
+        height: visible ? implicitHeight : 0
+        contentItem: RowLayout {
+            Label {
+                Layout.maximumWidth: 320
+                wrapMode: Text.Wrap
+                text: databaseOperation.can_continue
+                    ? qsTr("Setup incomplete — %1").arg(databaseOperation.pending_database_name)
+                    : qsTr("Setup needs attention")
+            }
+            Button {
+                visible: databaseOperation.can_continue
+                text: qsTr("Continue setup")
+                onClicked: root.continueDatabaseSetup()
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: databaseOperation.continuation_error.length > 0
+                    ? databaseOperation.continuation_error
+                    : databaseOperation.continuation_message
+            }
+        }
+    }
+
     SplitView {
         id: mainSplitView
 
         anchors {
             left: parent.left
             right: parent.right
-            top: browserTabStrip.bottom
+            top: databaseSetupNotice.bottom
             bottom: parent.bottom
 
             leftMargin: 6
@@ -3578,6 +3782,11 @@ menuBar: MenuBar {
 
             onProjectLoadedChanged: {
                 root.finishStartupIfReady()
+            }
+
+            onDatabaseProjectLoadedChanged: {
+                if (databaseProjectLoaded)
+                    root.rememberDatabase(root.projectPath)
             }
 
             onShowingMyGamesChanged:

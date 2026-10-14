@@ -646,19 +646,38 @@ impl PositionIndexer {
             .context("dropping secondary indexes for bulk position indexing")
     }
 
-    /// Finishes a bulk build by restoring the exact-position search indexes.
-    pub(crate) fn finish_bulk_position_index_build(&self) -> Result<()> {
+    /// Each CREATE INDEX is atomic: interruption can leave a secondary index
+    /// missing, which is durable state for a later run to finish.
+    /// Returns false when the progress callback interrupts finalisation.
+    pub(crate) fn finish_bulk_position_index_build<C>(&self, mut is_cancelled: C) -> Result<bool>
+    where
+        C: FnMut() -> bool + Send + 'static,
+    {
+        if is_cancelled() {
+            return Ok(false);
+        }
         self.connection
-            .execute_batch(
-                r#"
-                CREATE INDEX IF NOT EXISTS exact_positions_hash
-                    ON exact_positions(position_hash);
-
-                CREATE INDEX IF NOT EXISTS exact_positions_game
-                    ON exact_positions(game_id);
-                "#,
-            )
-            .context("rebuilding secondary indexes after bulk position indexing")
+            .progress_handler(1000, Some(is_cancelled))
+            .context("installing index cancellation handler")?;
+        let result = self.connection.execute_batch(
+            "CREATE INDEX IF NOT EXISTS exact_positions_hash ON exact_positions(position_hash);
+             CREATE INDEX IF NOT EXISTS exact_positions_game ON exact_positions(game_id);",
+        );
+        // Remove the hook before inspecting/reusing the connection, even on error.
+        self.connection
+            .progress_handler(0, None::<fn() -> bool>)
+            .context("removing index cancellation handler")?;
+        match result {
+            Ok(()) => Ok(true),
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::OperationInterrupted =>
+            {
+                Ok(false)
+            }
+            Err(error) => {
+                Err(error).context("rebuilding secondary indexes after bulk position indexing")
+            }
+        }
     }
 
     /// Finds every occurrence of an exact board position.
@@ -1352,5 +1371,37 @@ mod tests {
             .expect_err("unknown game should fail");
 
         assert!(error.to_string().contains("game 999 does not exist"));
+    }
+    #[test]
+    fn sqlite_finalisation_interrupt_rolls_back_and_connection_remains_usable() -> Result<()> {
+        let (_temporary, root) = create_test_database();
+        let indexer = PositionIndexer::open(&root)?;
+        insert_game(&indexer.connection, 1, "games/test.moves");
+        indexer.begin_bulk_position_index_build()?;
+        // Enough rows to invoke SQLite's progress callback during CREATE INDEX.
+        indexer.connection.execute_batch(
+            "WITH RECURSIVE n(x) AS (VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<9999)
+             INSERT INTO exact_positions(position_hash, game_id, move_number, side_to_move, ko_point)
+             SELECT randomblob(32), 1, x, 1, NULL FROM n;"
+        )?;
+        let mut checks = 0;
+        assert!(!indexer.finish_bulk_position_index_build(move || {
+            checks += 1;
+            checks >= 3
+        })?);
+        assert!(indexer.position_index_bulk_mode_active()?);
+        let count: i64 =
+            indexer
+                .connection
+                .query_row("SELECT COUNT(*) FROM exact_positions", [], |r| r.get(0))?;
+        assert_eq!(count, 10000);
+        assert!(indexer.finish_bulk_position_index_build(|| false)?);
+        assert!(!indexer.position_index_bulk_mode_active()?);
+        let integrity: String =
+            indexer
+                .connection
+                .query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+        assert_eq!(integrity, "ok");
+        Ok(())
     }
 }

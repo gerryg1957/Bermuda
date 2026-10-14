@@ -3,6 +3,10 @@ use rayon::prelude::*;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Instant,
 };
 
@@ -35,8 +39,16 @@ impl IndexBuildSummary {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexBuildStage {
+    Indexing,
+    Finalising,
+    Complete,
+}
+
 #[derive(Debug, Clone)]
 pub struct IndexBuildProgress {
+    pub stage: IndexBuildStage,
     pub index_version: i64,
     pub total_games: usize,
     pub processed_games: usize,
@@ -74,10 +86,41 @@ pub fn run(project: &Project) -> Result<IndexBuildSummary> {
     }
 }
 
+/// Token-based entry point also permits cancellation inside SQLite finalisation.
+pub fn run_with_cancel_token<P>(
+    project: &Project,
+    cancel: Arc<AtomicBool>,
+    on_progress: P,
+) -> Result<IndexBuildOutcome>
+where
+    P: FnMut(IndexBuildProgress),
+{
+    let token = Arc::clone(&cancel);
+    run_inner(
+        project,
+        move || token.load(Ordering::Relaxed),
+        on_progress,
+        Some(cancel),
+    )
+}
+
 pub fn run_with_progress<C, P>(
+    project: &Project,
+    is_cancelled: C,
+    on_progress: P,
+) -> Result<IndexBuildOutcome>
+where
+    C: FnMut() -> bool,
+    P: FnMut(IndexBuildProgress),
+{
+    run_inner(project, is_cancelled, on_progress, None)
+}
+
+fn run_inner<C, P>(
     project: &Project,
     mut is_cancelled: C,
     mut on_progress: P,
+    interrupt_token: Option<Arc<AtomicBool>>,
 ) -> Result<IndexBuildOutcome>
 where
     C: FnMut() -> bool,
@@ -105,7 +148,13 @@ where
 
     let mut error_messages = Vec::new();
 
-    on_progress(progress_snapshot(&summary, started, None, None));
+    on_progress(progress_snapshot(
+        &summary,
+        IndexBuildStage::Indexing,
+        started,
+        None,
+        None,
+    ));
 
     for chunk in games.chunks(REPLAY_CHUNK_SIZE) {
         if is_cancelled() {
@@ -162,6 +211,7 @@ where
 
             on_progress(progress_snapshot(
                 &summary,
+                IndexBuildStage::Indexing,
                 started,
                 current_game_id,
                 current_move_file,
@@ -170,23 +220,47 @@ where
     }
 
     if bulk_mode {
-        indexer.finish_bulk_position_index_build()?;
+        on_progress(progress_snapshot(
+            &summary,
+            IndexBuildStage::Finalising,
+            started,
+            None,
+            None,
+        ));
+        if is_cancelled()
+            || !indexer.finish_bulk_position_index_build(move || {
+                interrupt_token
+                    .as_ref()
+                    .is_some_and(|token| token.load(Ordering::Relaxed))
+            })?
+        {
+            let summary = finish_summary(project, summary, started, &error_messages)?;
+            return Ok(IndexBuildOutcome::Cancelled(summary));
+        }
     }
 
     let summary = finish_summary(project, summary, started, &error_messages)?;
 
-    on_progress(progress_snapshot(&summary, started, None, None));
+    on_progress(progress_snapshot(
+        &summary,
+        IndexBuildStage::Complete,
+        started,
+        None,
+        None,
+    ));
 
     Ok(IndexBuildOutcome::Completed(summary))
 }
 
 fn progress_snapshot(
     summary: &IndexBuildSummary,
+    stage: IndexBuildStage,
     started: Instant,
     current_game_id: Option<i64>,
     current_move_file: Option<&Path>,
 ) -> IndexBuildProgress {
     IndexBuildProgress {
+        stage,
         index_version: summary.index_version,
         total_games: summary.total_games,
         processed_games: summary.processed_games,
@@ -331,6 +405,67 @@ mod tests {
 
         assert_eq!(indexer.count_games_to_index(POSITION_INDEX_VERSION,)?, 1);
 
+        Ok(())
+    }
+    #[test]
+    fn finalisation_is_visible_and_can_be_resumed_without_replaying_games() -> Result<()> {
+        let (_temporary, project) = create_project_with_games()?;
+        let token = Arc::new(AtomicBool::new(false));
+        let mut stages = Vec::new();
+        let outcome = run_with_cancel_token(&project, Arc::clone(&token), |progress| {
+            stages.push(progress.stage);
+            if progress.stage == IndexBuildStage::Finalising {
+                token.store(true, Ordering::Relaxed);
+            }
+        })?;
+        assert!(matches!(outcome, IndexBuildOutcome::Cancelled(_)));
+        assert_eq!(stages.last(), Some(&IndexBuildStage::Finalising));
+        let indexer = project.position_indexer()?;
+        assert!(indexer.position_index_bulk_mode_active()?);
+        assert_eq!(indexer.count_games_to_index(POSITION_INDEX_VERSION)?, 0);
+        drop(indexer);
+        let mut resumed_stages = Vec::new();
+        let resumed = run_with_progress(&project, || false, |p| resumed_stages.push(p.stage))?;
+        let IndexBuildOutcome::Completed(summary) = resumed else {
+            panic!("resume failed");
+        };
+        assert_eq!(summary.indexed_games, 0);
+        assert!(resumed_stages.contains(&IndexBuildStage::Finalising));
+        assert_eq!(resumed_stages.last(), Some(&IndexBuildStage::Complete));
+        assert!(
+            !project
+                .position_indexer()?
+                .position_index_bulk_mode_active()?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resumed_index_matches_uninterrupted_build() -> Result<()> {
+        let (_first_dir, first) = create_project_with_games()?;
+        let (_second_dir, second) = create_project_with_games()?;
+        run(&first)?;
+        let cancel = Cell::new(false);
+        run_with_progress(
+            &second,
+            || cancel.get(),
+            |p| {
+                if p.processed_games == 1 {
+                    cancel.set(true);
+                }
+            },
+        )?;
+        run(&second)?;
+        fn rows(project: &Project) -> Result<Vec<(Vec<u8>, i64, i64, i64, Option<i64>)>> {
+            let db = crate::database::open(&project.database_root())?;
+            let mut statement = db.prepare("SELECT position_hash, game_id, move_number, side_to_move, ko_point FROM exact_positions ORDER BY game_id, move_number")?;
+            Ok(statement
+                .query_map([], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
+        }
+        assert_eq!(rows(&first)?, rows(&second)?);
         Ok(())
     }
 }
