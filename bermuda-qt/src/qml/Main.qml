@@ -822,7 +822,7 @@ ApplicationWindow {
         }
     }
 
-    function beginJosekiPatternSearch() {
+    function beginJosekiPatternSearch(analysisOnly) {
         if (!root.studyWorkspaceActive
                 || root.playingGame
                 || gameList.searchInProgress
@@ -835,7 +835,7 @@ ApplicationWindow {
         if (root.josekiSearchUi !== null)
             return false
 
-        if (gameList.databaseProjectPath.length === 0) {
+        if (!analysisOnly && gameList.databaseProjectPath.length === 0) {
             josekiSearchNotice.message = qsTr(
                 "Open a professional-game database before searching this Joseki.")
             josekiSearchNotice.open()
@@ -893,9 +893,11 @@ ApplicationWindow {
         studyToolsTabs.currentIndex = 1
         boardPane.annotationTool = ""
         boardPane.sgfEditTool = ""
-        boardPane.investigationMode = "pattern"
+        boardPane.investigationMode = analysisOnly ? "katago" : "pattern"
         boardPane.selectingPattern = false
         goBoard.hoverValid = false
+
+        if (analysisOnly) return true
 
         if (rectangle === null) {
             boardPane.selectingPattern = true
@@ -1026,6 +1028,100 @@ ApplicationWindow {
     function comparableDatabasePath(path) {
         let value = path.replace(/\\/g, "/").replace(/^\/\/\?\//, "").replace(/\/+$/, "")
         return Qt.platform.os === "windows" ? value.toLowerCase() : value
+    }
+
+    NavigationHome {
+        id: navigationHome
+        visible: root.navigationHomeVisible && root.startupMode === "ready"
+        x: mainSplitView.x + boardPane.x
+        y: mainSplitView.y + boardPane.y
+        width: boardPane.width
+        height: boardPane.height
+        z: 900
+        studies: studyLibraryDialog.entries
+        canContinue: root.studyWorkspaceAvailable || boardPane.selectedGame !== null
+        currentTitle: root.navigationCurrentGame
+            ? [root.navigationCurrentGame.black, root.navigationCurrentGame.white].filter(function(v) { return v && v.length }).join(" — ")
+            : root.studyPaneMode === "joseki" ? qsTr("Joseki exploration") : qsTr("Current work")
+        onOpenFile: openSgfDialog.open()
+        onNewPosition: newPatternAction.trigger()
+        onExploreJoseki: { root.showStudy(); root.showStudyPaneMode("joseki") }
+        onContinueWork: root.showStudy()
+        onOpenStudy: function(index) { studyLibraryDialog.selectedIndex = index; studyLibraryDialog.openSelected() }
+        onOpenCollection: function(index) { root.showBrowserTab(index); gameList.forceActiveFocus() }
+        onDeleteStudy: function(index) {
+            studyLibraryDialog.pendingDeleteEntry = studyLibraryDialog.entries[index]
+            studyLibraryDeleteDialog.open()
+        }
+        onRefreshStudies: studyLibraryDialog.refreshEntries()
+    }
+
+    property bool wholeGameReviewActive: false
+    readonly property Item wholeGameReviewTarget: root.browserExpanded ? gameList : studyPane
+    onBrowserExpandedChanged: wholeGameReviewActive = false
+    onGameControllerChanged: wholeGameReviewActive = false
+
+    function openWholeGameReview() {
+        wholeGameReview.positionOnly = false
+        wholeGameReview.controller = gameController
+        wholeGameReview.komi = gameController.komi.length ? gameController.komi : "6.5"
+        wholeGameReview.beginReview()
+        root.wholeGameReviewActive = true
+    }
+
+    function openPositionReview() {
+        wholeGameReview.controller = gameController
+        wholeGameReview.positionOnly = true
+        wholeGameReview.komi = katagoKomiField.text
+        wholeGameReview.beginReview()
+        root.wholeGameReviewActive = true
+        wholeGameReview.analysePosition(uiSettings.katagoVisitBudget, katagoKomiField.text)
+    }
+
+    WholeGameReviewPanel {
+        id: wholeGameReview
+        visible: root.wholeGameReviewActive && root.wholeGameReviewTarget.visible
+        x: mainSplitView.x + root.wholeGameReviewTarget.x
+        y: mainSplitView.y + root.wholeGameReviewTarget.y
+        // Cover the tree/unused area as well, without changing board geometry.
+        // Use live item coordinates: root is an ApplicationWindow, which
+        // cannot be passed as the item argument to mapToItem().
+        width: Math.max(root.wholeGameReviewTarget.width,
+            mainSplitView.x + boardPane.x + boardPane.contentItem.x
+            + boardFrame.parent.x + boardFrame.x + boardFrame.contentItem.x
+            + goBoard.x - x)
+        gameIdentity: boardPane.selectedGame
+        gameTitle: boardPane.selectedGame
+            ? [boardPane.selectedGame.black, boardPane.selectedGame.white].filter(function(name) { return name && name.length }).join(" — ")
+            : ""
+        height: root.wholeGameReviewTarget.height
+        z: 1000
+        returnText: root.browserExpanded ? qsTr("Return to database") : qsTr("Return to Study")
+        onPreviewPosition: function(position) {
+            goBoard.previewMarkup = position === null ? null : (position.markup || [])
+            if (position === null) { boardPane.applyLoadedPosition(); return }
+            goBoard.stones = position.stones
+            goBoard.lastMoveX = position.lastX
+            goBoard.lastMoveY = position.lastY
+            goBoard.lastMoveNumber = 0
+        }
+        onSavedContinuation: {
+            root.wholeGameReviewActive = false
+            boardPane.applyLoadedPosition()
+            root.trialTool("notes")
+            studyActionTabs.currentIndex = 1
+        }
+        onLeaveReview: root.wholeGameReviewActive = false
+        executable: katagoSettings.executable
+        network: katagoSettings.model
+        configuration: katagoSettings.config
+        visitBudget: uiSettings.katagoVisitBudget
+        onNavigate: function(moveNumber) {
+            if (controller === gameController && controller.wholeGameMatchesLoaded())
+                boardPane.showMove(moveNumber)
+            else
+                navigationUnavailable()
+        }
     }
 
     function refreshDatabaseContinuation() {
@@ -2168,11 +2264,18 @@ ApplicationWindow {
     }
 
 menuBar: MenuBar {
+    delegate: MenuBarItem {
+        visible: menu === legacyGameMenu || menu === patternMenu ? !root.navigationTrial
+                 : menu === trialPlayMenu ? root.navigationTrial : true
+        width: visible ? implicitWidth : 0
+    }
         visible: root.startupMode === "ready"
     Menu {
+        id: legacyGameMenu
         title: qsTr("&Game")
 
         Action {
+            id: playGameAction
             text: qsTr("&Play Game…")
             onTriggered: newGameDialog.open()
         }
@@ -2214,6 +2317,7 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
+            id: returnPlayedAction
             text: root.localGameFinished
                   ? qsTr("Return to &Played Game")
                   : qsTr("Return to &Game")
@@ -2225,6 +2329,7 @@ menuBar: MenuBar {
         }
 
         Action {
+            id: closePlayedAction
             text: root.localGameFinished
                   ? qsTr("&Close Played Game…")
                   : qsTr("&Abandon Game…")
@@ -2237,6 +2342,7 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
+            id: savePlayedAction
             text: qsTr("&Save SGF…")
 
             /*
@@ -2251,9 +2357,11 @@ menuBar: MenuBar {
 
 
     Menu {
+        id: patternMenu
         title: qsTr("&Pattern")
 
         Action {
+            id: newPatternAction
             text: qsTr("&New Pattern")
 
             onTriggered: {
@@ -2284,9 +2392,6 @@ menuBar: MenuBar {
                     boardPane.investigationMode = "pattern"
 
                     goBoard.influenceVisible = false
-                    katagoPanel.analysisMoveNumber = -1
-                    katagoPanel.analysisVisitBudget = -1
-                    katagoPanel.analysisKomi = ""
 
                     boardPane.editingPosition = true
                     boardPane.editTool = "black"
@@ -2323,6 +2428,7 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
+            id: selectAreaAction
             text: qsTr("Select Search &Area")
 
             enabled: !root.playingGame
@@ -2349,6 +2455,7 @@ menuBar: MenuBar {
         }
 
         Action {
+            id: professionalMatchesAction
             text:
                 gameList.searchHasRunFor(
                     gameList.databaseProjectPath)
@@ -2380,6 +2487,7 @@ menuBar: MenuBar {
         }
 
         Action {
+            id: myMatchesAction
             text:
                 gameList.searchHasRunFor(
                     gameList.myGamesProjectPath)
@@ -2413,6 +2521,7 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
+            id: newSearchAction
             text: qsTr("New &Search")
             enabled: boardPane.investigatingSearch
             onTriggered: boardPane.beginNewSearch()
@@ -2421,6 +2530,7 @@ menuBar: MenuBar {
         MenuSeparator {}
 
         Action {
+            id: handicapAction
             text: qsTr("Include &handicap games")
             checkable: true
             checked: root.includeHandicapGames
@@ -2428,6 +2538,16 @@ menuBar: MenuBar {
             onToggled:
                 root.includeHandicapGames = checked
         }
+    }
+
+    Menu {
+        id: trialPlayMenu
+        title: qsTr("&Play")
+        MenuItem { action: playGameAction }
+        MenuItem { action: returnPlayedAction }
+        MenuItem { action: closePlayedAction }
+        MenuSeparator {}
+        MenuItem { action: savePlayedAction }
     }
 
     Menu {
@@ -2479,15 +2599,14 @@ menuBar: MenuBar {
         Action {
             text: qsTr("Add Current Game to &My Games")
 
-            /*
-             * For now, only completed live games are added.
-             */
-            enabled: root.playingGame
+            enabled: root.canAddOpenedGame || (root.playingGame
                      && root.localGameFinished
-                     && !root.localGameAddedToMyGames
+                     && !root.localGameAddedToMyGames)
 
-            onTriggered:
-                root.addCurrentPlayedGameToMyGames()
+            onTriggered: {
+                if (root.playingGame) root.addCurrentPlayedGameToMyGames()
+                else root.addCurrentOpenedGameToMyGames()
+            }
         }
 
         Action {
@@ -2571,7 +2690,6 @@ menuBar: MenuBar {
 
     Menu {
         title: qsTr("&Help")
-
         Action {
             text: qsTr("&Professional game records…")
             onTriggered: professionalRecordsHelp.open()
@@ -2588,6 +2706,38 @@ menuBar: MenuBar {
         }
     }
 }
+
+    // The unified navigation is permanent. Keep this internal routing flag
+    // fixed while retaining the established workspace and action wiring.
+    readonly property bool navigationTrial: true
+    readonly property bool navigationHomeVisible: navigationTrial && browserExpanded && gameList.currentTabIndex !== 2
+    readonly property var navigationCurrentGame: studyWorkspaceActive ? boardPane.selectedGame
+        : parkedWorkspaceUi ? parkedWorkspaceUi.selectedGame : boardPane.selectedGame
+    onNavigationHomeVisibleChanged: if (navigationHomeVisible) Qt.callLater(function() { studyLibraryDialog.refreshEntries() })
+
+    function trialHome() {
+        root.showBrowserTab(root.lastBrowserTabIndex)
+    }
+    function trialTool(mode) {
+        root.wholeGameReviewActive = false
+        root.showStudy()
+        if (mode === "notes") {
+            studyToolsTabs.currentIndex = 0
+        } else {
+            studyToolsTabs.currentIndex = 1
+            boardPane.investigationMode = mode
+        }
+    }
+    function trialReturnToSource() {
+        if (root.josekiSearchUi !== null) {
+            root.endJosekiPatternSearch()
+            return
+        }
+        if (boardPane.investigatingSearch && boardPane.searchSourceGame !== null) {
+            if (!boardPane.showSamePatternResults(gameList.currentSearchProjectPath)) return
+        }
+        root.trialTool("pattern")
+    }
 
     property bool playingGame: false
 
@@ -2609,6 +2759,7 @@ menuBar: MenuBar {
     property string studyPaneMode: "document"
 
     function showStudyPaneMode(mode) {
+        root.wholeGameReviewActive = false
         if (mode !== "document"
                 && mode !== "library"
                 && mode !== "joseki") {
@@ -2763,21 +2914,21 @@ menuBar: MenuBar {
     }
 
     function saveBrowserSplitState() {
-        uiSettings.browserSplitViewStateV3 = mainSplitView.saveState()
+        if (root.navigationTrial) uiSettings.trialBrowserSplitState = mainSplitView.saveState()
+        else uiSettings.browserSplitViewStateV3 = mainSplitView.saveState()
     }
 
     function saveStudySplitState() {
         if (!root.browserExpanded && studyPane.visible) {
-            uiSettings.studySplitViewStateV1 =
-                mainSplitView.saveState()
+            if (root.navigationTrial) uiSettings.trialStudySplitState = mainSplitView.saveState()
+            else uiSettings.studySplitViewStateV1 = mainSplitView.saveState()
         }
     }
 
     function restoreStudySplitState() {
         Qt.callLater(function() {
-            if (uiSettings.studySplitViewStateV1) {
-                mainSplitView.restoreState(
-                    uiSettings.studySplitViewStateV1)
+            if (root.navigationTrial ? uiSettings.trialStudySplitState : uiSettings.studySplitViewStateV1) {
+                mainSplitView.restoreState(root.navigationTrial ? uiSettings.trialStudySplitState : uiSettings.studySplitViewStateV1)
             }
         })
     }
@@ -2853,9 +3004,8 @@ menuBar: MenuBar {
         root.replacementHadStudyWorkspace = false
 
         Qt.callLater(function() {
-            if (uiSettings.browserSplitViewStateV3) {
-                mainSplitView.restoreState(
-                    uiSettings.browserSplitViewStateV3)
+            if (root.navigationTrial ? uiSettings.trialBrowserSplitState : uiSettings.browserSplitViewStateV3) {
+                mainSplitView.restoreState(root.navigationTrial ? uiSettings.trialBrowserSplitState : uiSettings.browserSplitViewStateV3)
             }
         })
 
@@ -2863,6 +3013,7 @@ menuBar: MenuBar {
     }
 
     function showStudy() {
+        root.wholeGameReviewActive = false
         /*
          * Pattern results can be visible while the Study document remains
          * active. In that case Study just hides the results pane; no
@@ -2904,6 +3055,7 @@ menuBar: MenuBar {
     }
 
     function showPatternResults() {
+        root.wholeGameReviewActive = false
         root.saveStudySplitState()
 
         /*
@@ -2928,11 +3080,16 @@ menuBar: MenuBar {
                 !root.studyWorkspaceActive
         }
 
-        root.browserExpanded = true
         gameList.currentTabIndex = 2
+        if (root.navigationTrial) {
+            root.trialTool("pattern")
+        } else {
+            root.browserExpanded = true
+        }
     }
 
     function showBrowserTab(index) {
+        root.wholeGameReviewActive = false
         if (index !== 2 && !root.endJosekiPatternSearch())
             return
 
@@ -2965,9 +3122,8 @@ menuBar: MenuBar {
 
         if (restoreBrowserSplit) {
             Qt.callLater(function() {
-                if (uiSettings.browserSplitViewStateV3) {
-                    mainSplitView.restoreState(
-                        uiSettings.browserSplitViewStateV3)
+                if (root.navigationTrial ? uiSettings.trialBrowserSplitState : uiSettings.browserSplitViewStateV3) {
+                    mainSplitView.restoreState(root.navigationTrial ? uiSettings.trialBrowserSplitState : uiSettings.browserSplitViewStateV3)
                 }
             })
         }
@@ -3094,6 +3250,34 @@ menuBar: MenuBar {
         }
 
         return true
+    }
+
+    readonly property bool canAddOpenedGame:
+        root.studyWorkspaceActive && root.studyPaneMode === "document"
+        && !root.playingGame && !boardPane.editingPosition
+        && boardPane.selectedGame !== null && boardPane.selectedGame.gameId < 0
+        && gameController.move_count > 0 && !gameController.whole_game_busy
+
+    function addCurrentOpenedGameToMyGames() {
+        if (!root.canAddOpenedGame) return
+        const added = gameController.addOpenedGameToMyGames()
+        if (added) gameList.reloadMyGamesProject()
+        myGamesAddResult.message = added
+            ? qsTr("The game is now in My games. You can continue studying here, or find it under Home → My games.")
+            : gameController.error_message
+        myGamesAddResult.open()
+    }
+
+    Dialog {
+        id: myGamesAddResult
+        property string message: ""
+        title: qsTr("My games")
+        modal: true
+        standardButtons: Dialog.Ok
+        width: Math.min(root.width - 32, 480)
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        contentItem: Label { text: myGamesAddResult.message; wrapMode: Text.Wrap }
     }
 
     function addCurrentPlayedGameToMyGames() {
@@ -3245,6 +3429,8 @@ menuBar: MenuBar {
         property alias windowWidth: root.width
         property alias windowHeight: root.height
         property string knownDatabasePathsJson: "[]"
+        property var trialBrowserSplitState
+        property var trialStudySplitState
         property int katagoVisitBudget: 200
         property var browserSplitViewStateV3
         property var studySplitViewStateV1
@@ -3305,9 +3491,8 @@ menuBar: MenuBar {
          * A new installation has no saved state and therefore uses the
          * preferred widths below.
          */
-        if (uiSettings.browserSplitViewStateV3) {
-            mainSplitView.restoreState(
-                uiSettings.browserSplitViewStateV3)
+        if (root.navigationTrial ? uiSettings.trialBrowserSplitState : uiSettings.browserSplitViewStateV3) {
+            mainSplitView.restoreState(root.navigationTrial ? uiSettings.trialBrowserSplitState : uiSettings.browserSplitViewStateV3)
         }
 
         /*
@@ -3343,8 +3528,7 @@ menuBar: MenuBar {
          * showStudy() saved the browsing proportions before hiding it.
          */
         if (root.browserExpanded) {
-            uiSettings.browserSplitViewStateV3 =
-                mainSplitView.saveState()
+            root.saveBrowserSplitState()
         } else {
             root.saveStudySplitState()
         }
@@ -3352,6 +3536,37 @@ menuBar: MenuBar {
 
     RowLayout {
         id: browserTabStrip
+        visible: !root.navigationHomeVisible
+        height: visible ? implicitHeight : 0
+
+        Button { visible: root.navigationTrial; text: qsTr("Home"); enabled: !gameList.searchInProgress && !gameController.whole_game_busy; onClicked: root.trialHome() }
+        Button {
+            visible: root.navigationTrial && (boardPane.investigatingSearch || root.josekiSearchUi !== null)
+            text: root.josekiSearchUi !== null ? qsTr("Return to joseki") : qsTr("Return to source")
+            enabled: !gameList.searchInProgress && !gameController.whole_game_busy
+            onClicked: root.trialReturnToSource()
+        }
+        Button { visible: root.navigationTrial && !root.playingGame && boardPane.selectedGame !== null; text: qsTr("Game / notes"); onClicked: root.trialTool("notes") }
+        Button {
+            visible: root.navigationTrial && root.canAddOpenedGame
+            text: qsTr("Add to My games")
+            onClicked: root.addCurrentOpenedGameToMyGames()
+        }
+        Button {
+            visible: root.navigationTrial
+            text: qsTr("KataGo")
+            enabled: !root.playingGame && (boardPane.selectedGame !== null || (root.studyPaneMode === "joseki" && !josekiModel.loading))
+            onClicked: {
+                if (root.studyPaneMode === "joseki") root.beginJosekiPatternSearch(true)
+                else root.trialTool("katago")
+            }
+        }
+        Button {
+            visible: root.navigationTrial && boardPane.selectedGame !== null
+            text: qsTr("Influence")
+            onClicked: { root.showStudy(); studyToolsTabs.currentIndex = 2 }
+        }
+
 
         anchors {
             left: parent.left
@@ -3365,6 +3580,7 @@ menuBar: MenuBar {
         spacing: 0
 
         TabButton {
+            visible: !root.navigationTrial
             text: qsTr("Professional games")
             checkable: true
             checked:
@@ -3374,6 +3590,7 @@ menuBar: MenuBar {
         }
 
         TabButton {
+            visible: !root.navigationTrial
             text: qsTr("My games")
             checkable: true
             checked:
@@ -3383,6 +3600,7 @@ menuBar: MenuBar {
         }
 
         TabButton {
+            visible: !root.navigationTrial
             text: qsTr("Pattern results")
             checkable: true
             checked:
@@ -3392,6 +3610,7 @@ menuBar: MenuBar {
         }
 
         TabButton {
+            visible: !root.navigationTrial
             text: qsTr("Study")
             checkable: true
 
@@ -3774,6 +3993,10 @@ menuBar: MenuBar {
         // Database browser pane
         GameList {
             id: gameList
+            libraryNavigation: root.navigationTrial
+            searchResultsHost: root.navigationTrial ? inlinePatternResultsContent : null
+            onLibraryTabRequested: function(index) { root.showBrowserTab(index) }
+            enabled: !root.wholeGameReviewActive
 
             visible: root.browserExpanded
 
@@ -3844,10 +4067,10 @@ menuBar: MenuBar {
                  * Pattern Results workflow.
                  */
                 const openMyGameInStudy =
-                    gameList.showingMyGames
+                    (root.navigationTrial || gameList.showingMyGames)
                     && game.fromSearchResults !== true
 
-                game.fromMyGames = openMyGameInStudy
+                game.fromMyGames = gameList.showingMyGames && game.fromSearchResults !== true
 
                 if (openMyGameInStudy
                         && !root.prepareStudyReplacement()) {
@@ -3930,6 +4153,7 @@ menuBar: MenuBar {
          */
         Frame {
             id: studyPane
+            enabled: !root.wholeGameReviewActive
 
             visible:
                 !root.browserExpanded
@@ -3947,6 +4171,7 @@ menuBar: MenuBar {
                 spacing: Kirigami.Units.smallSpacing
 
                 RowLayout {
+                    visible: !root.navigationTrial
                     Layout.fillWidth: true
                     spacing: 0
 
@@ -4400,11 +4625,11 @@ menuBar: MenuBar {
                                             Layout.fillWidth: true
                                             Layout.fillHeight: false
                                             Layout.minimumHeight:
-                                                Kirigami.Units.gridUnit * 7
+                                                Kirigami.Units.gridUnit * 3.5
                                             Layout.preferredHeight:
-                                                Kirigami.Units.gridUnit * 11
+                                                Kirigami.Units.gridUnit * 5.5
                                             Layout.maximumHeight:
-                                                Kirigami.Units.gridUnit * 16
+                                                Kirigami.Units.gridUnit * 8
 
                                             contentItem: ColumnLayout {
                                                 spacing:
@@ -4488,11 +4713,46 @@ menuBar: MenuBar {
                                             Layout.maximumHeight: implicitHeight
                                         }
 
+                                        RowLayout {
+                                            id: patternToolControls
+                                            visible: root.navigationTrial && !root.playingGame
+                                                     && boardPane.selectedGame !== null
+                                            Layout.fillWidth: true
+                                            Layout.leftMargin: 8
+                                            Layout.rightMargin: 8
+                                            spacing: 4
+                                            Button {
+                                                visible: root.navigationTrial
+                                                text: qsTr("Pattern search")
+                                                enabled: !root.playingGame && (boardPane.selectedGame !== null || root.studyPaneMode === "joseki")
+                                                onClicked: {
+                                                    if (root.studyPaneMode === "joseki") root.beginJosekiPatternSearch()
+                                                    else root.trialTool("pattern")
+                                                }
+                                            }
+                                            Button {
+                                                visible: root.navigationTrial
+                                                text: qsTr("Search options")
+                                                onClicked: trialPatternOptions.open()
+                                                Menu {
+                                                    id: trialPatternOptions
+                                                    MenuItem { action: selectAreaAction }
+                                                    MenuItem { action: professionalMatchesAction }
+                                                    MenuItem { action: myMatchesAction }
+                                                    MenuItem { action: newSearchAction }
+                                                    MenuSeparator {}
+                                                    MenuItem { action: handicapAction }
+                                                }
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                        }
+
                                         TabBar {
                                             id: studyToolsTabs
 
                                             visible:
-                                                !root.playingGame
+                                                !root.navigationTrial
+                                                && !root.playingGame
                                                 && boardPane.selectedGame !== null
                                                 && !boardPane.editingPosition
 
@@ -4531,7 +4791,7 @@ menuBar: MenuBar {
 
                                             TabButton {
                                                 width: studyToolsTabs.width / 3
-                                                text: qsTr("View")
+                                                text: qsTr("Influence")
                                             }
                                         }
 
@@ -4539,7 +4799,8 @@ menuBar: MenuBar {
                                             id: studyAnalysisControls
 
                                             visible:
-                                                !root.playingGame
+                                                !root.navigationTrial
+                                                && !root.playingGame
                                                 && boardPane.selectedGame !== null
                                                 && !boardPane.editingPosition
                                                 && studyToolsTabs.currentIndex === 1
@@ -4654,6 +4915,12 @@ menuBar: MenuBar {
                                                 checkable: true
                                                 checked: boardPane.editTool === "erase"
                                                 onClicked: boardPane.editTool = "erase"
+                                            }
+
+                                            ToolButton {
+                                                text: qsTr("New pattern")
+                                                enabled: !gameList.searchInProgress && !gameController.whole_game_busy
+                                                onClicked: newPatternAction.trigger()
                                             }
 
                                             Item {
@@ -5245,6 +5512,26 @@ menuBar: MenuBar {
                                                              }
                                                          }
 
+                                        Frame {
+                                            id: inlinePatternResults
+                                            visible: root.navigationTrial
+                                                     && !root.playingGame
+                                                     && studyToolsTabs.currentIndex === 1
+                                                     && boardPane.investigationMode === "pattern"
+                                                     && (gameList.searchHasRun || gameList.searchInProgress)
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            Layout.minimumHeight: 100
+                                            Layout.leftMargin: 8
+                                            Layout.rightMargin: 8
+                                            padding: 0
+                                            background: Rectangle { color: inlinePatternResults.palette.base }
+                                            contentItem: ColumnLayout {
+                                                id: inlinePatternResultsContent
+                                                spacing: 0
+                                            }
+                                        }
+
                                                          Frame {
                                                              id: katagoPanel
 
@@ -5261,9 +5548,6 @@ menuBar: MenuBar {
                                                              Layout.preferredHeight: implicitHeight
                                                              Layout.maximumHeight: implicitHeight
 
-                                                             property int analysisMoveNumber: -1
-                                                             property int analysisVisitBudget: -1
-                                                             property string analysisKomi: ""
 
                                                              Connections {
                                                                  target: boardPane
@@ -5280,8 +5564,15 @@ menuBar: MenuBar {
                                                                  spacing: 4
 
                                                                  Button {
+                                                                     text: qsTr("Whole game…")
+                                                                     onClicked: {
+                                                                         root.openWholeGameReview()
+                                                                     }
+                                                                 }
+
+                                                                 Button {
                                                                      text: qsTr("Set up KataGo…")
-                                                                     enabled: !gameController.katago_analysis_in_progress
+                                                                     enabled: !gameController.katago_analysis_in_progress && !gameController.whole_game_busy
                                                                      onClicked: katagoSetupDialog.open()
                                                                  }
 
@@ -5302,7 +5593,7 @@ menuBar: MenuBar {
                                                                          value: uiSettings.katagoVisitBudget
                                                                          enabled:
                                                                              !gameController
-                                                                                 .katago_analysis_in_progress
+                                                                                 .katago_analysis_in_progress && !gameController.whole_game_busy
 
                                                                          onValueModified:
                                                                              uiSettings.katagoVisitBudget = value
@@ -5325,7 +5616,7 @@ menuBar: MenuBar {
 
                                                                          enabled:
                                                                              !gameController
-                                                                                 .katago_analysis_in_progress
+                                                                                 .katago_analysis_in_progress && !gameController.whole_game_busy
 
                                                                          inputMethodHints:
                                                                              Qt.ImhFormattedNumbersOnly
@@ -5346,27 +5637,9 @@ menuBar: MenuBar {
 
                                                                          enabled:
                                                                              !gameController
-                                                                                 .katago_analysis_in_progress
+                                                                                 .katago_analysis_in_progress && !gameController.whole_game_busy
 
-                                                                         onClicked: {
-                                                                             katagoPanel.analysisMoveNumber =
-                                                                                 gameController.move_number
-
-                                                                             katagoPanel.analysisVisitBudget =
-                                                                                 uiSettings.katagoVisitBudget
-
-                                                                             katagoPanel.analysisKomi =
-                                                                                 katagoKomiField.text
-
-                                                                             gameController
-                                                                                 .analyseCurrentPosition(
-                                                                                     uiSettings
-                                                                                         .katagoVisitBudget,
-                                                                                     katagoKomiField.text,
-                                                                                     katagoSettings.executable,
-                                                                                     katagoSettings.model,
-                                                                                     katagoSettings.config)
-                                                                         }
+                                                                         onClicked: root.openPositionReview()
                                                                      }
 
                                                                      Button {
@@ -5386,21 +5659,8 @@ menuBar: MenuBar {
 
                                                                  Label {
                                                                      Layout.fillWidth: true
-
-                                                                     visible:
-                                                                         gameController
-                                                                             .katago_analysis_text.length > 0
-                                                                         && katagoPanel.analysisMoveNumber
-                                                                            === gameController.move_number
-                                                                         && katagoPanel.analysisVisitBudget
-                                                                            === uiSettings.katagoVisitBudget
-                                                                         && katagoPanel.analysisKomi
-                                                                            === katagoKomiField.text
-
-                                                                     wrapMode: Text.NoWrap
-                                                                     elide: Text.ElideRight
-                                                                     text:
-                                                                         gameController.katago_analysis_text
+                                                                     wrapMode: Text.WordWrap
+                                                                     text: qsTr("Analyse this position to compare candidate moves and explore their continuations on the board.")
                                                                  }
                                                              }
                                                          }
@@ -5422,7 +5682,7 @@ menuBar: MenuBar {
                                             spacing: 4
 
                                             Label {
-                                                text: qsTr("View:")
+                                                text: qsTr("Influence map:")
                                             }
 
                                             Button {
@@ -5437,39 +5697,6 @@ menuBar: MenuBar {
 
 
 
-
-                                            Button {
-                                                text: qsTr("↔")
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text:
-                                                    qsTr("Flip board left to right")
-
-                                                onClicked:
-                                                    goBoard.flipViewLeftRight()
-                                            }
-
-                                            Button {
-                                                text: qsTr("↕")
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text:
-                                                    qsTr("Flip board top to bottom")
-
-                                                onClicked:
-                                                    goBoard.flipViewTopBottom()
-                                            }
-
-                                            Button {
-                                                text: qsTr("↺")
-
-                                                ToolTip.visible: hovered
-                                                ToolTip.text:
-                                                    qsTr("Rotate board 90° counter-clockwise")
-
-                                                onClicked:
-                                                    goBoard.rotateViewCounterClockwise()
-                                            }
 
                                             Item {
                                                 Layout.fillWidth: true
@@ -5771,6 +5998,7 @@ RowLayout {
                                         // closes the new gameDetailsFrame
                                         Item {
                                             id: studyBottomSpacer
+                                            visible: !inlinePatternResults.visible
                                             Layout.fillWidth: true
                                             Layout.fillHeight: true
                                         }
@@ -5828,7 +6056,7 @@ RowLayout {
                                             }
 
                                             Button {
-                                                text: qsTr("Close study")
+                                                text: root.navigationTrial ? qsTr("Home") : qsTr("Close study")
                                                 highlighted: true
 
                                                 ToolTip.visible: hovered
@@ -5839,7 +6067,8 @@ RowLayout {
                                                 onClicked: {
                                                     boardPane.annotationTool = ""
                                                     boardPane.sgfEditTool = ""
-                                                    root.showStudyPaneMode("library")
+                                                    if (root.navigationTrial) root.trialHome()
+                                                    else root.showStudyPaneMode("library")
                                                 }
                                             }
                                         }
@@ -6211,6 +6440,7 @@ RowLayout {
 
                 Pane {
             id: boardPane
+            enabled: !root.navigationHomeVisible
 
             visible: true
 
@@ -8194,39 +8424,12 @@ RowLayout {
                         /*
                          * KataGo candidates deliberately use the same visual
                          * language as professional continuations, while
-                         * remaining a separate non-clickable data source.
+                         * sharing the candidate preview interaction in both review modes.
                          */
-                        katagoCandidatePoints: {
-                            if (root.playingGame || root.studyPaneMode === "joseki")
-                                return []
+                        katagoCandidatePoints: root.wholeGameReviewActive && wholeGameReview.controller === gameController
+                            ? wholeGameReview.candidatePoints : []
 
-                            if (boardPane.investigationMode !== "katago")
-                                return []
-
-                            if (katagoPanel.analysisMoveNumber
-                                    !== gameController.move_number
-                                    || katagoPanel.analysisVisitBudget
-                                       !== uiSettings.katagoVisitBudget
-                                    || katagoPanel.analysisKomi
-                                       !== katagoKomiField.text) {
-                                return []
-                            }
-
-                            const points = JSON.parse(
-                                gameController.katago_candidate_points_json)
-
-                            return points.map(function(point) {
-                                return {
-                                    "x": Number(point.x),
-                                    "y": goBoard.boardSize
-                                         - 1
-                                         - Number(point.y),
-                                    "visits": Number(point.visits)
-                                }
-                            })
-                        }
-
-                          patternSelectionEnabled: boardPane.selectingPattern
+                          patternSelectionEnabled: boardPane.selectingPattern && !root.wholeGameReviewActive
                           patternSelectionAdjustable:
                               !gameList.searchInProgress
                               && (!gameList.searchHasRun || root.showingJosekiQuery)
@@ -8236,6 +8439,10 @@ RowLayout {
                           onPatternResizeCancelled: root.finishJosekiResize(true)
 
                           onContinuationPointClicked: function(x, y, count) {
+                              if (root.wholeGameReviewActive) {
+                                  goBoard.pointClicked(x, y)
+                                  return
+                              }
                               if (root.studyPaneMode === "joseki") {
                                   josekiModel.followPoint(x, y)
                                   return
@@ -8249,6 +8456,28 @@ RowLayout {
 
 
                           onPointClicked: function(x, y) {
+                              if (root.wholeGameReviewActive) {
+                                  if (wholeGameReview.controller !== gameController
+                                          || !wholeGameReview.matchesLoaded)
+                                      return
+                                  if (wholeGameReview.choosingOwnMove) {
+                                      wholeGameReview.investigatePoint(x, y)
+                                      return
+                                  }
+                                  const candidates = wholeGameReview.candidates
+                                  for (let index = 0; index < candidates.length; ++index) {
+                                      const vertex = candidates[index].vertex
+                                      if (vertex && vertex.Point
+                                              && vertex.Point.x === x
+                                              && goBoard.boardSize - 1 - vertex.Point.y === y) {
+                                          if (!wholeGameReview.previewActive || wholeGameReview.previewStep <= 1)
+                                              wholeGameReview.chooseCandidate(index)
+                                          break
+                                      }
+                                  }
+                                  return
+                              }
+
                               if (root.studyPaneMode === "joseki") {
                                   josekiModel.followPoint(x, y)
                                   return
@@ -8336,6 +8565,68 @@ RowLayout {
 
                   }
 
+                RowLayout {
+                    id: boardOrientationControls
+                    visible: root.studyPaneMode !== "joseki"
+                             && !root.playingGame
+                             && boardPane.selectedGame !== null
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: goBoard.width
+                    Layout.maximumWidth: goBoard.width
+                    Layout.alignment: Qt.AlignRight
+                    spacing: 4
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: 0
+                        Button {
+                            id: returnToJosekiButton
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("Return to joseki")
+                            enabled: root.josekiSearchUi !== null
+                                     && !gameList.searchInProgress
+                                     && root.josekiResizeSession === null
+                            onClicked: root.endJosekiPatternSearch()
+                        }
+                    }
+                    Button {
+                        text: qsTr("↔")
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Flip board left to right")
+
+                        onClicked:
+                            goBoard.flipViewLeftRight()
+                    }
+
+                    Button {
+                        text: qsTr("↕")
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Flip board top to bottom")
+
+                        onClicked:
+                            goBoard.flipViewTopBottom()
+                    }
+
+                    Button {
+                        text: qsTr("↺")
+
+                        ToolTip.visible: hovered
+                        ToolTip.text:
+                            qsTr("Rotate board 90° counter-clockwise")
+
+                        onClicked:
+                            goBoard.rotateViewCounterClockwise()
+                    }
+
+                    Item { Layout.fillWidth: true; Layout.preferredWidth: 0 }
+                }
+
                 ColumnLayout {
                     id: moveNavigationStrip
 
@@ -8387,16 +8678,6 @@ RowLayout {
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 2
-
-                            Button {
-                                id: returnToJosekiButton
-                                text: qsTr("Return to Joseki")
-                                height: firstMoveButton.height
-                                enabled: root.josekiSearchUi !== null
-                                         && !gameList.searchInProgress
-                                         && root.josekiResizeSession === null
-                                onClicked: root.endJosekiPatternSearch()
-                            }
 
                             ToolButton {
                                 visible: root.josekiSearchUi !== null

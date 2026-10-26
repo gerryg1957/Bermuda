@@ -14,19 +14,19 @@ use crate::{Colour, replay::PositionState};
 ///
 /// `x` increases from left to right and `y` from the lower edge upwards.
 /// This type deliberately does not expose KataGo's textual GTP coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalysisPoint {
     pub x: u8,
     pub y: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnalysisVertex {
     Point(AnalysisPoint),
     Pass,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisCandidate {
     pub vertex: AnalysisVertex,
     pub visits: u64,
@@ -40,7 +40,7 @@ pub struct AnalysisCandidate {
     pub principal_variation: Vec<AnalysisVertex>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisResult {
     pub id: String,
     pub turn_number: u32,
@@ -82,19 +82,19 @@ impl KataGoConfiguration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisMove {
     pub colour: Colour,
     pub vertex: AnalysisVertex,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisStone {
     pub colour: Colour,
     pub point: AnalysisPoint,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisRequest {
     pub id: String,
     pub board_size: u8,

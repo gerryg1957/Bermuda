@@ -15,6 +15,9 @@ Item {
         property int boardSize: 19
     property var stones: []
     property var markup: []
+    // Temporary analysis labels override source annotations without changing them.
+    property var previewMarkup: null
+    onPreviewMarkupChanged: boardCanvas.requestPaint()
     property var continuationPoints: []
     property var katagoCandidatePoints: []
 
@@ -1045,13 +1048,14 @@ Item {
         }
 
         function drawBoardMarkup(ctx, left, top, spacing) {
-            if (root.markup === null || root.markup.length === 0)
+            const marks = root.previewMarkup !== null ? root.previewMarkup : root.markup
+            if (marks === null || marks.length === 0)
                 return
 
             const radius = spacing * 0.30
             const strokeWidth = Math.max(1.5, spacing * 0.055)
 
-            for (const mark of root.markup) {
+            for (const mark of marks) {
                 const boardX = Number(mark.x)
                 const boardY = Number(mark.y)
                 const viewPoint =
@@ -1372,35 +1376,10 @@ Item {
                     return
                 }
 
-                let maximumVisits = 0
-
-                for (const point of root.katagoCandidatePoints) {
-                    maximumVisits = Math.max(
-                                maximumVisits,
-                                Number(point.visits))
-                }
-
-                if (maximumVisits <= 0)
-                    return
-
                 ctx.save()
-
                 for (const point of root.katagoCandidatePoints) {
-                    const visits = Number(point.visits)
-
-                    if (visits <= 0)
-                        continue
-
-                    /*
-                     * Match the professional-continuation visual grammar.
-                     * Candidate visits replace professional-game frequency.
-                     */
-                    const strength =
-                        Math.sqrt(visits / maximumVisits)
-
-                    const radius =
-                        spacing * (0.24 + 0.20 * strength)
-
+                    // Visits are reported numerically; they do not change marker size.
+                    const radius = spacing * 0.34
                     const viewPoint =
                         root.boardToViewPoint(
                             Number(point.x),
@@ -1409,15 +1388,23 @@ Item {
                     const x = left + viewPoint.x * spacing
                     const y = top + viewPoint.y * spacing
 
-                    ctx.fillStyle = "rgba(190, 48, 35, 0.14)"
-                    ctx.strokeStyle = "rgba(125, 30, 22, 0.92)"
-                    ctx.lineWidth = Math.max(1.25, spacing * 0.060)
+                    ctx.fillStyle = point.recommended ? "#087f8c" : point.userMove ? "rgba(110, 75, 160, 0.15)" : "rgba(48, 100, 160, 0.12)"
+                    ctx.strokeStyle = point.recommended ? "#075963" : point.userMove ? "#704c99" : "#386a9b"
+                    ctx.lineWidth = point.selected ? Math.max(3, spacing * 0.11) : Math.max(1.25, spacing * 0.060)
 
                     ctx.beginPath()
                     ctx.arc(x, y, radius, 0, Math.PI * 2)
                     ctx.fill()
                     ctx.stroke()
 
+                    if (point.label) {
+                        ctx.fillStyle = point.recommended ? "#ffffff" : point.userMove ? "#704c99" : "#285781"
+                        ctx.font = "bold " + Math.round(spacing * 0.40) + "px sans-serif"
+                        ctx.textAlign = "center"
+                        ctx.textBaseline = "middle"
+                        ctx.fillText(point.label, x, y)
+                        continue
+                    }
                     ctx.fillStyle = "rgba(110, 25, 19, 0.88)"
                     ctx.beginPath()
                     ctx.arc(

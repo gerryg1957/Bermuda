@@ -26,6 +26,13 @@ Dialog {
         }
 
         Label {
+            Layout.fillWidth: true
+            text: qsTr("Bermuda organises evidence; KataGo evaluates; the player investigates.")
+            wrapMode: Text.WordWrap
+            font.italic: true
+        }
+
+        Label {
             text: qsTr("Version %1").arg(Qt.application.version)
             opacity: 0.75
         }

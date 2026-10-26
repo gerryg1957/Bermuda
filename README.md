@@ -1,5 +1,7 @@
 # Bermuda
 
+**Bermuda organises evidence; KataGo evaluates; the player investigates.**
+
 Bermuda is an open-source desktop application for studying Go games.
 
 It combines an SGF game database with an interactive Go board and pattern
@@ -55,6 +57,22 @@ To add another collection or a later release of an existing collection, use:
 **Database → Add Games…**
 
 Bermuda automatically updates the search data needed after the import.
+
+## Investigating candidate moves
+
+Pattern search shows human continuations and the games supporting them.
+KataGo provides candidate next moves with engine estimates. These are distinct
+kinds of evidence for you to investigate.
+
+In whole-game review, choose **Candidate moves** at the position of interest.
+Lettered board markers match the candidate list. **Try move** temporarily shows
+one candidate on the board; **Return to position** restores the source position.
+After pausing or finishing analysis, **Save move to study** adds that one move
+with its analysis comment as an undoable study edit.
+
+Longer engine sequences are hidden by default. **Explore engine continuation
+(optional)** provides step-by-step preview and a separate **Save engine line
+to study** action when that supporting detail is useful.
 
 ## Pattern search
 

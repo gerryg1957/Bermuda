@@ -1,6 +1,14 @@
-# Bermuda — 1.0 Status and Workplan
+# Bermuda — September release status (historical)
 
 _Last updated: 2026-09-22 · branch: `master` · base checkpoint: `553fdbd`_
+
+**Current direction (15 October 2026):** `bermuda-workplan.md` is authoritative.
+The numbered sequence below is retained as a historical release checklist,
+not the current development order. Windows startup/memory work awaits tester
+information; the October database-task work is complete; whole-game KataGo
+analysis and graphical/deeper candidate investigation are accepted for the
+current milestone. Items 2 and 3 are complete for the agreed scope. Presentation
+wording/layout awaits user reflection; My Games analysis is the next major item.
 
 ## 1.0 objective
 

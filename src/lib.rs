@@ -1,3 +1,4 @@
+pub mod game_analysis;
 pub mod board;
 pub mod board_display;
 pub mod canonical;

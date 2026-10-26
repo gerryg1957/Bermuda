@@ -66,6 +66,10 @@ mod ffi {
         #[qproperty(bool, can_undo_study_edit)]
         #[qproperty(bool, can_redo_study_edit)]
         #[qproperty(QString, error_message)]
+        #[qproperty(bool, whole_game_busy)]
+        #[qproperty(bool, candidate_analysis_busy)]
+        #[qproperty(QString, whole_game_status)]
+        #[qproperty(QString, whole_game_report)]
         #[qproperty(bool, katago_analysis_in_progress)]
         #[qproperty(bool, katago_analysis_succeeded)]
         #[qproperty(bool, katago_installing)]
@@ -120,6 +124,10 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "savePlayedGameSgf"]
         fn save_played_game_sgf(self: Pin<&mut BermudaApp>, sgf_path: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "addOpenedGameToMyGames"]
+        fn add_opened_game_to_my_games(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "addPlayedGameToMyGames"]
@@ -306,6 +314,44 @@ mod ffi {
         fn release_katago(self: Pin<&mut BermudaApp>);
 
         #[qinvokable]
+        #[cxx_name = "analyseWholeGame"]
+        fn analyse_whole_game(self: Pin<&mut BermudaApp>, visits: i32, komi: &QString,
+            rules: &QString, executable: &QString, model: &QString, config: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "analysePositionForReview"]
+        fn analyse_position_for_review(self: Pin<&mut BermudaApp>, visits: i32, komi: &QString,
+            rules: &QString, executable: &QString, model: &QString, config: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "openLatestSavedAnalysis"]
+        fn open_latest_saved_analysis(self: Pin<&mut BermudaApp>, position_only: bool) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "pauseWholeGame"]
+        fn pause_whole_game(self: Pin<&mut BermudaApp>);
+
+        #[qinvokable]
+        #[cxx_name = "wholeGameMatchesLoaded"]
+        fn whole_game_matches_loaded(self: &BermudaApp) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "previewWholeGameCandidate"]
+        fn preview_whole_game_candidate(self: Pin<&mut BermudaApp>, turn: i32, candidate: i32, steps: i32) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "saveWholeGameCandidate"]
+        fn save_whole_game_candidate(self: Pin<&mut BermudaApp>, turn: i32, candidate: i32, full_line: bool) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "deepenWholeGameCandidate"]
+        fn deepen_whole_game_candidate(self: Pin<&mut BermudaApp>, turn: i32, candidate: i32, visits: i32) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "analyseReviewMove"]
+        fn analyse_review_move(self: Pin<&mut BermudaApp>, turn: i32, x: i32, y: i32, visits: i32) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "analyseCurrentPosition"]
         fn analyse_current_position(
             self: Pin<&mut BermudaApp>,
@@ -463,6 +509,43 @@ struct KataGoWorkerRequest {
     expected_player: Colour,
 }
 
+// Dropping a controller also stops its background game review.
+struct WholeGameStop(Arc<AtomicBool>);
+impl Drop for WholeGameStop {
+    fn drop(&mut self) { self.0.store(true, Ordering::Relaxed); }
+}
+
+fn whole_game_report(run: &bermuda::game_analysis::GameAnalysis) -> String {
+    let length = run.results.last().map(|r| r.turn_number as usize + 1).unwrap_or(0);
+    let mut results = serde_json::json!(vec![serde_json::Value::Null; length]);
+    for result in &run.results {
+        results[result.turn_number as usize] = serde_json::json!(result);
+    }
+    for refinement in &run.refinements {
+        let Some(original) = run.results.iter().find(|r| r.turn_number == refinement.turn) else { continue };
+        let index = original.candidates.iter().position(|c| c.vertex == refinement.candidate.vertex);
+        let mut candidate = serde_json::to_value(&refinement.candidate).expect("serialisable candidate");
+        // Keep letter assignments stable when focused search increases visits.
+        candidate["ranking_visits"] = serde_json::json!(index.map(|i| original.candidates[i].visits).unwrap_or(0));
+        candidate["user_move"] = serde_json::json!(index.is_none());
+        candidate["focused"] = serde_json::json!(true);
+        candidate["focused_provenance"] = serde_json::json!(refinement.provenance);
+        if let Some(index) = index {
+            results[refinement.turn as usize]["candidates"][index] = candidate;
+        } else {
+            results[refinement.turn as usize]["candidates"].as_array_mut().expect("candidate array").push(candidate);
+        }
+    }
+    serde_json::json!({
+        "run_id": run.run_id,
+        "focus_turn": run.focus_turn, "completed": run.results.len(),
+        "title": run.title, "total": run.total(), "complete": run.complete(),
+        "rules": run.request.rules, "komi": run.request.komi,
+        "visits": run.request.max_visits, "provenance": run.provenance,
+        "results": results, "decisions": run.decisions(), "board_size": run.request.board_size
+    }).to_string()
+}
+
 pub struct BermudaAppRust {
     board_size: i32,
     stones_json: QString,
@@ -481,6 +564,12 @@ pub struct BermudaAppRust {
     can_undo_study_edit: bool,
     can_redo_study_edit: bool,
     error_message: QString,
+    whole_game_busy: bool,
+    candidate_analysis_busy: bool,
+    whole_game_status: QString,
+    whole_game_report: QString,
+    whole_game_stop: Option<WholeGameStop>,
+    whole_game_position: Option<bermuda::katago::AnalysisPosition>,
     katago_analysis_in_progress: bool,
     katago_analysis_succeeded: bool,
     katago_installing: bool,
@@ -520,6 +609,12 @@ impl Default for BermudaAppRust {
             can_undo_study_edit: false,
             can_redo_study_edit: false,
             error_message: QString::default(),
+            whole_game_busy: false,
+            candidate_analysis_busy: false,
+            whole_game_status: QString::default(),
+            whole_game_report: QString::from("{}"),
+            whole_game_stop: None,
+            whole_game_position: None,
             katago_analysis_in_progress: false,
             katago_analysis_succeeded: false,
             katago_installing: false,
@@ -1226,6 +1321,23 @@ impl ffi::BermudaApp {
 
                 false
             }
+        }
+    }
+
+    fn add_opened_game_to_my_games(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().set_error_message(QString::default());
+        let result = (|| {
+            let document = self.rust().loaded_document.as_ref()
+                .ok_or_else(|| "Open an SGF game first".to_owned())?;
+            let record = opened_game_record(document)?;
+            let project = open_or_create_personal_project()?;
+            // Content identity avoids duplicate imports, even after reopening a file.
+            let locator = bermuda::canonical_hash_hex(&record).map_err(|e| e.to_string())?;
+            import_personal_record(&project, "Imported personal games", "1", &locator, &record)
+        })();
+        match result {
+            Ok(_) => true,
+            Err(error) => { self.as_mut().set_error_message(QString::from(error)); false }
         }
     }
 
@@ -2472,6 +2584,331 @@ impl ffi::BermudaApp {
         self.as_mut().rust_mut().katago_worker = None;
     }
 
+    fn whole_game_matches_loaded(&self) -> bool {
+        let Some(document) = self.rust().loaded_document.as_ref() else { return false; };
+        let Ok(position) = analysis_position_from_states(&document.positions, document.positions.len().saturating_sub(1)) else { return false; };
+        self.rust().whole_game_position.as_ref() == Some(&position)
+    }
+
+    fn checked_whole_game_candidate(&self, turn: i32, candidate: i32)
+        -> Result<(AnalysisResult, bermuda::AnalysisCandidate, serde_json::Value), String>
+    {
+        if !self.whole_game_matches_loaded() {
+            return Err("Open the analysed game and line before using this continuation".into());
+        }
+        let report: serde_json::Value = serde_json::from_str(&self.rust().whole_game_report.to_string())
+            .map_err(|e| e.to_string())?;
+        let turn = usize::try_from(turn).map_err(|_| "Invalid analysis position")?;
+        let index = usize::try_from(candidate).map_err(|_| "Select a continuation")?;
+        let result: AnalysisResult = serde_json::from_value(report["results"][turn].clone())
+            .map_err(|_| "No saved analysis for this position")?;
+        if result.turn_number as usize != turn { return Err("Analysis position mismatch".into()); }
+        let mut candidate = result.candidates.get(index).cloned().ok_or("Continuation is no longer available")?;
+        if candidate.principal_variation.is_empty() {
+            candidate.principal_variation.push(candidate.vertex);
+        }
+        if candidate.principal_variation.first() != Some(&candidate.vertex) {
+            return Err("The engine did not provide a valid continuation sequence".into());
+        }
+        Ok((result, candidate, report))
+    }
+
+    fn preview_whole_game_candidate(mut self: Pin<&mut Self>, turn: i32, candidate: i32, steps: i32) -> QString {
+        self.as_mut().set_error_message(QString::default());
+        let result = (|| -> Result<QString, String> {
+            let (result, candidate, _) = self.as_ref().get_ref().checked_whole_game_candidate(turn, candidate)?;
+            let rust = self.as_ref();
+            let document = rust.rust().loaded_document.as_ref().ok_or("No game loaded")?;
+            let position = document.positions.get(turn as usize).ok_or("Invalid position")?;
+            let steps = usize::try_from(steps).map_err(|_| "Invalid preview step")?;
+            if steps > candidate.principal_variation.len() { return Err("Invalid preview step".into()); }
+            let mut board = position.board.clone();
+            let mut colour = result.current_player;
+            let mut last = None;
+            let mut numbered: Vec<(u16, usize)> = Vec::new();
+            for (index, vertex) in candidate.principal_variation.iter().take(steps).enumerate() {
+                let point = analysis_vertex_on_board(&board, *vertex)?;
+                let captured = board.play(Move { colour, point }).map_err(|e| format!("Cannot preview continuation: {e}"))?;
+                numbered.retain(|(p, _)| !captured.contains(p));
+                if let Some(p) = point { numbered.push((p, index + 1)); }
+                colour = colour.opponent();
+                last = point;
+            }
+            let size = u16::from(board.size());
+            let stones: serde_json::Value = serde_json::from_str(&board_stones_json(&board).to_string()).map_err(|e| e.to_string())?;
+            let labels: Vec<_> = numbered.iter().map(|(p, number)| serde_json::json!({
+                "x": p % size, "y": core_y_to_qml(size, p / size),
+                "type": "label", "text": number.to_string()
+            })).collect();
+            Ok(QString::from(serde_json::json!({"stones": stones, "markup": labels,
+                "lastX": last.map(|p| (p % size) as i32).unwrap_or(-1),
+                "lastY": last.map(|p| core_y_to_qml(size, p / size) as i32).unwrap_or(-1),
+                "step": steps}).to_string()))
+        })();
+        match result {
+            Ok(json) => json,
+            Err(error) => { self.as_mut().set_error_message(QString::from(error)); QString::from("{}") }
+        }
+    }
+
+    fn save_whole_game_candidate(mut self: Pin<&mut Self>, turn: i32, candidate: i32, full_line: bool) -> bool {
+        self.as_mut().set_error_message(QString::default());
+        let result = (|| -> Result<(LoadedDocument, i32), String> {
+            if self.as_ref().rust().whole_game_busy { return Err("Pause analysis before saving a continuation".into()); }
+            let (result, candidate, report) = self.as_ref().get_ref().checked_whole_game_candidate(turn, candidate)?;
+            let mut document = self.as_ref().rust().loaded_document.clone().ok_or("No game loaded")?;
+            let history = study_history_entry(&document, turn, None)?;
+            let source = study_comment_edit_target(&mut document, turn)?.0;
+            let mut collection = document.study.collection.clone().ok_or("Study collection unavailable")?;
+            let description = if full_line { "engine continuation" } else { "candidate move" };
+            let player_proposed = report["results"][turn as usize]["candidates"].as_array()
+                .and_then(|items| items.iter().find(|c| c["vertex"] == serde_json::json!(candidate.vertex)))
+                .and_then(|c| c["user_move"].as_bool()).unwrap_or(false);
+            let origin = if player_proposed { "Player-proposed, KataGo-investigated" } else { "KataGo suggested" };
+            let mut comment = format!("{origin} {description} from move {}\nBlack score lead: {:.2}; Black win probability: {:.2}%\nCandidate visits: {}; analysis visits per position: {}\nRules: {}; komi: {}\nAnalysis provenance: {}",
+                turn, candidate.score_lead, candidate.win_rate * 100.0, candidate.visits,
+                report["visits"], report["rules"], report["komi"], report["provenance"]);
+            if let Some(focused) = report["results"][turn as usize]["candidates"].as_array()
+                .and_then(|candidates| candidates.iter().find(|c| c["vertex"] == serde_json::json!(candidate.vertex)))
+                .and_then(|c| c.get("focused_provenance")) {
+                comment.push_str(&format!("\nFocused search after this candidate move; provenance: {focused}"));
+            }
+            let vertices = if full_line { candidate.principal_variation.as_slice() }
+                else { std::slice::from_ref(&candidate.vertex) };
+            let end = insert_analysis_continuation(&mut collection, &source, result.current_player,
+                vertices, &comment)?;
+            let tree = build_study_tree(&collection).map_err(|e| e.to_string())?;
+            let node = tree.node_id_for_source(&end).ok_or("Saved continuation disappeared")?;
+            document.study.collection = Some(collection);
+            document.study_tree = Some(tree);
+            let display_move = activate_study_tree_node(&mut document, node)?;
+            persist_study_document(&mut document)?;
+            document.study.history.record_edit(history);
+            Ok((document, display_move))
+        })();
+        match result {
+            Ok((document, display_move)) => {
+                self.as_mut().rust_mut().loaded_document = Some(document);
+                self.as_mut().show_cached_position(display_move)
+            }
+            Err(error) => { self.as_mut().set_error_message(QString::from(error)); false }
+        }
+    }
+
+    fn pause_whole_game(mut self: Pin<&mut Self>) {
+        if let Some(stop) = &self.rust().whole_game_stop { stop.0.store(true, Ordering::Relaxed); }
+        let status = if self.rust().candidate_analysis_busy { "Stopping candidate analysis; previous results retained…" }
+            else { "Pausing; completed positions are saved…" };
+        self.as_mut().set_whole_game_status(QString::from(status));
+    }
+
+    fn deepen_whole_game_candidate(mut self: Pin<&mut Self>, turn: i32, candidate: i32, visits: i32) -> bool {
+        let selected = self.as_ref().get_ref().checked_whole_game_candidate(turn, candidate);
+        match selected {
+            Ok((_, selected, _)) => self.start_candidate_investigation(turn, selected.vertex, visits),
+            Err(error) => { self.as_mut().set_error_message(QString::from(error)); false }
+        }
+    }
+
+    fn analyse_review_move(mut self: Pin<&mut Self>, turn: i32, x: i32, y: i32, visits: i32) -> bool {
+        let vertex = (|| -> Result<AnalysisVertex, String> {
+            if !self.whole_game_matches_loaded() { return Err("Open the analysed game and line first".into()); }
+            let doc = self.rust().loaded_document.as_ref().ok_or("No game loaded")?;
+            let position = doc.positions.get(usize::try_from(turn).map_err(|_| "Invalid position")?)
+                .ok_or("Invalid position")?;
+            if x == -1 && y == -1 { return Ok(AnalysisVertex::Pass); }
+            let size = i32::from(position.board.size());
+            if x < 0 || y < 0 || x >= size || y >= size { return Err("Choose a board intersection".into()); }
+            Ok(AnalysisVertex::Point(bermuda::katago::AnalysisPoint { x: x as u8, y: (size - 1 - y) as u8 }))
+        })();
+        match vertex {
+            Ok(vertex) => self.start_candidate_investigation(turn, vertex, visits),
+            Err(error) => { self.as_mut().set_error_message(QString::from(error)); false }
+        }
+    }
+
+    fn start_candidate_investigation(mut self: Pin<&mut Self>, turn: i32, vertex: AnalysisVertex, visits: i32) -> bool {
+        self.as_mut().set_error_message(QString::default());
+        let input = (|| -> Result<_, String> {
+            if self.rust().whole_game_busy { return Err("Pause the current analysis first".into()); }
+            if !self.whole_game_matches_loaded() { return Err("Open the analysed game and line first".into()); }
+            let report: serde_json::Value = serde_json::from_str(&self.rust().whole_game_report.to_string()).map_err(|e| e.to_string())?;
+            let turn_index = usize::try_from(turn).map_err(|_| "Invalid position")?;
+            let result: AnalysisResult = serde_json::from_value(report["results"][turn_index].clone()).map_err(|_| "Analyse this position first")?;
+            if result.turn_number as usize != turn_index { return Err("Analysis position mismatch".into()); }
+            let previous_visits = result.candidates.iter().find(|c| c.vertex == vertex).map(|c| c.visits).unwrap_or(0);
+            if !(10..=100_000).contains(&visits) || visits as u64 <= previous_visits {
+                return Err(format!("Choose more than {previous_visits} visits, up to 100000"));
+            }
+            let doc = self.rust().loaded_document.as_ref().ok_or("No game loaded")?;
+            let mut board = doc.positions.get(turn_index).ok_or("Invalid position")?.board.clone();
+            let point = analysis_vertex_on_board(&board, vertex)?;
+            board.play(Move { colour: result.current_player, point }).map_err(|e| format!("That move is not legal: {e}"))?;
+            let run_id = report["run_id"].as_str().ok_or("Reload the saved game analysis first")?.to_owned();
+            let provenance: bermuda::game_analysis::Provenance = serde_json::from_value(report["provenance"].clone())
+                .map_err(|e| e.to_string())?;
+            let working = katago_working_directory()?;
+            let config = KataGoConfiguration::new(provenance.executable, provenance.network, provenance.config, &working);
+            Ok((run_id, vertex, config, working.join("game-analysis.sqlite3")))
+        })();
+        let (run_id, vertex, config, path) = match input {
+            Ok(input) => input,
+            Err(error) => { self.as_mut().set_error_message(QString::from(error)); return false; }
+        };
+        self.as_mut().release_katago();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.as_mut().rust_mut().whole_game_stop = Some(WholeGameStop(Arc::clone(&stop)));
+        self.as_mut().set_candidate_analysis_busy(true);
+        self.as_mut().set_whole_game_busy(true);
+        self.as_mut().set_whole_game_status(QString::from(format!("Analysing chosen candidate at position {turn} · {visits} visits…")));
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<_> {
+                let store = bermuda::game_analysis::AnalysisStore::open(&path)?;
+                bermuda::game_analysis::analyse_candidate(&run_id, turn as u32, vertex, visits as u64, &config, &store, &stop)
+            })();
+            let _ = qt_thread.queue(move |mut app| {
+                app.as_mut().set_candidate_analysis_busy(false);
+                app.as_mut().set_whole_game_busy(false);
+                match result {
+                    Ok(run) => {
+                        app.as_mut().set_whole_game_report(QString::from(whole_game_report(&run)));
+                        app.as_mut().set_whole_game_status(QString::from("Deeper candidate analysis saved"));
+                    }
+                    Err(error) => app.as_mut().set_whole_game_status(QString::from(format!("{error:#}"))),
+                }
+            });
+        });
+        true
+    }
+
+    fn open_latest_saved_analysis(mut self: Pin<&mut Self>, position_only: bool) -> bool {
+        self.as_mut().set_error_message(QString::default());
+        let loaded = (|| -> Result<_, String> {
+            if self.rust().whole_game_busy || self.rust().katago_analysis_in_progress {
+                return Err("Stop the current analysis before opening saved results".into());
+            }
+            let doc = self.rust().loaded_document.as_ref().ok_or("No game loaded")?;
+            let position = analysis_position_from_states(&doc.positions, doc.positions.len().saturating_sub(1))
+                .map_err(|e| e.to_string())?;
+            let focus = if position_only { Some(self.rust().move_number.max(0) as u32) } else { None };
+            let path = katago_working_directory()?.join("game-analysis.sqlite3");
+            if !path.is_file() { return Err("No saved analysis for this game and scope".into()); }
+            let store = bermuda::game_analysis::AnalysisStore::open(&path).map_err(|e| e.to_string())?;
+            let run = store.latest_for_position(&position, focus).map_err(|e| e.to_string())?
+                .ok_or("No saved analysis for this game and scope")?;
+            Ok((run, position))
+        })();
+        match loaded {
+            Ok((run, position)) => {
+                self.as_mut().rust_mut().whole_game_position = Some(position);
+                let status = format!("Saved analysis opened · {} / {} positions · {} · komi {} · {} visits",
+                    run.results.len(), run.total(), run.request.rules, run.request.komi, run.request.max_visits);
+                self.as_mut().set_whole_game_report(QString::from(whole_game_report(&run)));
+                self.as_mut().set_whole_game_status(QString::from(status));
+                true
+            }
+            Err(error) => {
+                self.as_mut().set_error_message(QString::from(error));
+                false
+            }
+        }
+    }
+
+    fn analyse_whole_game(self: Pin<&mut Self>, visits: i32, komi: &QString,
+        rules: &QString, executable: &QString, model: &QString, config: &QString) -> bool {
+        self.start_review_analysis(visits, komi, rules, executable, model, config, None)
+    }
+
+    fn analyse_position_for_review(self: Pin<&mut Self>, visits: i32, komi: &QString,
+        rules: &QString, executable: &QString, model: &QString, config: &QString) -> bool {
+        let turn = self.rust().move_number.max(0) as u32;
+        self.start_review_analysis(visits, komi, rules, executable, model, config, Some(turn))
+    }
+
+    fn start_review_analysis(mut self: Pin<&mut Self>, visits: i32, komi: &QString,
+        rules: &QString, executable: &QString, model: &QString, config: &QString, focus_turn: Option<u32>) -> bool {
+        if self.rust().whole_game_busy { return false; }
+        let input = (|| -> Result<_, String> {
+            if !(10..=100_000).contains(&visits) { return Err("Visits must be between 10 and 100000".into()); }
+            let komi: f64 = komi.to_string().trim().parse().map_err(|_| "Enter a numerical komi".to_owned())?;
+            if !komi.is_finite() { return Err("Komi must be finite".into()); }
+            let rules = rules.to_string();
+            if !["japanese", "chinese", "aga", "tromp-taylor"].contains(&rules.as_str()) { return Err("Select analysis rules".into()); }
+            let doc = self.rust().loaded_document.as_ref().ok_or("No game loaded")?;
+            let position = analysis_position_from_states(&doc.positions, doc.positions.len().saturating_sub(1)).map_err(|e| e.to_string())?;
+            let mut executable = katago_executable_path(executable)?;
+            if !executable.is_absolute() && executable.components().count() == 1 {
+                let name = executable.clone();
+                executable = env::split_paths(&env::var_os("PATH").unwrap_or_default())
+                    .flat_map(|dir| {
+                        let path = dir.join(&name);
+                        let mut paths = vec![path.clone()];
+                        if cfg!(windows) && path.extension().is_none() { paths.push(path.with_extension("exe")); }
+                        paths
+                    }).find(|p| p.is_file()).ok_or("KataGo executable was not found on PATH")?;
+            }
+            let working = katago_working_directory()?;
+            fs::create_dir_all(&working).map_err(|e| e.to_string())?;
+            let configuration = KataGoConfiguration::new(
+                executable.canonicalize().map_err(|e| e.to_string())?,
+                configured_katago_file("BERMUDA_KATAGO_MODEL", model, "model")?.canonicalize().map_err(|e| e.to_string())?,
+                configured_katago_file("BERMUDA_KATAGO_CONFIG", config, "configuration")?.canonicalize().map_err(|e| e.to_string())?, &working);
+            let request = AnalysisRequest { id: String::new(), board_size: position.board_size,
+                rules, komi, initial_stones: position.initial_stones.clone(), initial_player: position.initial_player,
+                moves: position.moves.clone(), max_visits: visits as u64 };
+            Ok((request, doc.description.clone(), position, configuration, working.join("game-analysis.sqlite3")))
+        })();
+        let (request, title, position, configuration, path) = match input {
+            Ok(input) => input,
+            Err(error) => { self.as_mut().set_whole_game_status(QString::from(error)); return false; }
+        };
+        self.as_mut().release_katago();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.as_mut().rust_mut().whole_game_stop = Some(WholeGameStop(Arc::clone(&stop)));
+        self.as_mut().rust_mut().whole_game_position = Some(position);
+        self.as_mut().set_whole_game_report(QString::from("{}"));
+        self.as_mut().set_whole_game_busy(true);
+        self.as_mut().set_whole_game_status(QString::from("Identifying engine and network; loading saved results…"));
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let mut initial_count = None;
+            let result = (|| -> anyhow::Result<_> {
+                let run = match focus_turn {
+                    Some(turn) => bermuda::game_analysis::prepare_position(request, title, &configuration, &stop, turn)?,
+                    None => bermuda::game_analysis::prepare(request, title, &configuration, &stop)?,
+                };
+                let store = bermuda::game_analysis::AnalysisStore::open(&path)?;
+                bermuda::game_analysis::analyse_game(run, &configuration, &store, &stop, |run, _| {
+                    let initial = *initial_count.get_or_insert(run.results.len());
+                    let completed = run.results.len().saturating_sub(initial);
+                    let seconds = started.elapsed().as_secs_f64();
+                    let rate = if seconds > 0.0 { completed as f64 / seconds } else { 0.0 };
+                    let eta = if rate > 0.0 { format!(" · {:.1} positions/min · about {:.0} min remaining", rate * 60.0, (run.total() - run.results.len()) as f64 / rate / 60.0) } else { String::new() };
+                    let status = format!("{} / {} positions saved{}", run.results.len(), run.total(), eta);
+                    let report = whole_game_report(run);
+                    qt_thread.queue(move |mut app| {
+                        app.as_mut().set_whole_game_report(QString::from(report));
+                        app.as_mut().set_whole_game_status(QString::from(status));
+                    }).is_ok()
+                })
+            })();
+            let _ = qt_thread.queue(move |mut app| {
+                app.as_mut().set_whole_game_busy(false);
+                match result {
+                    Ok(run) => {
+                        let status = if run.complete() { "Analysis complete — saved" } else { "Paused — choose Start / resume with the same game and settings to continue" };
+                        app.as_mut().set_whole_game_report(QString::from(whole_game_report(&run)));
+                        app.as_mut().set_whole_game_status(QString::from(status));
+                    }
+                    Err(error) => app.as_mut().set_whole_game_status(QString::from(format!("Analysis stopped: {error:#}. Completed positions remain saved."))),
+                }
+            });
+        });
+        true
+    }
+
     fn analyse_current_position(
         mut self: Pin<&mut Self>,
         visit_budget: i32,
@@ -2480,6 +2917,10 @@ impl ffi::BermudaApp {
         saved_model: &QString,
         saved_config: &QString,
     ) -> bool {
+        if self.rust().whole_game_busy {
+            self.as_mut().set_error_message(QString::from("Pause whole-game analysis before analysing a position"));
+            return false;
+        }
         self.as_mut().set_error_message(QString::default());
 
         self.as_mut().set_katago_analysis_succeeded(false);
@@ -4274,6 +4715,47 @@ fn update_study_node_insertion(
     }
 }
 
+// KataGo coordinates count from the bottom; Bermuda storage and QML count
+// from the top. Use the same checked conversion for preview and Study edits.
+fn analysis_vertex_on_board(board: &Board, vertex: AnalysisVertex) -> Result<Option<u16>, String> {
+    match vertex {
+        AnalysisVertex::Pass => Ok(None),
+        AnalysisVertex::Point(point) => {
+            if point.x >= board.size() || point.y >= board.size() {
+                return Err("KataGo candidate lies outside the board".into());
+            }
+            board.point(point.x, board.size() - 1 - point.y)
+                .map(Some).map_err(|error| error.to_string())
+        }
+    }
+}
+
+// Build the entire line in a copy: an illegal later move cannot leave a partial edit.
+fn insert_analysis_continuation(
+    collection: &mut Collection, source: &StudySourceLocation, mut colour: Colour,
+    vertices: &[AnalysisVertex], comment: &str,
+) -> Result<StudySourceLocation, String> {
+    if vertices.is_empty() { return Err("Empty continuation".into()); }
+    let mut edited = collection.clone();
+    let mut current = source.clone();
+    let mut first = None;
+    for vertex in vertices {
+        let position = bermuda::study_position_at_source(&edited, &current)?;
+        let point = analysis_vertex_on_board(&position.board, *vertex)?;
+        current = bermuda::branch_study_move_after_source(&mut edited, &current, Move { colour, point })?.source;
+        if first.is_none() { first = Some(current.clone()); }
+        colour = colour.opponent();
+    }
+    let node = sgf_node_at_mut(&mut edited, &first.ok_or("Empty continuation")?)?;
+    let old = node.values("C").join("\n");
+    if !old.contains(comment) {
+        let combined = if old.is_empty() { comment.to_owned() } else { format!("{old}\n\n{comment}") };
+        node.properties.insert("C".into(), vec![combined]);
+    }
+    *collection = edited;
+    Ok(current)
+}
+
 fn update_study_move(
     document: &mut LoadedDocument,
     slider_move_number: i32,
@@ -5030,16 +5512,38 @@ fn add_played_document_to_project(
 
     let record = played_game_record(document)?;
 
+    import_personal_record(project, PLAYED_GAME_SOURCE_NAME, PLAYED_GAME_SOURCE_VERSION,
+        source_locator, &record)
+}
+
+fn opened_game_record(document: &LoadedDocument) -> Result<GameRecord, String> {
+    if document.playable {
+        return Err("Use Add Current Game for a completed played game".to_owned());
+    }
+    let collection = document.study.collection.as_ref()
+        .ok_or_else(|| "Open an SGF game before adding it to My Games".to_owned())?;
+    // Import the recorded main line, never the currently selected study variation.
+    let record = extract_main_variation(collection).map_err(|e| e.to_string())?;
+    if record.moves.is_empty() {
+        return Err("This is a position without game moves".to_owned());
+    }
+    Ok(record)
+}
+
+fn import_personal_record(
+    project: &Project, source_name: &str, source_version: &str,
+    source_locator: &str, record: &GameRecord,
+) -> Result<i64, String> {
     let mut importer = project
         .importer()
         .map_err(|error| format!("opening My Games importer: {error}"))?;
 
     let outcome = importer
         .import_record(
-            PLAYED_GAME_SOURCE_NAME,
-            PLAYED_GAME_SOURCE_VERSION,
+            source_name,
+            source_version,
             source_locator,
-            &record,
+            record,
         )
         .map_err(|error| format!("adding game to My Games: {error}"))?;
 
@@ -5494,6 +5998,48 @@ mod played_game_record_tests {
     use super::*;
 
     #[test]
+    fn candidate_coordinates_convert_both_edges_and_reject_out_of_bounds() {
+        let collection = parse_collection(b"(;SZ[19])").unwrap();
+        let source = StudySourceLocation { variation_path: vec![], sequence_index: 0 };
+        let position = bermuda::study_position_at_source(&collection, &source).unwrap();
+        let board = &position.board;
+        let point = |x, y| AnalysisVertex::Point(bermuda::AnalysisPoint { x, y });
+        assert_eq!(analysis_vertex_on_board(board, point(3, 15)).unwrap(), Some(board.point(3, 3).unwrap()));
+        assert_eq!(analysis_vertex_on_board(board, point(0, 0)).unwrap(), Some(board.point(0, 18).unwrap()));
+        assert_eq!(analysis_vertex_on_board(board, point(18, 18)).unwrap(), Some(board.point(18, 0).unwrap()));
+        assert_eq!(analysis_vertex_on_board(board, AnalysisVertex::Pass).unwrap(), None);
+        assert!(analysis_vertex_on_board(board, point(19, 0)).is_err());
+        assert!(analysis_vertex_on_board(board, point(0, 19)).is_err());
+    }
+
+    #[test]
+    fn candidate_save_preserves_main_line_comments_and_reuses_existing_moves() {
+        let mut collection = parse_collection(b"(;SZ[19];B[dd]C[human note];W[pp])").unwrap();
+        let source = StudySourceLocation { variation_path: vec![], sequence_index: 0 };
+        // SGF dd is KataGo (3,15), but storage (3,3). Reuse it, then branch with a pass.
+        let line = vec![AnalysisVertex::Point(bermuda::AnalysisPoint { x: 3, y: 15 }), AnalysisVertex::Pass];
+        let original = write_collection_sgf(&collection);
+        let end = insert_analysis_continuation(&mut collection, &source, Colour::Black, &line, "KataGo evidence").unwrap();
+        assert_eq!(collection.trees[0].sequence[1].first("C"), Some("human note\n\nKataGo evidence"));
+        assert_eq!(collection.trees[0].variations[0].sequence[0].first("W"), Some("pp"));
+        assert_eq!(sgf_node_at_mut(&mut collection, &end).unwrap().first("W"), Some(""));
+        let once = write_collection_sgf(&collection);
+        insert_analysis_continuation(&mut collection, &source, Colour::Black, &line, "KataGo evidence").unwrap();
+        assert_eq!(write_collection_sgf(&collection), once);
+        assert_ne!(once, original);
+    }
+
+    #[test]
+    fn candidate_save_rejects_illegal_suffix_without_partial_changes() {
+        let mut collection = parse_collection(b"(;SZ[19]AB[dd]C[source])").unwrap();
+        let before = write_collection_sgf(&collection);
+        let source = StudySourceLocation { variation_path: vec![], sequence_index: 0 };
+        let line = vec![AnalysisVertex::Pass, AnalysisVertex::Point(bermuda::AnalysisPoint { x: 3, y: 15 })];
+        assert!(insert_analysis_continuation(&mut collection, &source, Colour::White, &line, "engine comment").is_err());
+        assert_eq!(write_collection_sgf(&collection), before);
+    }
+
+    #[test]
     fn comment_on_inserted_node_preserves_neighbouring_comments() {
         let mut collection = parse_collection(b"(;SZ[19];B[dd]C[before];;C[after]TR[pp];W[qq])").unwrap();
         let source = StudySourceLocation { variation_path: vec![], sequence_index: 2 };
@@ -5647,6 +6193,41 @@ mod played_game_record_tests {
             .expect("create second game");
 
         assert_ne!(first.played_source_locator, second.played_source_locator,);
+    }
+
+    #[test]
+    fn opened_game_import_preserves_main_line_metadata_and_is_idempotent() {
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("bermuda-opened-{unique}"));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("personal.sgf");
+        let sgf = "(;GM[1]FF[4]SZ[19]PB[Black Player]PW[White Player]DT[2026-10-26]EV[Club]RE[B+R]KM[6.5];B[dd](;W[pp])(;W[qq]))";
+        fs::write(&source, sgf).unwrap();
+        let mut document = load_sgf_document(source.to_str().unwrap()).unwrap();
+        // The visible replay can be shorter than the recorded main line.
+        document.positions.truncate(1);
+        let record = opened_game_record(&document).unwrap();
+        assert_eq!(record.moves.len(), 2);
+        assert_eq!(record.metadata.black_player.as_deref(), Some("Black Player"));
+        assert_eq!(record.metadata.white_player.as_deref(), Some("White Player"));
+        assert_eq!(record.metadata.date.as_deref(), Some("2026-10-26"));
+        assert_eq!(record.metadata.event.as_deref(), Some("Club"));
+        assert_eq!(record.metadata.result.as_deref(), Some("B+R"));
+        let board = Board::new(19).unwrap();
+        assert_eq!(record.moves[1].point, Some(board.point(15, 15).unwrap()));
+        let project = ProjectManager::new().create("Test", &root.join("project")).unwrap();
+        let locator = bermuda::canonical_hash_hex(&record).unwrap();
+        let first = import_personal_record(&project, "Imported personal games", "1", &locator, &record).unwrap();
+        let second = import_personal_record(&project, "Imported personal games", "1", &locator, &record).unwrap();
+        assert_eq!(first, second);
+        let connection = bermuda::database::open(&project.database_root()).unwrap();
+        let counts: (i64, i64, i64) = connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM games), (SELECT COUNT(*) FROM game_sources), (SELECT COUNT(*) FROM indexed_games)",
+            [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!(counts, (1, 1, 1));
+        assert_eq!(fs::read_to_string(&source).unwrap(), sgf);
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

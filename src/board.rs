@@ -4,7 +4,7 @@ pub const MAX_BOARD_SIZE: u8 = 19;
 pub const MAX_POINTS: usize = 361;
 const WORDS: usize = 6;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Colour {
     Black,
     White,

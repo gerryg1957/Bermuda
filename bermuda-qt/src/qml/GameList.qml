@@ -7,7 +7,21 @@ import org.bermuda.app
 
 Kirigami.AbstractCard {
     id: root
+    property Item searchResultsHost: null
 
+    property bool libraryNavigation: false
+    onLibraryNavigationChanged: {
+        if (!libraryNavigation) { gameView.contentX = 0; searchView.contentX = 0 }
+        else Qt.callLater(function() { root.ensureTrialCounts() })
+    }
+    function ensureTrialCounts() {
+        if (!libraryNavigation || !componentReadyForProjectLoad) return
+        if (myGamesProjectPath.length > 0 && !myGamesProjectLoaded && !myGamesGameModel.loading)
+            reloadMyGamesProject()
+        if (databaseProjectPath.length > 0 && !databaseProjectLoaded && !databaseGameModel.loading)
+            reloadDatabaseProject()
+    }
+    signal libraryTabRequested(int index)
     signal gameSelected(var game)
     signal removeSelectedMyGameRequested()
     signal continuationCandidateSelected(int boardX, int coreY, int count)
@@ -16,6 +30,7 @@ Kirigami.AbstractCard {
 
     readonly property string databaseName: databaseGameModel.database_name
     readonly property real databaseGameCount: databaseGameModel.database_game_count
+    readonly property real personalGameCount: myGamesGameModel.database_game_count
     readonly property bool databaseLoading: databaseGameModel.loading
     readonly property string databaseError: databaseGameModel.error_message
 
@@ -246,6 +261,7 @@ Kirigami.AbstractCard {
     property bool sortThirdAscending: true
 
     property bool whiteColumnFirst: false
+    readonly property real catalogueTableWidth: playerColumnWidth * 2 + 32 + dateColumnWidth + resultColumnWidth + komiColumnWidth + eventColumnWidth + 24
     readonly property int playerColumnWidth: 135
     readonly property int dateColumnWidth: 95
     readonly property int resultColumnWidth: 60
@@ -283,7 +299,7 @@ Kirigami.AbstractCard {
     property bool searchSortAscending: false
 
     readonly property bool catalogueLoading: gameModel.loading
-    property string loadingIndicatorStyle: "stones"
+
     padding: 0
 
 
@@ -682,315 +698,18 @@ Kirigami.AbstractCard {
         }
     }
 
+    // A compact indicator replaces the decorative pouring-stones overlay.
     Rectangle {
         anchors.fill: parent
         visible: root.catalogueLoading
         z: 1000
-        color: "#66000000"
-
-        MouseArea {
-            anchors.fill: parent
-        }
-
+        color: Kirigami.Theme.backgroundColor
+        MouseArea { anchors.fill: parent }
         ColumnLayout {
             anchors.centerIn: parent
-            spacing: Kirigami.Units.largeSpacing
-
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                radius: Kirigami.Units.largeSpacing
-                color: Kirigami.Theme.backgroundColor
-                border.color: Kirigami.Theme.disabledTextColor
-                implicitWidth: Kirigami.Units.gridUnit * 20
-                implicitHeight: Kirigami.Units.gridUnit * 11
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Kirigami.Units.largeSpacing
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Item {
-                        Layout.alignment: Qt.AlignHCenter
-                        visible: root.loadingIndicatorStyle === "stones"
-                        implicitWidth: Kirigami.Units.gridUnit * 10
-                        implicitHeight: Kirigami.Units.gridUnit * 6.5
-
-                        Item {
-                            anchors.fill: parent
-
-                            Rectangle {
-                                id: boardSurface
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                anchors.bottom: parent.bottom
-                                width: parent.implicitWidth * 0.92
-                                height: Kirigami.Units.gridUnit * 2.4
-                                radius: Kirigami.Units.smallSpacing
-                                color: "#D8B57A"
-                                border.color: "#8C6A3A"
-                                border.width: 1
-                                opacity: 0.96
-                            }
-
-                            Repeater {
-                                model: 5
-
-                                delegate: Rectangle {
-                                    width: 1
-                                    height: boardSurface.height - Kirigami.Units.smallSpacing * 2
-                                    color: "#8C6A3A"
-                                    opacity: 0.40
-                                    x: boardSurface.x + Kirigami.Units.smallSpacing
-                                       + index * ((boardSurface.width - Kirigami.Units.smallSpacing * 2) / 4)
-                                    y: boardSurface.y + Kirigami.Units.smallSpacing
-                                }
-                            }
-
-                            Repeater {
-                                model: 4
-
-                                delegate: Rectangle {
-                                    width: boardSurface.width - Kirigami.Units.smallSpacing * 2
-                                    height: 1
-                                    color: "#8C6A3A"
-                                    opacity: 0.35
-                                    x: boardSurface.x + Kirigami.Units.smallSpacing
-                                    y: boardSurface.y + Kirigami.Units.smallSpacing
-                                       + index * ((boardSurface.height - Kirigami.Units.smallSpacing * 2) / 3)
-                                }
-                            }
-
-                            Rectangle {
-                                width: Kirigami.Units.gridUnit * 2.8
-                                height: Kirigami.Units.gridUnit * 0.35
-                                radius: height / 2
-                                color: "#30000000"
-                                x: Kirigami.Units.gridUnit * 0.9
-                                y: Kirigami.Units.gridUnit * 2.0
-                            }
-
-                            Item {
-                                id: loadingBowl
-                                width: Kirigami.Units.gridUnit * 3.3
-                                height: Kirigami.Units.gridUnit * 2.0
-                                x: Kirigami.Units.gridUnit * 0.9
-                                y: Kirigami.Units.gridUnit * 0.35
-                                rotation: -24
-
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: height * 0.48
-                                    color: "#9B6230"
-                                    border.color: "#6E441E"
-                                    border.width: 2
-                                }
-
-                                Rectangle {
-                                    x: width * 0.12
-                                    y: height * 0.22
-                                    width: parent.width * 0.76
-                                    height: parent.height * 0.28
-                                    radius: height / 2
-                                    color: "#B97C42"
-                                    opacity: 0.90
-                                }
-
-                                Rectangle {
-                                    x: width * 0.18
-                                    y: height * 0.52
-                                    width: parent.width * 0.52
-                                    height: parent.height * 0.16
-                                    radius: height / 2
-                                    color: "#D9A56D"
-                                    opacity: 0.35
-                                }
-
-                                Repeater {
-                                    model: 4
-
-                                    delegate: Rectangle {
-                                        required property int index
-                                        width: Kirigami.Units.gridUnit * 0.40
-                                        height: width
-                                        radius: width / 2
-                                        color: index % 2 === 0 ? "#202020" : "#F4F0E8"
-                                        border.color: index % 2 === 0 ? "#111111" : "#8A8478"
-                                        border.width: 1
-                                        x: Kirigami.Units.gridUnit * (0.40 + index * 0.38)
-                                        y: Kirigami.Units.gridUnit * (0.52 + (index % 2) * 0.10)
-                                    }
-                                }
-                            }
-
-                            Repeater {
-                                model: 7
-
-                                delegate: Rectangle {
-                                    id: loadingStone
-
-                                    required property int index
-
-                                    width: Kirigami.Units.gridUnit * 0.46
-                                    height: width
-                                    radius: width / 2
-                                    color: index % 2 === 0 ? "#202020" : "#F4F0E8"
-                                    border.color: index % 2 === 0 ? "#111111" : "#8A8478"
-                                    border.width: 1
-                                    opacity: 0
-                                    scale: 0.90
-
-                                    property real startX: loadingBowl.x + loadingBowl.width * 0.76
-                                    property real startY: loadingBowl.y + loadingBowl.height * 0.22
-                                    property real endX: Kirigami.Units.gridUnit * (5.15 + (index % 3) * 0.50)
-                                    property real endY: boardSurface.y + Kirigami.Units.gridUnit * (0.62 + (index % 2) * 0.18)
-
-                                    x: startX
-                                    y: startY
-
-                                    SequentialAnimation on x {
-                                        running: root.catalogueLoading
-                                                 && root.loadingIndicatorStyle === "stones"
-                                        loops: Animation.Infinite
-
-                                        PauseAnimation { duration: index * 135 }
-
-                                        NumberAnimation {
-                                            from: loadingStone.startX
-                                            to: loadingStone.endX
-                                            duration: 980
-                                            easing.type: Easing.InOutQuad
-                                        }
-
-                                        PauseAnimation { duration: 260 }
-                                    }
-
-                                    SequentialAnimation on y {
-                                        running: root.catalogueLoading
-                                                 && root.loadingIndicatorStyle === "stones"
-                                        loops: Animation.Infinite
-
-                                        PauseAnimation { duration: index * 135 }
-
-                                        NumberAnimation {
-                                            from: loadingStone.startY
-                                            to: boardSurface.y - Kirigami.Units.gridUnit * 0.18
-                                            duration: 450
-                                            easing.type: Easing.OutQuad
-                                        }
-
-                                        NumberAnimation {
-                                            to: loadingStone.endY
-                                            duration: 530
-                                            easing.type: Easing.InQuad
-                                        }
-
-                                        PauseAnimation { duration: 260 }
-                                    }
-
-                                    SequentialAnimation on opacity {
-                                        running: root.catalogueLoading
-                                                 && root.loadingIndicatorStyle === "stones"
-                                        loops: Animation.Infinite
-
-                                        PauseAnimation { duration: index * 135 }
-                                        NumberAnimation { from: 0; to: 1; duration: 90 }
-                                        PauseAnimation { duration: 700 }
-                                        NumberAnimation { from: 1; to: 0; duration: 180 }
-                                        PauseAnimation { duration: 190 }
-                                    }
-
-                                    SequentialAnimation on scale {
-                                        running: root.catalogueLoading
-                                                 && root.loadingIndicatorStyle === "stones"
-                                        loops: Animation.Infinite
-
-                                        PauseAnimation { duration: index * 135 }
-                                        NumberAnimation { from: 0.90; to: 1.00; duration: 300 }
-                                        PauseAnimation { duration: 520 }
-                                        NumberAnimation { from: 1.00; to: 0.94; duration: 340 }
-                                        PauseAnimation { duration: 300 }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                width: Kirigami.Units.gridUnit * 2.6
-                                height: Kirigami.Units.gridUnit * 0.32
-                                radius: height / 2
-                                color: "#24000000"
-                                x: Kirigami.Units.gridUnit * 4.9
-                                y: boardSurface.y + Kirigami.Units.gridUnit * 1.1
-                            }
-
-                            Repeater {
-                                model: 8
-
-                                delegate: Rectangle {
-                                    required property int index
-
-                                    width: Kirigami.Units.gridUnit * 0.48
-                                    height: width
-                                    radius: width / 2
-                                    color: index % 2 === 0 ? "#202020" : "#F4F0E8"
-                                    border.color: index % 2 === 0 ? "#111111" : "#8A8478"
-                                    border.width: 1
-
-                                    x: Kirigami.Units.gridUnit * (
-                                           5.00
-                                           + [0.00, 0.38, 0.76, 0.22, 0.60, 0.98, 0.42, 0.82][index]
-                                       )
-                                    y: boardSurface.y + Kirigami.Units.gridUnit * (
-                                           [0.78, 0.72, 0.82, 0.48, 0.52, 0.58, 0.28, 0.34][index]
-                                       )
-                                }
-                            }
-                        }
-                    }
-
-                    Label {
-                        id: loadingCat
-                        Layout.alignment: Qt.AlignHCenter
-                        visible: root.loadingIndicatorStyle === "cat"
-                        text: "🐱"
-                        font.pixelSize: Kirigami.Units.gridUnit * 3
-                        horizontalAlignment: Text.AlignHCenter
-
-                        SequentialAnimation on rotation {
-                            running: root.catalogueLoading
-                                     && root.loadingIndicatorStyle === "cat"
-                            loops: Animation.Infinite
-
-                            NumberAnimation {
-                                from: -12
-                                to: 12
-                                duration: 220
-                                easing.type: Easing.InOutQuad
-                            }
-
-                            NumberAnimation {
-                                from: 12
-                                to: -12
-                                duration: 220
-                                easing.type: Easing.InOutQuad
-                            }
-                        }
-                    }
-
-                    Label {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: qsTr("Loading catalogue…")
-                        font.bold: true
-                    }
-
-                    Label {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: root.loadingIndicatorStyle === "stones"
-                              ? qsTr("Preparing the full game catalogue.")
-                              : qsTr("Please wait while the games are loaded.")
-                        wrapMode: Text.WordWrap
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                }
-            }
+            width: Math.min(280, parent.width - 32)
+            Label { text: qsTr("Loading catalogue…"); Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+            ProgressBar { indeterminate: root.catalogueLoading; Layout.fillWidth: true }
         }
     }
 
@@ -1305,6 +1024,7 @@ Kirigami.AbstractCard {
 
     onDatabaseProjectPathChanged: {
         databaseProjectLoaded = false
+        Qt.callLater(function() { root.ensureTrialCounts() })
 
         if (componentReadyForProjectLoad && !showingMyGames)
             ensureCurrentProjectLoaded()
@@ -1312,6 +1032,7 @@ Kirigami.AbstractCard {
 
     onMyGamesProjectPathChanged: {
         myGamesProjectLoaded = false
+        Qt.callLater(function() { root.ensureTrialCounts() })
 
         if (componentReadyForProjectLoad && showingMyGames)
             ensureCurrentProjectLoaded()
@@ -1323,6 +1044,7 @@ Kirigami.AbstractCard {
 
         componentReadyForProjectLoad = true
         ensureCurrentProjectLoaded()
+        Qt.callLater(function() { root.ensureTrialCounts() })
     }
 
     GameListModel {
@@ -1702,8 +1424,27 @@ Kirigami.AbstractCard {
     }
 
    contentItem: ColumnLayout {
+    id: catalogueContent
     anchors.fill: parent
     spacing: 0
+    Label { visible: root.libraryNavigation && mainTabs.currentIndex !== 2; text: qsTr("Library"); font.bold: true; font.pixelSize: 20; padding: 12 }
+    RowLayout {
+        visible: root.libraryNavigation && mainTabs.currentIndex !== 2
+        Layout.fillWidth: true
+        Button { text: qsTr("Professional games"); checkable: true; checked: mainTabs.currentIndex === 0; onClicked: root.libraryTabRequested(0) }
+        Button { text: qsTr("My games"); checkable: true; checked: mainTabs.currentIndex === 1; onClicked: root.libraryTabRequested(1) }
+    }
+    Label {
+        visible: root.libraryNavigation && mainTabs.currentIndex !== 2
+        Layout.fillWidth: true
+        padding: 8
+        wrapMode: Text.Wrap
+        text: qsTr("Professional games: %1 · My games: %2")
+            .arg(root.databaseProjectLoaded ? Number(root.databaseGameCount).toLocaleString(Qt.locale(), "f", 0) : "—")
+            .arg(root.myGamesProjectLoaded ? Number(root.personalGameCount).toLocaleString(Qt.locale(), "f", 0) : "—")
+    }
+    Label { visible: root.libraryNavigation && mainTabs.currentIndex === 2; text: qsTr("Matching games"); font.bold: true; padding: 12 }
+
 
     /*
      * The application owns the permanently visible browser tabs.
@@ -1945,13 +1686,16 @@ Kirigami.AbstractCard {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: headerRow.implicitHeight
+            clip: true
             visible: mainTabs.currentIndex !== 2
             color: Kirigami.Theme.alternateBackgroundColor
 
           RowLayout {
     id: headerRow
 
-    anchors.fill: parent
+    x: root.libraryNavigation ? -gameView.contentX : 0
+    width: root.libraryNavigation ? Math.max(parent.width, root.catalogueTableWidth) : parent.width
+    height: parent.height
     spacing: 0
 
     Label {
@@ -2091,455 +1835,474 @@ Kirigami.AbstractCard {
             visible: mainTabs.currentIndex !== 2
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: searchHeaderRow.implicitHeight
-            visible: mainTabs.currentIndex === 2
-            color: Kirigami.Theme.alternateBackgroundColor
-
-            RowLayout {
-                id: searchHeaderRow
-
-                anchors.fill: parent
-                spacing: 0
-
-                Label {
-                    id: searchFirstPlayerHeader
-
-                    text: root.searchSortHeaderText(
-                              root.whiteColumnFirst
-                              ? "white"
-                              : "black",
-                              root.whiteColumnFirst
-                              ? qsTr("White")
-                              : qsTr("Black"))
-
-                    Layout.preferredWidth: root.playerColumnWidth
-                    Layout.maximumWidth: root.playerColumnWidth
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-
-                    color: searchFirstPlayerSortArea.containsMouse
-                           ? Kirigami.Theme.highlightColor
-                           : Kirigami.Theme.textColor
-
-                    MouseArea {
-                        id: searchFirstPlayerSortArea
-
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        enabled:
-                            root.searchHasRun
-                            && !searchModel.search_in_progress
-                        cursorShape: Qt.PointingHandCursor
-
-                        onClicked: root.sortSearchResults(
-                                       root.whiteColumnFirst
-                                       ? "white"
-                                       : "black",
-                                       true)
-                    }
-                }
-
-                ToolButton {
-                    text: qsTr("⇄")
-                    Layout.preferredWidth: 32
-                    Layout.maximumWidth: 32
-
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Swap Black and White columns")
-
-                    onClicked:
-                        root.whiteColumnFirst = !root.whiteColumnFirst
-                }
-
-                Label {
-                    id: searchSecondPlayerHeader
-
-                    text: root.searchSortHeaderText(
-                              root.whiteColumnFirst
-                              ? "black"
-                              : "white",
-                              root.whiteColumnFirst
-                              ? qsTr("Black")
-                              : qsTr("White"))
-
-                    Layout.preferredWidth: root.playerColumnWidth
-                    Layout.maximumWidth: root.playerColumnWidth
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-
-                    color: searchSecondPlayerSortArea.containsMouse
-                           ? Kirigami.Theme.highlightColor
-                           : Kirigami.Theme.textColor
-
-                    MouseArea {
-                        id: searchSecondPlayerSortArea
-
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        enabled:
-                            root.searchHasRun
-                            && !searchModel.search_in_progress
-                        cursorShape: Qt.PointingHandCursor
-
-                        onClicked: root.sortSearchResults(
-                                       root.whiteColumnFirst
-                                       ? "black"
-                                       : "white",
-                                       true)
-                    }
-                }
-
-                Label {
-                    id: searchDateHeader
-
-                    text: root.searchSortHeaderText(
-                              "date",
-                              qsTr("Date"))
-
-                    Layout.preferredWidth: root.dateColumnWidth
-                    Layout.maximumWidth: root.dateColumnWidth
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-
-                    color: searchDateSortArea.containsMouse
-                           ? Kirigami.Theme.highlightColor
-                           : Kirigami.Theme.textColor
-
-                    MouseArea {
-                        id: searchDateSortArea
-
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        enabled:
-                            root.searchHasRun
-                            && !searchModel.search_in_progress
-                        cursorShape: Qt.PointingHandCursor
-
-                        onClicked:
-                            root.sortSearchResults("date", false)
-                    }
-                }
-
-                Label {
-                    text: qsTr("Result")
-                    Layout.preferredWidth: root.resultColumnWidth
-                    Layout.maximumWidth: root.resultColumnWidth
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
-
-                Label {
-                    id: searchMatchesHeader
-
-                    text: root.searchSortHeaderText(
-                              "matches",
-                              qsTr("Matches"))
-
-                    Layout.preferredWidth: 80
-                    padding: Kirigami.Units.smallSpacing
-                    horizontalAlignment: Text.AlignHCenter
-                    font.bold: true
-
-                    color: searchMatchesSortArea.containsMouse
-                           ? Kirigami.Theme.highlightColor
-                           : Kirigami.Theme.textColor
-
-                    MouseArea {
-                        id: searchMatchesSortArea
-
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        enabled:
-                            root.searchHasRun
-                            && !searchModel.search_in_progress
-                        cursorShape: Qt.PointingHandCursor
-
-                        onClicked:
-                            root.sortSearchResults("matches", false)
-                    }
-                }
-
-                Label {
-                    text: qsTr("Event")
-                    Layout.preferredWidth: root.eventColumnWidth
-                    Layout.maximumWidth: root.eventColumnWidth
-                    padding: Kirigami.Units.smallSpacing
-                    font.bold: true
-                }
-            }
-        }
-
-        Kirigami.Separator {
-            Layout.fillWidth: true
-            visible: mainTabs.currentIndex === 2
-        }
-
-        ListView {
-            id: searchView
-
+        // Reuse the same table and search model in the study workspace.
+        ColumnLayout {
+            id: searchResultsTable
+            parent: root.searchResultsHost !== null ? root.searchResultsHost : catalogueContent
             Layout.fillWidth: true
             Layout.fillHeight: true
-
+            spacing: 0
             visible: mainTabs.currentIndex === 2
-
-            clip: true
-            model: searchModel
-            currentIndex: root.selectedSearchRow
-
-            ScrollBar.vertical: ScrollBar {
-                id: searchVerticalScrollBar
-            }
-
-            delegate: ItemDelegate {
-                id: searchRowDelegate
-
-                required property int index
-                required property var gameId
-                required property string blackPlayer
-                required property string whitePlayer
-                required property string playedDate
-                required property string result
-                required property string event
-                required property string komi
-                required property int matchCount
-                required property int firstMatchMove
-                required property int firstMatchLeft
-                required property int firstMatchBottom
-
-                width: searchView.width
-                height: Math.round(Kirigami.Units.gridUnit * 1.75)
-                rightPadding: searchVerticalScrollBar.width + 4
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: searchHeaderRow.implicitHeight
                 clip: true
+                visible: mainTabs.currentIndex === 2
+                color: Kirigami.Theme.alternateBackgroundColor
 
-                highlighted: root.selectedSearchRow === index
-                enabled: !searchModel.occurrence_load_in_progress
+                RowLayout {
+                    id: searchHeaderRow
 
-                background: Rectangle {
-                    anchors {
-                        left: parent.left
-                        right: parent.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: 4
-                        rightMargin: searchVerticalScrollBar.width + 4
-                    }
-
-                    height: parent.height - 4
-                    radius: 4
-
-                    color: searchRowDelegate.highlighted
-                        ? searchRowDelegate.palette.highlight
-                        : searchRowDelegate.hovered
-                            ? searchRowDelegate.palette.alternateBase
-                            : "transparent"
-                }
-
-                onClicked: {
-                    root.selectedSearchRow = index
-
-                    root.pendingSearchGame = {
-                        gameId: gameId,
-                        black: blackPlayer,
-                        white: whitePlayer,
-                        gameDate: playedDate,
-                        result: result,
-                        eventName: event,
-                        komi: searchRowDelegate.komi,
-                        matchMove: firstMatchMove,
-                        matchLeft: firstMatchLeft,
-                        matchBottom: firstMatchBottom,
-                        matchOccurrences: [],
-                        matchWidth: root.searchPatternWidth,
-                        matchHeight: root.searchPatternHeight,
-                        fromSearchResults: true
-                    }
-
-                    if (!searchModel.loadOccurrences(index)) {
-                        root.pendingSearchGame = null
-                        console.warn(
-                            "Could not start loading match occurrences")
-                    }
-                }
-
-                contentItem: RowLayout {
+                    x: root.libraryNavigation ? -searchView.contentX : 0
+                    width: root.libraryNavigation ? searchView.contentWidth : parent.width
+                    height: parent.height
                     spacing: 0
 
                     Label {
-                        text: root.whiteColumnFirst
-                              ? searchRowDelegate.whitePlayer
-                              : searchRowDelegate.blackPlayer
+                        id: searchFirstPlayerHeader
+
+                        text: root.searchSortHeaderText(
+                                  root.whiteColumnFirst
+                                  ? "white"
+                                  : "black",
+                                  root.whiteColumnFirst
+                                  ? qsTr("White")
+                                  : qsTr("Black"))
+
                         Layout.preferredWidth: root.playerColumnWidth
                         Layout.maximumWidth: root.playerColumnWidth
-                        elide: Text.ElideRight
-                        leftPadding: Kirigami.Units.smallSpacing
+                        padding: Kirigami.Units.smallSpacing
+                        font.bold: true
+
+                        color: searchFirstPlayerSortArea.containsMouse
+                               ? Kirigami.Theme.highlightColor
+                               : Kirigami.Theme.textColor
+
+                        MouseArea {
+                            id: searchFirstPlayerSortArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled:
+                                root.searchHasRun
+                                && !searchModel.search_in_progress
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked: root.sortSearchResults(
+                                           root.whiteColumnFirst
+                                           ? "white"
+                                           : "black",
+                                           true)
+                        }
                     }
 
-                    Item {
+                    ToolButton {
+                        text: qsTr("⇄")
                         Layout.preferredWidth: 32
+                        Layout.maximumWidth: 32
+
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Swap Black and White columns")
+
+                        onClicked:
+                            root.whiteColumnFirst = !root.whiteColumnFirst
                     }
 
                     Label {
-                        text: root.whiteColumnFirst
-                              ? searchRowDelegate.blackPlayer
-                              : searchRowDelegate.whitePlayer
+                        id: searchSecondPlayerHeader
+
+                        text: root.searchSortHeaderText(
+                                  root.whiteColumnFirst
+                                  ? "black"
+                                  : "white",
+                                  root.whiteColumnFirst
+                                  ? qsTr("Black")
+                                  : qsTr("White"))
+
                         Layout.preferredWidth: root.playerColumnWidth
                         Layout.maximumWidth: root.playerColumnWidth
-                        elide: Text.ElideRight
-                        leftPadding: Kirigami.Units.smallSpacing
+                        padding: Kirigami.Units.smallSpacing
+                        font.bold: true
+
+                        color: searchSecondPlayerSortArea.containsMouse
+                               ? Kirigami.Theme.highlightColor
+                               : Kirigami.Theme.textColor
+
+                        MouseArea {
+                            id: searchSecondPlayerSortArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled:
+                                root.searchHasRun
+                                && !searchModel.search_in_progress
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked: root.sortSearchResults(
+                                           root.whiteColumnFirst
+                                           ? "black"
+                                           : "white",
+                                           true)
+                        }
                     }
 
                     Label {
-                        text: searchRowDelegate.playedDate
+                        id: searchDateHeader
+
+                        text: root.searchSortHeaderText(
+                                  "date",
+                                  qsTr("Date"))
+
                         Layout.preferredWidth: root.dateColumnWidth
                         Layout.maximumWidth: root.dateColumnWidth
-                        elide: Text.ElideRight
-                        clip: true
-                        leftPadding: Kirigami.Units.smallSpacing
+                        padding: Kirigami.Units.smallSpacing
+                        font.bold: true
+
+                        color: searchDateSortArea.containsMouse
+                               ? Kirigami.Theme.highlightColor
+                               : Kirigami.Theme.textColor
+
+                        MouseArea {
+                            id: searchDateSortArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled:
+                                root.searchHasRun
+                                && !searchModel.search_in_progress
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked:
+                                root.sortSearchResults("date", false)
+                        }
                     }
 
                     Label {
-                        text: searchRowDelegate.result
+                        text: qsTr("Result")
                         Layout.preferredWidth: root.resultColumnWidth
                         Layout.maximumWidth: root.resultColumnWidth
-                        elide: Text.ElideRight
-                        clip: true
-                        leftPadding: Kirigami.Units.smallSpacing
+                        padding: Kirigami.Units.smallSpacing
+                        font.bold: true
                     }
 
                     Label {
-                        text: searchRowDelegate.matchCount
+                        id: searchMatchesHeader
+
+                        text: root.searchSortHeaderText(
+                                  "matches",
+                                  qsTr("Matches"))
+
                         Layout.preferredWidth: 80
+                        padding: Kirigami.Units.smallSpacing
                         horizontalAlignment: Text.AlignHCenter
+                        font.bold: true
+
+                        color: searchMatchesSortArea.containsMouse
+                               ? Kirigami.Theme.highlightColor
+                               : Kirigami.Theme.textColor
+
+                        MouseArea {
+                            id: searchMatchesSortArea
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled:
+                                root.searchHasRun
+                                && !searchModel.search_in_progress
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked:
+                                root.sortSearchResults("matches", false)
+                        }
                     }
 
                     Label {
-                        text: searchRowDelegate.event
+                        text: qsTr("Event")
                         Layout.preferredWidth: root.eventColumnWidth
                         Layout.maximumWidth: root.eventColumnWidth
-                        Layout.minimumWidth: 0
-                        elide: Text.ElideRight
-                        clip: true
-                        leftPadding: Kirigami.Units.smallSpacing
-                        rightPadding: Kirigami.Units.smallSpacing
-
-                        HoverHandler {
-                            id: searchEventHover
-                        }
-
-                        ToolTip.visible:
-                            searchEventHover.hovered
-                            && searchRowDelegate.event.length > 0
-                        ToolTip.text: searchRowDelegate.event
+                        padding: Kirigami.Units.smallSpacing
+                        font.bold: true
                     }
                 }
             }
 
-            ColumnLayout {
-                anchors.centerIn: parent
-                spacing: Kirigami.Units.largeSpacing
-                visible:
-                    searchView.count === 0
-                    && (!root.searchHasRun
-                        || root.searchInProgress
-                        || searchModel.search_cancelled
-                        || searchModel.error_message.length > 0)
+            Kirigami.Separator {
+                Layout.fillWidth: true
+                visible: mainTabs.currentIndex === 2
+            }
 
-                Kirigami.PlaceholderMessage {
-                    Layout.alignment: Qt.AlignHCenter
+            ListView {
+                id: searchView
+                contentWidth: root.libraryNavigation ? Math.max(width, root.catalogueTableWidth + 60) : width
+                flickableDirection: root.libraryNavigation ? Flickable.AutoFlickDirection : Flickable.VerticalFlick
+                ScrollBar.horizontal: ScrollBar { policy: root.libraryNavigation && searchView.contentWidth > searchView.width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
 
-                    text: {
-                        if (root.searchInProgress) {
-                            if (searchModel.cancel_requested)
-                                return qsTr("Cancelling…")
+                Layout.fillWidth: true
+                Layout.fillHeight: true
 
-                            if (searchModel.total_games > 0
-                                    && searchModel.games_examined
-                                    >= searchModel.total_games) {
-                                return qsTr("Preparing results…")
-                            }
+                visible: mainTabs.currentIndex === 2
 
-                            return qsTr("Searching…")
+                clip: true
+                model: searchModel
+                currentIndex: root.selectedSearchRow
+
+                ScrollBar.vertical: ScrollBar {
+                    id: searchVerticalScrollBar
+                }
+
+                delegate: ItemDelegate {
+                    id: searchRowDelegate
+
+                    required property int index
+                    required property var gameId
+                    required property string blackPlayer
+                    required property string whitePlayer
+                    required property string playedDate
+                    required property string result
+                    required property string event
+                    required property string komi
+                    required property int matchCount
+                    required property int firstMatchMove
+                    required property int firstMatchLeft
+                    required property int firstMatchBottom
+
+                    width: root.libraryNavigation ? searchView.contentWidth : searchView.width
+                    height: Math.round(Kirigami.Units.gridUnit * 1.75)
+                    rightPadding: searchVerticalScrollBar.width + 4
+                    clip: true
+
+                    highlighted: root.selectedSearchRow === index
+                    enabled: !searchModel.occurrence_load_in_progress
+
+                    background: Rectangle {
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: 4
+                            rightMargin: searchVerticalScrollBar.width + 4
                         }
 
-                        if (searchModel.search_cancelled)
-                            return qsTr("Search cancelled")
+                        height: parent.height - 4
+                        radius: 4
 
-                        if (searchModel.error_message.length > 0)
-                            return qsTr("Search failed")
-
-                        if (!root.searchHasRun)
-                            return qsTr("No search has been run")
-
-                        return qsTr("No matching games")
+                        color: searchRowDelegate.highlighted
+                            ? searchRowDelegate.palette.highlight
+                            : searchRowDelegate.hovered
+                                ? searchRowDelegate.palette.alternateBase
+                                : "transparent"
                     }
 
-                    explanation: {
-                        if (root.searchInProgress) {
-                            if (searchModel.total_games <= 0)
-                                return qsTr(
-                                    "Preparing the project database")
+                    onClicked: {
+                        root.selectedSearchRow = index
 
-                            if (searchModel.games_examined
-                                    >= searchModel.total_games) {
-                                return qsTr(
-                                    "The game scan is complete\n"
-                                    + "Preparing %1 matching games "
-                                    + "for display")
-                                    .arg(
-                                        searchModel.matching_games)
+                        root.pendingSearchGame = {
+                            gameId: gameId,
+                            black: blackPlayer,
+                            white: whitePlayer,
+                            gameDate: playedDate,
+                            result: result,
+                            eventName: event,
+                            komi: searchRowDelegate.komi,
+                            matchMove: firstMatchMove,
+                            matchLeft: firstMatchLeft,
+                            matchBottom: firstMatchBottom,
+                            matchOccurrences: [],
+                            matchWidth: root.searchPatternWidth,
+                            matchHeight: root.searchPatternHeight,
+                            fromSearchResults: true
+                        }
+
+                        if (!searchModel.loadOccurrences(index)) {
+                            root.pendingSearchGame = null
+                            console.warn(
+                                "Could not start loading match occurrences")
+                        }
+                    }
+
+                    contentItem: RowLayout {
+                        spacing: 0
+
+                        Label {
+                            text: root.whiteColumnFirst
+                                  ? searchRowDelegate.whitePlayer
+                                  : searchRowDelegate.blackPlayer
+                            Layout.preferredWidth: root.playerColumnWidth
+                            Layout.maximumWidth: root.playerColumnWidth
+                            elide: Text.ElideRight
+                            leftPadding: Kirigami.Units.smallSpacing
+                        }
+
+                        Item {
+                            Layout.preferredWidth: 32
+                        }
+
+                        Label {
+                            text: root.whiteColumnFirst
+                                  ? searchRowDelegate.blackPlayer
+                                  : searchRowDelegate.whitePlayer
+                            Layout.preferredWidth: root.playerColumnWidth
+                            Layout.maximumWidth: root.playerColumnWidth
+                            elide: Text.ElideRight
+                            leftPadding: Kirigami.Units.smallSpacing
+                        }
+
+                        Label {
+                            text: searchRowDelegate.playedDate
+                            Layout.preferredWidth: root.dateColumnWidth
+                            Layout.maximumWidth: root.dateColumnWidth
+                            elide: Text.ElideRight
+                            clip: true
+                            leftPadding: Kirigami.Units.smallSpacing
+                        }
+
+                        Label {
+                            text: searchRowDelegate.result
+                            Layout.preferredWidth: root.resultColumnWidth
+                            Layout.maximumWidth: root.resultColumnWidth
+                            elide: Text.ElideRight
+                            clip: true
+                            leftPadding: Kirigami.Units.smallSpacing
+                        }
+
+                        Label {
+                            text: searchRowDelegate.matchCount
+                            Layout.preferredWidth: 80
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Label {
+                            text: searchRowDelegate.event
+                            Layout.preferredWidth: root.eventColumnWidth
+                            Layout.maximumWidth: root.eventColumnWidth
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
+                            clip: true
+                            leftPadding: Kirigami.Units.smallSpacing
+                            rightPadding: Kirigami.Units.smallSpacing
+
+                            HoverHandler {
+                                id: searchEventHover
                             }
 
-                            const matchingText =
-                                searchModel.matching_games === 1
-                                ? qsTr("1 matching game")
-                                : qsTr("%1 matching games")
-                                    .arg(searchModel.matching_games)
-
-                            const occurrenceText =
-                                searchModel.matches_found === 1
-                                ? qsTr("1 occurrence")
-                                : qsTr("%1 occurrences")
-                                    .arg(searchModel.matches_found)
-
-                            return qsTr(
-                                "%1 of %2 games searched\n"
-                                + "%3 · %4 found so far")
-                                .arg(searchModel.games_examined)
-                                .arg(searchModel.total_games)
-                                .arg(matchingText)
-                                .arg(occurrenceText)
+                            ToolTip.visible:
+                                searchEventHover.hovered
+                                && searchRowDelegate.event.length > 0
+                            ToolTip.text: searchRowDelegate.event
                         }
-
-                        if (searchModel.search_cancelled) {
-                            return qsTr(
-                                "Cancelled after %1 of %2 games\n"
-                                + "Partial results were discarded")
-                                .arg(searchModel.games_examined)
-                                .arg(searchModel.total_games)
-                        }
-
-                        return searchModel.error_message
                     }
                 }
 
-                Button {
-                    Layout.alignment: Qt.AlignHCenter
-                    visible: root.searchInProgress
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: Kirigami.Units.largeSpacing
+                    visible:
+                        searchView.count === 0
+                        && (!root.searchHasRun
+                            || root.searchInProgress
+                            || searchModel.search_cancelled
+                            || searchModel.error_message.length > 0)
 
-                    text: searchModel.cancel_requested
-                        ? qsTr("Cancelling…")
-                        : qsTr("Cancel")
+                    Kirigami.PlaceholderMessage {
+                        Layout.alignment: Qt.AlignHCenter
 
-                    enabled: !searchModel.cancel_requested
+                        text: {
+                            if (root.searchInProgress) {
+                                if (searchModel.cancel_requested)
+                                    return qsTr("Cancelling…")
 
-                    onClicked: searchModel.cancelSearch()
+                                if (searchModel.total_games > 0
+                                        && searchModel.games_examined
+                                        >= searchModel.total_games) {
+                                    return qsTr("Preparing results…")
+                                }
+
+                                return qsTr("Searching…")
+                            }
+
+                            if (searchModel.search_cancelled)
+                                return qsTr("Search cancelled")
+
+                            if (searchModel.error_message.length > 0)
+                                return qsTr("Search failed")
+
+                            if (!root.searchHasRun)
+                                return qsTr("No search has been run")
+
+                            return qsTr("No matching games")
+                        }
+
+                        explanation: {
+                            if (root.searchInProgress) {
+                                if (searchModel.total_games <= 0)
+                                    return qsTr(
+                                        "Preparing the project database")
+
+                                if (searchModel.games_examined
+                                        >= searchModel.total_games) {
+                                    return qsTr(
+                                        "The game scan is complete\n"
+                                        + "Preparing %1 matching games "
+                                        + "for display")
+                                        .arg(
+                                            searchModel.matching_games)
+                                }
+
+                                const matchingText =
+                                    searchModel.matching_games === 1
+                                    ? qsTr("1 matching game")
+                                    : qsTr("%1 matching games")
+                                        .arg(searchModel.matching_games)
+
+                                const occurrenceText =
+                                    searchModel.matches_found === 1
+                                    ? qsTr("1 occurrence")
+                                    : qsTr("%1 occurrences")
+                                        .arg(searchModel.matches_found)
+
+                                return qsTr(
+                                    "%1 of %2 games searched\n"
+                                    + "%3 · %4 found so far")
+                                    .arg(searchModel.games_examined)
+                                    .arg(searchModel.total_games)
+                                    .arg(matchingText)
+                                    .arg(occurrenceText)
+                            }
+
+                            if (searchModel.search_cancelled) {
+                                return qsTr(
+                                    "Cancelled after %1 of %2 games\n"
+                                    + "Partial results were discarded")
+                                    .arg(searchModel.games_examined)
+                                    .arg(searchModel.total_games)
+                            }
+
+                            return searchModel.error_message
+                        }
+                    }
+
+                    Button {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: root.searchInProgress
+
+                        text: searchModel.cancel_requested
+                            ? qsTr("Cancelling…")
+                            : qsTr("Cancel")
+
+                        enabled: !searchModel.cancel_requested
+
+                        onClicked: searchModel.cancelSearch()
+                    }
                 }
             }
+
         }
 
         ListView {
             id: gameView
+            contentWidth: root.libraryNavigation ? Math.max(width, root.catalogueTableWidth) : width
+            flickableDirection: root.libraryNavigation ? Flickable.AutoFlickDirection : Flickable.VerticalFlick
+            ScrollBar.horizontal: ScrollBar { policy: root.libraryNavigation && gameView.contentWidth > gameView.width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
 
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -2575,7 +2338,7 @@ Kirigami.AbstractCard {
                 required property string event
                 required property string komi
 
-                width: gameView.width
+                width: root.libraryNavigation ? gameView.contentWidth : gameView.width
                 height: Math.round(Kirigami.Units.gridUnit * 1.75)
                 rightPadding: verticalScrollBar.width + 4
                 clip: true

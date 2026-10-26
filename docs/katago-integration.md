@@ -302,7 +302,7 @@ The first useful milestone is intentionally small:
 This milestone is now implemented in the Rust adapter and Qt review
 interface.
 
-The next implementation priorities are to keep the KataGo process alive across
-requests and move analysis off the GUI thread. Whole-game/background analysis
-and persistent stored analysis should follow only when the interactive engine
-lifecycle is robust.
+The interactive engine now runs off the GUI thread and reuses a process across
+requests. Whole-game analysis builds on that worker with sequential requests
+and per-position SQLite checkpoints. See `whole-game-analysis.md` for the first
+implementation, explicit analysis assumptions, and acceptance checks.

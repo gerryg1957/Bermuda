@@ -2,7 +2,7 @@
 
 **Status:** Canonical project-wide work plan.
 
-**Last updated:** 14 September 2026.
+**Last updated:** 26 October 2026.
 
 ## Purpose
 
@@ -25,6 +25,8 @@ The task is to make these parts form one coherent study workflow.
 Bermuda's central question remains:
 
 > **We got here somehow — who has got a map?**
+
+**Bermuda organises evidence; KataGo evaluates; the player investigates.**
 
 Bermuda should expose evidence that the user can investigate rather than
 replace that evidence with an unexplained judgement.
@@ -62,18 +64,14 @@ strategic judgement merely to make its results look more plausible.
 
 ### Desktop application
 
-The Qt/Kirigami application has a task-oriented structure around:
+The permanent Qt/Kirigami layout separates Library (Professional games / My
+Games) from Study (new patterns, SGFs, joseki and saved studies). The old UI
+switch has been removed. Pattern controls are grouped below compact SGF
+comments; matching games appear directly below the continuation summary and
+filter in place. Board orientation controls sit beside Return to joseki above
+the move slider. See `navigation-trial.md` for the accepted layout.
 
-- Game;
-- My Games;
-- Game Database;
-- Pattern Search;
-- View;
-- Help.
-
-The goban is the central working surface.
-
-Pattern Search and KataGo are peer investigation modes. Influence is an
+Pattern Search and KataGo are peer investigation tools. Influence is an
 independent overlay rather than a third evidence source.
 
 ### My Games
@@ -107,179 +105,111 @@ The first interactive KataGo milestone is implemented:
 - visit-budget control;
 - inline KataGo investigation mode.
 
-The current limitation is architectural rather than conceptual: each analysis
-starts a fresh KataGo process and blocks the GUI while it runs.
+Interactive analysis now runs on a background worker and reuses KataGo across
+requests. Whole-game analysis, persistent reports and continuation preview/save
+are implemented. The user accepted graphical candidate exploration and deeper
+candidate analysis on 15 October 2026.
 
-## Development order
+## Agreed development order (October 2026)
 
-### 1. KataGo lifecycle and responsiveness
+This order supersedes the September roadmap and the older release sequencing in
+`workplan-status.md`.
 
-This is the immediate next engineering task.
+### 1. Fix Windows startup and memory — awaiting tester information
 
-Make interactive engine use suitable for ordinary study:
+Investigate excessive memory use after indexing and relaunch. Preserve the
+affected database, test with an isolated profile, provide startup without
+reopening the database, and detect interrupted indexing with recovery/rebuild.
+The issue remains open pending further information from a Windows user.
 
-- keep KataGo alive between analyses;
-- avoid reloading the neural network for every request;
-- move analysis off the GUI thread;
-- show a clear analysis-in-progress state;
-- allow obsolete work to be cancelled or superseded;
-- recover cleanly from engine failure;
-- shut KataGo down cleanly with Bermuda;
-- preserve deterministic tests without requiring a real engine.
+### 2. Improve long-running tasks — current work complete
 
-Only after process-start overhead is removed should the default visit budget be
-judged again.
+The 14 October checkpoint (`1aa24f8`) contains task progress, recovery and
+continuation, database identity and selection improvements. The user verified
+the final default-database usability changes. See `database-operation-progress.md`
+for delivered behaviour and limitations. Continue monitoring rates/ETA,
+checkpoints, pause/resume, restart recovery, memory and responsiveness as other
+long-running operations are introduced; this is not a claim that every task
+already implements every facility.
 
-**Completion criterion:** several positions can be analysed during one Bermuda
-session without repeated model loading or a frozen interface.
+### 3. Complete KataGo game analysis — current work complete
 
-### 2. Session continuity
+- Analyse whole games, including individually selected professional games.
+- Save results with engine/network details and explicit analysis settings.
+- Provide a clickable score graph, significant-decisions list and comparison
+  of suggested continuations.
+- Allow deeper analysis of selected positions and saving variations/comments
+  into a study.
 
-Restore the durable study document and current move after restarting Bermuda.
+Whole-game analysis, per-position SQLite checkpoints, exact-settings resume,
+clickable score/win-rate graphs, ranked estimated score changes and candidate
+continuations are implemented. Results retain engine, network and configuration
+SHA-256 identities, rules, komi and visits. Deeper single-position analysis is
+available after pausing a run.
 
-The initial implementation should handle separately:
+The completed workflow leads with candidate next moves and their estimates.
+Clicking a candidate on the board or in the list previews its stone immediately.
+Optional engine continuations are shown as numbered stones, with Previous/Next
+and a slider. Return restores the source position. A chosen move or full line
+can be saved with comments/provenance as one undoable Study edit.
 
-- an external SGF;
-- a professional-database game;
-- a My Games game.
+**Analyse this candidate more deeply** searches the position after the chosen
+move with a separate visit budget. Completed refinements persist alongside the
+matching game analysis, update the candidate's estimate and continuation, and
+retain stable candidate letters. The whole-game score graph remains separate.
+Stopping retains previous results. The Analysis details button was removed;
+engine/network/configuration provenance is still retained internally.
 
-Restore the document by provenance rather than merely serialising a board
-position.
+On 15 October the user confirmed that the graphical continuation and deeper
+candidate workflow work, and found the latter useful for investigating “why is
+this move bad?”. This is player-led investigation, not automatic verbal Go
+coaching. The permanent navigation and inline pattern-results layout are also
+accepted. See `whole-game-analysis.md` for implementation and validation scope.
 
-Do not silently turn this into autosaving of arbitrary editable positions or
-unfinished live games. Those require a separate decision.
+**Presentation follow-up:** revisit explanatory text and control arrangement
+after the user has reflected. The functionality is accepted; no further layout
+change is agreed or required for this checkpoint. Candidate visits show search
+effort, not a human explanation of why a move succeeds or fails.
 
-**Completion criterion:** close Bermuda while reviewing a durable game, reopen
-it, and return to the same game and move.
+Item 4 is the next major feature. Items 2 and 3 are complete for the agreed
+current scope; wider release regression checks remain ongoing maintenance.
 
-### 3. Unified investigation interface
+**26 October correction:** current-position analysis still used display-only
+candidate circles, whereas whole-game review had the accepted interactive
+workflow. The correction routes current-position analysis through the same
+candidate panel, searching and saving only the selected position. Local QML
+checks pass; the patch awaits the user's Rust/Qt build and real-engine check.
+Resolve this parity gap before starting item 4.
 
-Develop KataGo using the useful interaction grammar already established by
-Pattern Search.
+The user subsequently confirmed that current-position candidate review works.
+Item 3 is now undergoing an end-to-end workflow review before presentation
+polish and item 4. The first follow-up adds **Open latest saved**, loading
+matching saved results without engine files or a new search. This increment
+awaits the user's build and walkthrough: reopen, navigate graph/decisions,
+compare candidates, deepen a candidate, save a variation and reopen the study.
 
-Work includes:
+### 4. Find recurring strengths and weaknesses in My Games
 
-- candidate moves shown on the goban;
-- a concise candidate list;
-- a clear distinction between root evaluation and evaluation after a candidate;
-- principal variations;
-- stepping through a variation;
-- easy return to the source position;
-- useful candidate comparison;
-- preservation of Pattern Search state while temporarily using KataGo, and vice
-  versa.
+Use saved analysis to identify decisions worth investigating; find repeated
+patterns and behaviours across personal games; connect examples to professional
+searches; eventually show changes over time.
 
-Professional-search evidence and KataGo evidence must remain visually and
-conceptually distinct.
+### 5. Play against KataGo at a chosen strength
 
-A later useful bridge is to allow a KataGo candidate or variation position to
-become the source of an independent professional search.
+Offer tested strength settings, colour, handicap and time controls. Save played
+games into My Games for subsequent analysis.
 
-**Completion criterion:** KataGo feels like a Bermuda investigation tool rather
-than a separate engine-result dialogue.
+### 6. Later: play other people
 
-### 4. Occurrence context and search evolution
+Peer-to-peer play and/or Bermuda as an OGS playing client.
 
-The current search system is good at answering what professionals played next.
-The next search-development layer should expose more of the context in which a
-matching occurrence arose.
+Alongside this sequence, continue release maintenance, session continuity,
+measured search-speed improvements, search correctness checks and better
+presentation of match context.
 
-Useful information includes:
-
-- first and last matching positions;
-- pattern duration;
-- forming move or capture;
-- preceding local moves;
-- next local move;
-- tenuki and delayed return;
-- local activity and board occupancy;
-- grouping repeated matches into useful appearances or local episodes.
-
-Possible aggregate views can then include formation maps, later local activity,
-move-number distributions and representative examples chosen by explicit,
-explainable criteria.
-
-This work must remain inspectable. Do not replace transparent evidence with an
-opaque relevance score.
-
-**Completion criterion:** the user can readily investigate how a matching
-professional situation arose, persisted and continued, not merely that its
-stone geometry matched.
-
-### 5. Personal-study workflow
-
-The distinctive long-term question for My Games is:
-
-> **What do I repeatedly do across my games?**
-
-The intended workflow is:
-
-    personal games
-          |
-          v
-    interesting moments
-          |
-          v
-    recurring shapes or decisions
-          |
-          v
-    repeated personal behaviour
-          |
-          v
-    independent professional search
-          |
-          v
-    comparison with professional continuations
-
-KataGo may identify candidate moments worth examining. It should not become an
-automatic authority that defines every departure from its preference as a
-mistake.
-
-Initial work should favour Bermuda's existing machinery:
-
-- analyse selected personal games;
-- retain derived engine analysis with clear model/configuration provenance;
-- identify potentially interesting moments;
-- find repeated personal positions or patterns;
-- group recurring decisions across games;
-- launch independent searches against the professional corpus;
-- expose the supporting professional games and continuations.
-
-Later questions may include whether recurring problems diminish over time,
-whether particular behaviours differ by colour, and recurring strengths as well
-as weaknesses.
-
-**Completion criterion:** Bermuda can give at least one evidence-backed answer
-to "what do I repeatedly do, and what did professionals do in comparable
-situations?"
-
-### 6. Release hardening
-
-Release work should proceed alongside research development rather than waiting
-for every long-term idea.
-
-A useful first packaged Bermuda release does not require the complete
-longitudinal My Games vision. It does require the existing professional-study
-workflow to be dependable and understandable.
-
-Work includes:
-
-- concise user help;
-- useful first-run and empty states;
-- database information and diagnostics;
-- appropriate restoration of desktop state;
-- clear user-facing errors;
-- high-DPI and theme checks;
-- accessibility and keyboard review;
-- database/index compatibility documentation;
-- migration expectations;
-- licence and acknowledgement review;
-- CI;
-- reproducible Linux builds;
-- Linux packaging and desktop integration.
-
-Linux remains the primary platform during this work. Native Windows support
-comes afterwards.
+**Boundary:** Bermuda finds and organises evidence; KataGo evaluates positions;
+the player investigates their significance. Move-number filtering and “fuseki
+harvesting” are open ideas, not agreed features.
 
 ## Parallel maintenance
 
@@ -361,13 +291,12 @@ personal experience or the relationship between them.
 
 ## Immediate next task
 
-> **Make KataGo long-lived and asynchronous.**
-
-Before changing code, inspect the current process ownership and the Rust/Qt
-threading boundary.
-
-Keep the tested Rust KataGo adapter as the protocol boundary. QML and other GUI
-code should not parse KataGo JSON.
+Walk through item 3 end to end, beginning with **Open latest saved**.
+Validate saved-result navigation, candidate exploration and Study persistence.
+Then hear the user's reflections on the analysis wording and arrangement;
+do not redesign it in advance. The next major feature is item 4: recurring strengths and weaknesses
+across My Games, using saved analysis and links to professional evidence.
+Windows investigation resumes when the tester supplies more information.
 
 ## Documentation map
 
