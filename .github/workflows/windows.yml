@@ -5,8 +5,13 @@ on:
   push:
     paths:
       - '.github/workflows/windows.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - 'bermuda-qt/Cargo.toml'
+      - 'bermuda-qt/build.rs'
+      - 'bermuda-qt/src/**'
       - 'packaging/windows/**'
-      - 'bermuda-qt/src/qml/**'
       - 'tests/file-paths.cjs'
 
 permissions:

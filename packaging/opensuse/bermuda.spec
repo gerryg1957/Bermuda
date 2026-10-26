@@ -1,6 +1,6 @@
 # Local Tumbleweed release candidate. OBS policy review is a later step.
 Name:           bermuda
-Version:        0.8.2
+Version:        0.8.3
 Release:        1
 Summary:        Go game database and study application
 License:        GPL-3.0-or-later
@@ -54,6 +54,10 @@ install -D -m 0644 packaging/org.bermuda.app.desktop %{buildroot}%{_datadir}/app
 %{_datadir}/applications/org.bermuda.app.desktop
 
 %changelog
+* Mon Oct 26 2026 Bermuda contributors
+- Complete KataGo review, saved analysis and graphical candidate investigation.
+- Unify library navigation and improve personal game and study actions.
+
 * Tue Oct 06 2026 Bermuda contributors
 - Update to 0.8.2 with study editing, startup and KataGo setup improvements.
 - Use the Bermuda Go-board icon for the desktop launcher.
