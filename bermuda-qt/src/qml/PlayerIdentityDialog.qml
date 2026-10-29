@@ -14,10 +14,30 @@ Dialog {
     closePolicy: Popup.CloseOnEscape
     standardButtons: Dialog.Close
 
-    title: qsTr("Player Names")
+    title: personalMode ? qsTr("My games — player names") : qsTr("Player Names")
+    property bool personalMode: false
+    property bool advancedMode: false
+    property var checkedNames: []
+    property bool reviewingNames: false
+    readonly property var myNameChoices: parseArray(identityModel.my_names_json)
+    function nameChecked(item) {
+        return checkedNames.some(function(n) { return n.sourceId === item.sourceId && n.name === item.name })
+    }
+    function toggleName(item, checked) {
+        checkedNames = checkedNames.filter(function(n) { return n.sourceId !== item.sourceId || n.name !== item.name })
+        if (checked) checkedNames = checkedNames.concat([item])
+        reviewingNames = false
+    }
+    function resetSimpleForm() {
+        checkedNames = []
+        reviewingNames = false
+        myDisplayName.text = personalPlayerName() || qsTr("Me")
+    }
+    property bool projectLoaded: false
+    property string projectPath: ""
 
-    width: Math.min(parent.width - 80, 1180)
-    height: Math.min(parent.height - 80, 840)
+    width: Math.min(parent.width - 80, personalMode && !advancedMode ? 800 : 1180)
+    height: Math.min(parent.height - 80, personalMode && !advancedMode ? 650 : 840)
 
     signal identitiesChanged()
 
@@ -91,6 +111,12 @@ Dialog {
     readonly property int selectedPlayerId:
         Number(identityModel.selected_player_id)
 
+    function personalPlayerName() {
+        for (const player of players)
+            if (Number(player.id) === Number(identityModel.personal_player_id)) return player.preferredName
+        return ""
+    }
+
     function selectedPlayerName() {
         for (const player of players) {
             if (Number(player.id) === selectedPlayerId)
@@ -126,14 +152,18 @@ Dialog {
         })
     }
 
-    function openForProject(projectPath) {
+    function openForProject(path, personal) {
+        personalMode = personal === true
+        projectPath = path
         sourceNameFilter = ""
         identityNameFilter = ""
         clearUnresolvedSelection()
         clearAliasSelection()
         renamePlayerField.text = ""
 
-        identityModel.loadProject(projectPath)
+        advancedMode = false
+        projectLoaded = identityModel.loadProject(path)
+        resetSimpleForm()
         open()
     }
 
@@ -205,12 +235,101 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
+        enabled: root.projectLoaded
         spacing: 10
+
+        ColumnLayout {
+            visible: root.personalMode && !root.advancedMode
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 12
+            Label { text: qsTr("Which player is you?"); font.bold: true; font.pixelSize: 20 }
+            RowLayout {
+                Layout.fillWidth: true
+                Label { text: qsTr("Show my names as:") }
+                TextField {
+                    id: myDisplayName
+                    objectName: "myDisplayName"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Me")
+                    enabled: !root.reviewingNames
+                    onTextEdited: root.reviewingNames = false
+                }
+            }
+            Label {
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: qsTr("Tick the usernames you use. Names already linked to you are marked below. Other players can be managed under Advanced name management.")
+            }
+            Frame {
+                Layout.fillWidth: true; Layout.fillHeight: true
+                padding: 0
+                ListView {
+                    anchors.fill: parent; clip: true
+                    model: root.myNameChoices
+                    delegate: CheckDelegate {
+                        required property var modelData
+                        width: ListView.view.width
+                        checked: modelData.alreadyMine || root.nameChecked(modelData)
+                        enabled: !modelData.alreadyMine && !root.reviewingNames
+                        text: modelData.name + " — " + qsTr("%1 games").arg(modelData.gameCount)
+                            + " · " + modelData.sourceName + " " + modelData.sourceVersion
+                            + (modelData.alreadyMine ? qsTr(" · Already yours") : "")
+                        onToggled: root.toggleName(modelData, checked)
+                    }
+                    ScrollBar.vertical: ScrollBar {}
+                    Label { anchors.centerIn: parent; visible: root.myNameChoices.length === 0; text: qsTr("No unlinked names. Use Advanced name management to review existing links."); width: parent.width - 24; wrapMode: Text.Wrap }
+                }
+            }
+            Label {
+                visible: root.reviewingNames
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: qsTr("%1 will be shown as “%2”. Original SGF names will be kept.")
+                    .arg(root.checkedNames.length ? root.checkedNames.map(function(n) { return n.name }).join(", ") : qsTr("Your linked names"))
+                    .arg(myDisplayName.text.trim())
+                    + qsTr(" This also sets your identity for My games. Existing links are kept.")
+            }
+            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: identityModel.status_message; visible: text.length > 0 }
+            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: identityModel.error_message; visible: text.length > 0; color: Kirigami.Theme.negativeTextColor }
+            RowLayout {
+                Layout.fillWidth: true
+                Button {
+                    text: qsTr("Advanced name management…")
+                    onClicked: { root.checkedNames = []; root.reviewingNames = false; root.advancedMode = true }
+                }
+                Item { Layout.fillWidth: true }
+                Button { visible: root.reviewingNames; text: qsTr("Back"); onClicked: root.reviewingNames = false }
+                Button {
+                    text: root.reviewingNames ? qsTr("Save my names") : qsTr("Review names")
+                    enabled: myDisplayName.text.trim().length > 0 && (root.checkedNames.length > 0 || identityModel.personal_player_id >= 0)
+                    onClicked: {
+                        if (!root.reviewingNames) { root.reviewingNames = true; return }
+                        const names = root.checkedNames.map(function(n) { return [n.sourceId, n.name] })
+                        if (identityModel.saveMyNames(myDisplayName.text, JSON.stringify(names))) {
+                            root.resetSimpleForm()
+                            root.identitiesChanged()
+                        }
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            visible: !root.personalMode || root.advancedMode
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 10
+            Button {
+                visible: root.personalMode
+                text: qsTr("Back to my names")
+                onClicked: { root.resetSimpleForm(); root.advancedMode = false }
+            }
 
         Label {
             Layout.fillWidth: true
 
-            text: qsTr(
+            text: root.personalMode
+                ? qsTr("Link your usernames to one preferred name, then select that player and click Mark as me. Choose a source name on the left, then its player on the right. Your original SGF names stay unchanged; links also apply to future imports with that exact name and source.")
+                : qsTr(
                 "Bermuda recognises different spellings of the same "
                 + "player's name and groups their games together. When "
                 + "Bermuda knows that two names belong to the same player, "
@@ -218,6 +337,27 @@ Dialog {
                 + "You only need to make changes here if you spot a source "
                 + "name that should be linked to a player.")
             wrapMode: Text.WordWrap
+        }
+
+        RowLayout {
+            visible: root.personalMode
+            Layout.fillWidth: true
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: identityModel.personal_player_id < 0 ? qsTr("Me: not selected")
+                    : qsTr("Me: %1").arg(root.personalPlayerName())
+            }
+            Button {
+                text: qsTr("Mark as me")
+                enabled: root.selectedPlayerId >= 0 && root.selectedPlayerId !== Number(identityModel.personal_player_id)
+                onClicked: if (identityModel.setPersonalPlayer(root.selectedPlayerId)) root.identitiesChanged()
+            }
+            Button {
+                text: qsTr("Clear Me")
+                enabled: identityModel.personal_player_id >= 0
+                onClicked: if (identityModel.setPersonalPlayer(-1)) root.identitiesChanged()
+            }
         }
 
         RowLayout {
@@ -240,7 +380,9 @@ Dialog {
                     Layout.fillWidth: true
 
                     text: root.sourceNameFilter.trim().length === 0
-                          ? qsTr(
+                          ? root.personalMode
+                            ? qsTr("Usernames and names not yet linked to a player. Select one of yours to begin.")
+                            : qsTr(
                                 "Names as they appear in game sources that "
                                 + "Bermuda has not grouped with a player. "
                                 + "Most can simply be left alone.")
@@ -391,7 +533,7 @@ Dialog {
 
                         delegate: ItemDelegate {
                             width: ListView.view.width
-                            text: modelData.preferredName
+                            text: modelData.preferredName + (root.personalMode && Number(modelData.id) === Number(identityModel.personal_player_id) ? qsTr(" · Me") : "")
 
                             highlighted:
                                 root.selectedPlayerId
@@ -741,6 +883,7 @@ Dialog {
             text: identityModel.error_message
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
+        }
         }
     }
 }

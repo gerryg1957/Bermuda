@@ -121,6 +121,102 @@ impl PlayerDirectory {
         Self::open(&project.database_root())
     }
 
+    /// Optional additive metadata: older Bermuda versions can still open the
+    /// database. Existing player deletion also clears Me via the foreign key.
+    pub fn personal_player_id(&self) -> Result<Option<i64>> {
+        let exists: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'personal_player')",
+            [], |row| row.get(0)
+        ).context("checking personal player settings")?;
+        if !exists { return Ok(None); }
+        self.connection.query_row(
+            "SELECT player_id FROM personal_player WHERE id = 1", [], |row| row.get(0)
+        ).optional().context("reading personal player identity")
+    }
+
+    /// Mark one identity as Me, replace it, or clear it. No names are inferred.
+    pub fn set_personal_player(&self, player_id: Option<i64>) -> Result<()> {
+        if let Some(id) = player_id { self.require_player(id)?; }
+        let transaction = self.connection.unchecked_transaction()
+            .context("starting personal player update")?;
+        transaction.execute_batch(
+            "CREATE TABLE IF NOT EXISTS personal_player (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE
+            );"
+        ).context("creating personal player settings")?;
+        match player_id {
+            Some(id) => {
+                transaction.execute(
+                    "INSERT INTO personal_player(id, player_id) VALUES (1, ?1)
+                     ON CONFLICT(id) DO UPDATE SET player_id = excluded.player_id", [id]
+                ).context("setting personal player identity")?;
+            }
+            None => {
+                transaction.execute("DELETE FROM personal_player WHERE id = 1", [])
+                    .context("clearing personal player identity")?;
+            }
+        }
+        transaction.commit().context("saving personal player identity")?;
+        Ok(())
+    }
+
+    /// Save the simple form atomically: rename/create Me and add explicitly
+    /// selected aliases. Existing aliases are never silently removed.
+    pub fn save_my_names(&self, expected_me: Option<i64>, preferred_name: &str,
+        names: &[(i64, String)]) -> Result<i64> {
+        let preferred_name = required_text(preferred_name, "your name")?;
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute_batch("CREATE TABLE IF NOT EXISTS personal_player (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE
+        );")?;
+        let current: Option<i64> = transaction.query_row(
+            "SELECT player_id FROM personal_player WHERE id = 1", [], |r| r.get(0)).optional()?;
+        if current != expected_me { bail!("Your player selection changed. Reopen Manage names and try again."); }
+        let id = if let Some(id) = current {
+            transaction.execute("UPDATE players SET preferred_name = ?1 WHERE id = ?2", params![preferred_name, id])?;
+            id
+        } else {
+            if names.is_empty() { bail!("Tick at least one of your usernames first"); }
+            transaction.execute("INSERT INTO players(preferred_name) VALUES (?1)", [preferred_name])?;
+            transaction.last_insert_rowid()
+        };
+        for (source_id, name) in names {
+            assign_source_name_on(&transaction, id, *source_id, name)?;
+        }
+        transaction.execute("INSERT INTO personal_player(id, player_id) VALUES (1, ?1)
+            ON CONFLICT(id) DO UPDATE SET player_id = excluded.player_id", [id])?;
+        transaction.commit()?;
+        Ok(id)
+    }
+
+    /// Exact source names available in the simple form, counted by games.
+    pub fn my_name_choices(&self) -> Result<Vec<serde_json::Value>> {
+        let me = self.personal_player_id()?;
+        let mut statement = self.connection.prepare(
+            "WITH names AS (
+                SELECT gs.game_id, gs.source_id, gm.black_player AS name, gm.black_player_id AS player_id
+                FROM game_metadata gm JOIN game_sources gs ON gs.id = gm.game_source_id
+                UNION ALL
+                SELECT gs.game_id, gs.source_id, gm.white_player, gm.white_player_id
+                FROM game_metadata gm JOIN game_sources gs ON gs.id = gm.game_source_id
+            )
+            SELECT n.source_id, s.name, s.version, n.name, COUNT(DISTINCT n.game_id),
+                   MAX(CASE WHEN n.player_id = ?1 THEN 1 ELSE 0 END)
+            FROM names n JOIN sources s ON s.id = n.source_id
+            WHERE n.name IS NOT NULL AND TRIM(n.name) <> ''
+            GROUP BY n.source_id, n.name
+            HAVING SUM(CASE WHEN n.player_id IS NOT NULL AND (?1 IS NULL OR n.player_id <> ?1) THEN 1 ELSE 0 END) = 0
+            ORDER BY n.name COLLATE NOCASE, n.source_id")?;
+        let rows = statement.query_map([me], |r| Ok(serde_json::json!({
+            "sourceId": r.get::<_, i64>(0)?, "sourceName": r.get::<_, String>(1)?,
+            "sourceVersion": r.get::<_, String>(2)?, "name": r.get::<_, String>(3)?,
+            "gameCount": r.get::<_, i64>(4)?, "alreadyMine": r.get::<_, bool>(5)?
+        })))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().context("reading your game names")
+    }
+
     pub fn create_player(&self, preferred_name: &str) -> Result<PlayerIdentity> {
         let preferred_name = required_text(preferred_name, "preferred player name")?;
 
@@ -606,84 +702,7 @@ impl PlayerDirectory {
             .unchecked_transaction()
             .context("starting source-player assignment transaction")?;
 
-        let player_exists: i64 = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM players WHERE id = ?1)",
-                [player_id],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("checking player {player_id}"))?;
-
-        if player_exists == 0 {
-            bail!("player {player_id} does not exist");
-        }
-
-        let source_exists: i64 = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)",
-                [source_id],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("checking source {source_id}"))?;
-
-        if source_exists == 0 {
-            bail!("source {source_id} does not exist");
-        }
-
-        /*
-         * Reuse an existing identical assignment to the same identity.
-         * The schema's partial unique index guarantees there can be at most
-         * one such source-specific alias.
-         */
-        let existing_alias_id = transaction
-            .query_row(
-                r#"
-                SELECT id
-                FROM player_aliases
-                WHERE player_id = ?1
-                  AND source_id = ?2
-                  AND name = ?3
-                "#,
-                params![player_id, source_id, name],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            .context("checking for an existing source-specific alias")?;
-
-        let alias_id = match existing_alias_id {
-            Some(alias_id) => alias_id,
-
-            None => {
-                transaction
-                    .execute(
-                        r#"
-                        INSERT INTO player_aliases(
-                            player_id,
-                            name,
-                            source_id,
-                            notes
-                        )
-                        VALUES (?1, ?2, ?3, NULL)
-                        "#,
-                        params![player_id, name, source_id],
-                    )
-                    .with_context(|| {
-                        format!(
-                            "creating source alias {name:?} for player {player_id} \
-                             and source {source_id}"
-                        )
-                    })?;
-
-                transaction.last_insert_rowid()
-            }
-        };
-
-        /*
-         * This is the same guarded operation used by the public bulk resolver.
-         * A competing alias, conflicting existing link, or row-count invariant
-         * failure aborts this outer transaction too.
-         */
-        let result = apply_source_alias_resolution_on(&transaction, alias_id)?;
+        let result = assign_source_name_on(&transaction, player_id, source_id, name)?;
 
         transaction
             .commit()
@@ -1180,6 +1199,91 @@ fn get_alias_from_connection(connection: &Connection, alias_id: i64) -> Result<P
         .with_context(|| format!("player alias {alias_id} does not exist"))
 }
 
+fn assign_source_name_on(connection: &Connection, player_id: i64, source_id: i64, name: &str)
+    -> Result<SourceAliasResolutionResult> {
+    if name.trim().is_empty() { bail!("source player name must not be empty"); }
+    let player_exists: i64 = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM players WHERE id = ?1)",
+            [player_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("checking player {player_id}"))?;
+
+    if player_exists == 0 {
+        bail!("player {player_id} does not exist");
+    }
+
+    let source_exists: i64 = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)",
+            [source_id],
+            |row| row.get(0),
+        )
+        .with_context(|| format!("checking source {source_id}"))?;
+
+    if source_exists == 0 {
+        bail!("source {source_id} does not exist");
+    }
+
+    /*
+     * Reuse an existing identical assignment to the same identity.
+     * The schema's partial unique index guarantees there can be at most
+     * one such source-specific alias.
+     */
+    let existing_alias_id = connection
+        .query_row(
+            r#"
+            SELECT id
+            FROM player_aliases
+            WHERE player_id = ?1
+              AND source_id = ?2
+              AND name = ?3
+            "#,
+            params![player_id, source_id, name],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .context("checking for an existing source-specific alias")?;
+
+    let alias_id = match existing_alias_id {
+        Some(alias_id) => alias_id,
+
+        None => {
+            connection
+                .execute(
+                    r#"
+                    INSERT INTO player_aliases(
+                        player_id,
+                        name,
+                        source_id,
+                        notes
+                    )
+                    VALUES (?1, ?2, ?3, NULL)
+                    "#,
+                    params![player_id, name, source_id],
+                )
+                .with_context(|| {
+                    format!(
+                        "creating source alias {name:?} for player {player_id} \
+                         and source {source_id}"
+                    )
+                })?;
+
+            connection.last_insert_rowid()
+        }
+    };
+
+    /*
+     * This is the same guarded operation used by the public bulk resolver.
+     * A competing alias, conflicting existing link, or row-count invariant
+     * failure aborts the caller's transaction too.
+     */
+    let result = apply_source_alias_resolution_on(connection, alias_id)?;
+
+    Ok(result)
+}
+
 fn apply_source_alias_resolution_on(
     connection: &Connection,
     alias_id: i64,
@@ -1538,6 +1642,110 @@ mod tests {
             "#,
         )?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn simple_names_save_is_atomic_and_preserves_existing_links() -> Result<()> {
+        let temporary = tempdir()?;
+        let project = ProjectManager::new().create("Personal", &temporary.path().join("personal"))?;
+        add_source_metadata(&project)?;
+        database::open(&project.database_root())?.execute(
+            "UPDATE game_metadata SET black_player='gerry_online', white_player='gerry_club'", [])?;
+        let directory = project.player_directory()?;
+        let choices = directory.my_name_choices()?;
+        assert_eq!(choices.len(), 2);
+        assert_eq!(choices[0]["gameCount"], 1);
+        assert!(directory.save_my_names(None, "Me", &[]).is_err());
+        let before = directory.list_players()?;
+        assert!(directory.save_my_names(None, "Me", &[(1, "gerry_online".to_owned()), (999999, "Missing".to_owned())]).is_err());
+        assert_eq!(directory.list_players()?, before);
+        assert_eq!(directory.personal_player_id()?, None);
+        let id = directory.save_my_names(None, "Me", &[(1, "gerry_online".to_owned())])?;
+        assert_eq!(directory.personal_player_id()?, Some(id));
+        let choices = directory.my_name_choices()?;
+        let mine = choices.iter().find(|v| v["name"] == "gerry_online").unwrap();
+        assert_eq!(mine["alreadyMine"], true);
+        assert_eq!(mine["gameCount"], 1);
+        // A failed batch must also roll back a rename of an existing Me.
+        assert!(directory.save_my_names(Some(id), "Changed", &[(999999, "Missing".to_owned())]).is_err());
+        assert_eq!(directory.list_players()?.iter().find(|p| p.id == id).unwrap().preferred_name, "Me");
+        assert!(directory.save_my_names(None, "Stale form", &[(1, "gerry_club".to_owned())]).is_err());
+        assert_eq!(directory.save_my_names(Some(id), "My games", &[])?, id);
+        assert_eq!(directory.aliases_for_player(id)?.len(), 1);
+        let raw: String = directory.connection.query_row("SELECT black_player FROM game_metadata WHERE game_source_id=10", [], |r| r.get(0))?;
+        assert_eq!(raw, "gerry_online");
+        Ok(())
+    }
+
+    #[test]
+    fn personal_identity_is_local_persistent_and_follows_rename_and_removal() -> Result<()> {
+        let temporary = tempdir()?;
+        let personal = ProjectManager::new().create("Personal", &temporary.path().join("personal"))?;
+        let other = ProjectManager::new().create("Other", &temporary.path().join("other"))?;
+        let directory = personal.player_directory()?;
+        let me = directory.create_player("Gerry")?;
+        let someone = directory.create_player("Someone else")?;
+        assert_eq!(directory.personal_player_id()?, None);
+        directory.set_personal_player(Some(me.id))?;
+        let connection = database::open(&personal.database_root())?;
+        let version: i64 = connection.query_row("SELECT schema_version FROM schema_info", [], |r| r.get(0))?;
+        assert_eq!(version, 8, "optional settings must not prevent 0.8.3 from opening the database");
+        assert!(connection.execute("INSERT INTO personal_player VALUES (2, ?1)", [me.id]).is_err());
+        directory.rename_player(me.id, "Gerry Gavigan")?;
+        assert_eq!(personal.player_directory()?.personal_player_id()?, Some(me.id));
+        assert_eq!(other.player_directory()?.personal_player_id()?, None);
+        assert!(directory.set_personal_player(Some(999999)).is_err());
+        assert_eq!(directory.personal_player_id()?, Some(me.id));
+        directory.set_personal_player(Some(someone.id))?;
+        assert_eq!(directory.personal_player_id()?, Some(someone.id));
+        directory.set_personal_player(None)?;
+        assert_eq!(directory.personal_player_id()?, None);
+        directory.set_personal_player(Some(me.id))?;
+        directory.delete_player(me.id)?;
+        assert_eq!(directory.personal_player_id()?, None);
+        assert!(directory.list_players()?.iter().any(|p| p.id == someone.id));
+        Ok(())
+    }
+
+    #[test]
+    fn personal_aliases_link_both_colours_future_imports_and_keep_raw_names() -> Result<()> {
+        use crate::{extract_main_variation, parse_collection, game_list::GameListQuery};
+        let temporary = tempdir()?;
+        let project = ProjectManager::new().create("Personal", &temporary.path().join("personal"))?;
+        let first = extract_main_variation(&parse_collection(b"(;SZ[19]PB[gerry_ogs]PW[Opponent];B[dd])")?)?;
+        let second = extract_main_variation(&parse_collection(b"(;SZ[19]PB[Opponent]PW[gg_online];B[pd])")?)?;
+        {
+            let mut importer = project.importer()?;
+            importer.import_record("OGS", "1", "one", &first)?;
+            importer.import_record("Other server", "1", "two", &second)?;
+        }
+        let directory = project.player_directory()?;
+        let me = directory.create_player("Gerry Gavigan")?;
+        directory.set_personal_player(Some(me.id))?;
+        let names = directory.unresolved_names()?;
+        let ogs = names.iter().find(|n| n.name == "gerry_ogs").unwrap();
+        let other = names.iter().find(|n| n.name == "gg_online").unwrap();
+        let alias = directory.assign_source_name_to_player(me.id, ogs.source_id, &ogs.name)?;
+        directory.assign_source_name_to_player(me.id, other.source_id, &other.name)?;
+        // A later import with the same source and username is resolved automatically.
+        let third = extract_main_variation(&parse_collection(b"(;SZ[19]PB[Opponent]PW[gerry_ogs];B[pp])")?)?;
+        project.importer()?.import_record("OGS", "1", "three", &third)?;
+        let rows = project.catalogue()?.list_occurrences(&GameListQuery::default())?;
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.iter().filter(|r| r.black_player_id == Some(me.id)).count(), 1);
+        assert_eq!(rows.iter().filter(|r| r.white_player_id == Some(me.id)).count(), 2);
+        let row = rows.iter().find(|r| r.black_player.as_deref() == Some("gerry_ogs")).unwrap();
+        assert_eq!(row.black_player_display.as_deref(), Some("Gerry Gavigan"));
+        let query = GameListQuery { player: Some("gg_online".to_owned()), ..Default::default() };
+        assert_eq!(project.catalogue()?.list_occurrences(&query)?.len(), 3);
+        directory.remove_alias(alias.alias_id)?;
+        let rows = project.catalogue()?.list_occurrences(&GameListQuery::default())?;
+        assert_eq!(rows.len(), 3);
+        let row = rows.iter().find(|r| r.black_player.as_deref() == Some("gerry_ogs")).unwrap();
+        assert_eq!(row.black_player_id, None);
+        assert_eq!(row.black_player.as_deref(), Some("gerry_ogs"));
+        assert_eq!(directory.personal_player_id()?, Some(me.id));
         Ok(())
     }
 

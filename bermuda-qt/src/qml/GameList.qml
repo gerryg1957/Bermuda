@@ -35,6 +35,8 @@ Kirigami.AbstractCard {
     readonly property string databaseError: databaseGameModel.error_message
 
     property string databaseProjectPath: ""
+    signal manageMyNamesRequested()
+    signal personalReportRequested()
     property string myGamesProjectPath: ""
     property bool showingMyGames: false
     property alias currentTabIndex: mainTabs.currentIndex
@@ -1433,6 +1435,22 @@ Kirigami.AbstractCard {
         Layout.fillWidth: true
         Button { text: qsTr("Professional games"); checkable: true; checked: mainTabs.currentIndex === 0; onClicked: root.libraryTabRequested(0) }
         Button { text: qsTr("My games"); checkable: true; checked: mainTabs.currentIndex === 1; onClicked: root.libraryTabRequested(1) }
+    }
+    RowLayout {
+        visible: root.libraryNavigation && mainTabs.currentIndex === 1
+        Layout.fillWidth: true
+        Button {
+            text: qsTr("Report card")
+            visible: mainTabs.currentIndex === 1
+            enabled: root.myGamesProjectLoaded && !root.catalogueLoading
+            onClicked: root.personalReportRequested()
+        }
+        Button {
+            text: qsTr("Manage names…")
+            visible: mainTabs.currentIndex === 1
+            enabled: root.myGamesProjectLoaded && !root.catalogueLoading
+            onClicked: root.manageMyNamesRequested()
+        }
     }
     Label {
         visible: root.libraryNavigation && mainTabs.currentIndex !== 2

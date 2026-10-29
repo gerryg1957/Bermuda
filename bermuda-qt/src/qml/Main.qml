@@ -1056,12 +1056,113 @@ ApplicationWindow {
         onRefreshStudies: studyLibraryDialog.refreshEntries()
     }
 
+    property bool personalReportActive: false
+    property bool reviewFromPersonalReport: false
+    property bool reportNeedsBoard: false
+    property int lastReportGameId: -1
+    property int lastReportMove: 0
+    property string lastReportProject: ""
+    function openPersonalReport() {
+        root.reportNeedsBoard = !(root.reviewFromPersonalReport
+            && wholeGameReview.controller === gameController && wholeGameReview.matchesLoaded
+            && !root.navigationHomeVisible)
+        root.wholeGameReviewActive = false
+        root.personalReportActive = true
+        personalReport.refresh()
+    }
+    function openPersonalReportGame(entry, keepOverview) {
+        if (gameController.whole_game_busy || gameController.katago_analysis_in_progress) {
+            personalReport.openError = qsTr("Stop the current analysis before opening another game.")
+            return
+        }
+        if (!root.prepareStudyReplacement()) return
+        if (!gameController.loadGame(root.personalProjectPath, entry.game_id)) {
+            personalReport.openError = gameController.error_message
+            root.cancelStudyReplacement()
+            root.personalReportActive = true
+            return
+        }
+        boardPane.clearMatchNavigation()
+        boardPane.resetPatternSelection()
+        boardPane.editingPosition = false
+        root.playingGame = false
+        boardPane.selectedGame = {gameId: entry.game_id, black: gameController.black_player,
+            white: gameController.white_player, reportTitle: entry.title || "", reportDate: entry.date || "",
+            myColour: entry.colour || "", recordedResult: entry.result || "", fromMyGames: true, fromSearchResults: false}
+        boardPane.applyLoadedPosition()
+        root.finishStudyReplacement()
+        if (entry.run_id && !gameController.openSavedAnalysisRun(entry.run_id)) {
+            personalReport.openError = gameController.error_message
+            root.personalReportActive = true
+            return
+        }
+        root.personalReportActive = false
+        root.openWholeGameReview()
+        root.reviewFromPersonalReport = true
+        root.lastReportGameId = entry.game_id
+        root.lastReportProject = root.personalProjectPath
+        if (entry.move) wholeGameReview.showReportDecision(entry.move)
+        root.lastReportMove = gameController.move_number
+        if (keepOverview) {
+            root.wholeGameReviewActive = false
+            root.personalReportActive = true
+        }
+    }
+    PersonalReportPanel {
+        id: personalReport
+        visible: root.personalReportActive
+        x: wholeGameReview.x; y: wholeGameReview.y
+        width: wholeGameReview.width; height: wholeGameReview.height
+        z: 1001
+        projectPath: root.personalProjectPath
+        executable: katagoSettings.executable
+        network: katagoSettings.model
+        configuration: katagoSettings.config
+        visitBudget: uiSettings.katagoVisitBudget
+        reviewTitle: root.reviewFromPersonalReport && !root.navigationHomeVisible
+            && wholeGameReview.controller === gameController && wholeGameReview.matchesLoaded
+            ? wholeGameReview.gameTitle + (boardPane.selectedGame && boardPane.selectedGame.myColour
+                ? qsTr(" · You: %1").arg(boardPane.selectedGame.myColour) : "") : ""
+        reviewMove: gameController.move_number
+        onContinueReview: {
+            wholeGameReview.returnToGamePosition()
+            root.personalReportActive = false
+            root.wholeGameReviewActive = true
+        }
+        onReportReady: {
+            if (!root.personalReportActive || !root.reportNeedsBoard) return
+            root.reportNeedsBoard = false
+            const entry = personalReport.defaultGame(
+                root.lastReportProject === root.personalProjectPath ? root.lastReportGameId : -1,
+                root.lastReportMove)
+            if (entry) root.openPersonalReportGame(entry, true)
+        }
+        onCloseReport: { root.personalReportActive = false; root.showBrowserTab(1) }
+        onBatchRequested: function(resume) {
+            if (root.playingGame || katagoSetupDialog.busy
+                    || workspaceGameController.whole_game_busy || workspaceGameController.katago_analysis_in_progress
+                    || josekiSearchController.whole_game_busy || josekiSearchController.katago_analysis_in_progress) {
+                personalReport.openError = qsTr("Finish or pause the current game or analysis before starting a batch.")
+                return
+            }
+            workspaceGameController.releaseKataGo()
+            josekiSearchController.releaseKataGo()
+            katagoSetupController.releaseKataGo()
+            personalReport.openError = ""
+            personalReport.startBatch(resume)
+        }
+        onManageNames: playerIdentityDialog.openForProject(root.personalProjectPath, true)
+        onOpenDecision: function(entry) { root.openPersonalReportGame(entry) }
+        onOpenGame: function(entry) { root.openPersonalReportGame(entry) }
+    }
+
     property bool wholeGameReviewActive: false
     readonly property Item wholeGameReviewTarget: root.browserExpanded ? gameList : studyPane
-    onBrowserExpandedChanged: wholeGameReviewActive = false
-    onGameControllerChanged: wholeGameReviewActive = false
+    onBrowserExpandedChanged: { wholeGameReviewActive = false; personalReportActive = false }
+    onGameControllerChanged: { wholeGameReviewActive = false; personalReportActive = false }
 
     function openWholeGameReview() {
+        root.reviewFromPersonalReport = false
         wholeGameReview.positionOnly = false
         wholeGameReview.controller = gameController
         wholeGameReview.komi = gameController.komi.length ? gameController.komi : "6.5"
@@ -1070,6 +1171,7 @@ ApplicationWindow {
     }
 
     function openPositionReview() {
+        root.reviewFromPersonalReport = false
         wholeGameReview.controller = gameController
         wholeGameReview.positionOnly = true
         wholeGameReview.komi = katagoKomiField.text
@@ -1092,11 +1194,12 @@ ApplicationWindow {
             + goBoard.x - x)
         gameIdentity: boardPane.selectedGame
         gameTitle: boardPane.selectedGame
-            ? [boardPane.selectedGame.black, boardPane.selectedGame.white].filter(function(name) { return name && name.length }).join(" — ")
+            ? (boardPane.selectedGame.reportTitle || [boardPane.selectedGame.black, boardPane.selectedGame.white].filter(function(name) { return name && name.length }).join(" — "))
+                + (boardPane.selectedGame.reportDate ? " · " + boardPane.selectedGame.reportDate : "")
             : ""
         height: root.wholeGameReviewTarget.height
         z: 1000
-        returnText: root.browserExpanded ? qsTr("Return to database") : qsTr("Return to Study")
+        returnText: root.reviewFromPersonalReport ? qsTr("Return to report card") : root.browserExpanded ? qsTr("Return to database") : qsTr("Return to Study")
         onPreviewPosition: function(position) {
             goBoard.previewMarkup = position === null ? null : (position.markup || [])
             if (position === null) { boardPane.applyLoadedPosition(); return }
@@ -1111,7 +1214,11 @@ ApplicationWindow {
             root.trialTool("notes")
             studyActionTabs.currentIndex = 1
         }
-        onLeaveReview: root.wholeGameReviewActive = false
+        onLeaveReview: {
+            if (root.reviewFromPersonalReport) root.lastReportMove = gameController.move_number
+            root.wholeGameReviewActive = false
+            if (root.reviewFromPersonalReport) root.openPersonalReport()
+        }
         executable: katagoSettings.executable
         network: katagoSettings.model
         configuration: katagoSettings.config
@@ -1211,7 +1318,8 @@ ApplicationWindow {
              * discard stale pattern-result presentation rows.
              */
             gameList.clearSearchResults()
-            gameList.reloadDatabaseProject()
+            if (playerIdentityDialog.personalMode) gameList.reloadMyGamesProject()
+            else gameList.reloadDatabaseProject()
         }
     }
 
@@ -2582,6 +2690,13 @@ menuBar: MenuBar {
                         root.projectPath)
                 }
             }
+        }
+
+        Action {
+            text: qsTr("Manage My Games Names…")
+            enabled: root.personalProjectPath.length > 0 && gameController.projectExists(root.personalProjectPath)
+                && !databaseOperation.in_progress && !gameController.whole_game_busy
+            onTriggered: playerIdentityDialog.openForProject(root.personalProjectPath, true)
         }
 
         Action {
@@ -3996,6 +4111,8 @@ menuBar: MenuBar {
             libraryNavigation: root.navigationTrial
             searchResultsHost: root.navigationTrial ? inlinePatternResultsContent : null
             onLibraryTabRequested: function(index) { root.showBrowserTab(index) }
+            onPersonalReportRequested: root.openPersonalReport()
+            onManageMyNamesRequested: playerIdentityDialog.openForProject(root.personalProjectPath, true)
             enabled: !root.wholeGameReviewActive
 
             visible: root.browserExpanded

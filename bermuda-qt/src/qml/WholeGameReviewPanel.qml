@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Frame {
     id: panel
     padding: 12
-    property var controller
+    property var controller: null
     property bool positionOnly: false
     property string executable: ""
     property string network: ""
@@ -13,6 +13,19 @@ Frame {
     property int visitBudget: 200
     property string komi: "6.5"
     property int selectedTurn: 0
+    property bool navigating: false
+    property int reportDecisionMove: 0
+    readonly property string myColour: gameIdentity && gameIdentity.myColour ? gameIdentity.myColour : ""
+    readonly property var recordedMove: (report.moves || [])[selectedTurn] || null
+    readonly property var currentDecision: (report.decisions || []).find(function(d) { return d.move === panel.selectedTurn + 1 }) || null
+    function signedScore(value) { return (value >= 0 ? "+" : "−") + Math.abs(value).toFixed(1) }
+    function decisionContext(d) {
+        if (!d || d.win_before === undefined) return qsTr("No before-and-after estimate saved for this move yet.")
+        return qsTr("%1’s estimated score: %2 → %3 points · win chance: %4% → %5%")
+            .arg(d.player).arg(signedScore(d.score_before)).arg(signedScore(d.score_after))
+            .arg((d.win_before * 100).toFixed(1)).arg((d.win_after * 100).toFixed(1))
+            + (d.already_unlikely ? qsTr(" · Already at ≤5% before this move; this is not necessarily where the game was lost.") : "")
+    }
     property string returnText: qsTr("Return")
     property bool showSuggestions: true
     property bool showWinRate: false
@@ -24,17 +37,38 @@ Frame {
     property bool choosingOwnMove: false
     property string pendingWhyVertex: ""
     property int pendingWhyTurn: -1
-    function clearOwnMove() { choosingOwnMove = false; pendingWhyVertex = ""; pendingWhyTurn = -1 }
-    function candidateLabel(index) { return index < 26 ? String.fromCharCode(65 + index) : String(index + 1) }
+    property string investigatingMove: ""
+    property string activeTrialVertex: ""
+    readonly property var recommendedCandidate: candidates.find(function(c) { return c.recommended }) || null
+    function candidateEstimate(c) {
+        if (!c || !currentResult) return ""
+        const black = currentResult.current_player === "Black"
+        return qsTr("%1 points · %2% win estimate")
+            .arg(signedScore(c.score_lead * (black ? 1 : -1)))
+            .arg(((black ? c.win_rate : 1 - c.win_rate) * 100).toFixed(1))
+    }
+    function clearOwnMove() { activeTrialVertex = ""; investigatingMove = ""; choosingOwnMove = false; pendingWhyVertex = ""; pendingWhyTurn = -1 }
+    function candidateLabel(index) { if (candidates[index] && candidates[index].user_move) return qsTr("Your trial"); return index < 26 ? String.fromCharCode(65 + index) : String(index + 1) }
     function investigatePoint(x, y) {
         if (!choosingOwnMove || !currentResult || !matchesLoaded) return
         const vertex = x === -1 && y === -1 ? "Pass" : {Point: {x: x, y: report.board_size - 1 - y}}
+        activeTrialVertex = JSON.stringify(vertex)
+        const saved = (currentResult.candidates || []).find(function(c) {
+            return JSON.stringify(c.vertex) === panel.activeTrialVertex && c.visits >= deeperVisits.value
+        })
+        if (saved) {
+            const index = candidates.findIndex(function(c) { return JSON.stringify(c.vertex) === panel.activeTrialVertex })
+            if (index >= 0) { chooseCandidate(index); return }
+        }
         pendingWhyVertex = JSON.stringify(vertex)
         pendingWhyTurn = selectedTurn
         deeperRequested = true
         startError = ""
-        if (controller.analyseReviewMove(selectedTurn, x, y, deeperVisits.value)) choosingOwnMove = false
-        else { pendingWhyVertex = ""; startError = controller.error_message }
+        if (controller.analyseReviewMove(selectedTurn, x, y, deeperVisits.value)) {
+            investigatingMove = currentResult.current_player + " " + vertexName(vertex)
+            choosingOwnMove = false
+        }
+        else { pendingWhyVertex = ""; activeTrialVertex = ""; startError = controller.error_message }
     }
     readonly property bool previewActive: previewState !== null
     readonly property var chosenCandidate: candidates[selectedCandidate] || null
@@ -46,11 +80,25 @@ Frame {
     onVisibleChanged: if (!visible) { endPreview(); clearOwnMove() }
     onMatchesLoadedChanged: if (!matchesLoaded) { endPreview(); clearOwnMove() }
     function endPreview() { previewState = null; previewStep = 0 }
+    function returnToGamePosition() {
+        // Clear the pending selection before stopping: a late result must not
+        // reopen its preview after the player has returned to the game.
+        clearOwnMove()
+        endPreview()
+        selectedCandidate = -1
+        deeperRequested = false
+        startError = ""
+        tabs.currentIndex = 1
+        if (controller && controller.candidate_analysis_busy) controller.pauseWholeGame()
+    }
     function chooseCandidate(index) {
+        const selected = candidates[index]
+        if (!selected) return
+        if (!selected.user_move) activeTrialVertex = ""
         choosingOwnMove = false
         pendingWhyVertex = ""
         endPreview()
-        selectedCandidate = index
+        selectedCandidate = candidates.findIndex(function(c) { return c.sourceIndex === selected.sourceIndex })
         deeperVisits.value = Math.min(100000, Math.max(1000, chosenCandidate ? chosenCandidate.visits * 5 : 1000))
         previewCandidate(showEngineLine ? continuationLength : 1)
     }
@@ -88,13 +136,16 @@ Frame {
         const engine = all.filter(function(c) { return !c.user_move }).sort(function(a,b) { return rank(b) - rank(a) || a.sourceIndex - b.sourceIndex })
         const primary = engine.slice(0,5)
         const extra = engine.slice(5).filter(function(c) { return c.focused })
-        const own = all.filter(function(c) { return c.user_move }).sort(function(a,b) { return panel.vertexName(a.vertex).localeCompare(panel.vertexName(b.vertex)) })
+        const own = all.filter(function(c) {
+            return c.user_move && panel.activeTrialVertex.length > 0
+                && JSON.stringify(c.vertex) === panel.activeTrialVertex
+        })
         return primary.concat(extra, own).map(function(c,index) { return Object.assign({},c,{recommended: engine.length > 0 && c.sourceIndex === engine[0].sourceIndex}) })
     }
     property var decisions: (report.decisions || []).filter(function(d) {
-        return d.estimated_loss >= 1 && (colourFilter.currentIndex === 0
+        return (decisionRanking.currentIndex === 0 ? d.win_loss >= 5 : d.estimated_loss >= 1) && (colourFilter.currentIndex === 0
             || d.player === (colourFilter.currentIndex === 1 ? "Black" : "White"))
-    }).sort(function(a, b) { return b.estimated_loss - a.estimated_loss })
+    }).sort(function(a, b) { return decisionRanking.currentIndex === 0 ? b.win_loss - a.win_loss : b.estimated_loss - a.estimated_loss })
     readonly property bool matchesLoaded: {
         const identity = gameIdentity
         const revision = contextRevision
@@ -106,14 +157,21 @@ Frame {
         const tree = controller.sgf_tree_json
         return controller.wholeGameMatchesLoaded()
     }
-    onGameIdentityChanged: { endPreview(); contextRevision++; startError = ""; selectedCandidate = -1; deeperRequested = false }
+    onGameIdentityChanged: { clearOwnMove(); endPreview(); contextRevision++; startError = ""; selectedCandidate = -1; deeperRequested = false }
     readonly property var candidatePoints: {
+        // Show the accepted trial immediately, before KataGo has a result.
+        if (pendingWhyVertex.length && pendingWhyTurn === selectedTurn && matchesLoaded) {
+            const v = JSON.parse(pendingWhyVertex)
+            if (v.Point) return [{x: v.Point.x, y: report.board_size - 1 - v.Point.y,
+                userMove: true, pending: true, selected: true,
+                black: currentResult.current_player === "Black", label: "?"}]
+        }
         if ((previewActive && previewStep > 1) || !showSuggestions || !matchesLoaded || !currentResult
                 || controller.move_number !== selectedTurn) return []
         return candidates.map(function(c, index) {
             if (!c.vertex || !c.vertex.Point) return null
             return { x: c.vertex.Point.x, y: report.board_size - 1 - c.vertex.Point.y,
-                visits: c.visits, label: candidateLabel(index), recommended: c.recommended, userMove: c.user_move,
+                visits: c.visits, label: c.user_move ? "?" : candidateLabel(index), recommended: c.recommended, userMove: c.user_move,
                 selected: index === selectedCandidate }
         }).filter(function(p) { return p !== null })
     }
@@ -129,16 +187,31 @@ Frame {
         return v && v.Point ? "ABCDEFGHJKLMNOPQRST"[v.Point.x] + (v.Point.y + 1) : "?"
     }
     function scoreName(value) { return (value >= 0 ? "B +" : "W +") + Math.abs(value).toFixed(1) }
+    function showReportDecision(move) {
+        reportDecisionMove = move
+        selectTurn(move - 1)
+        tabs.currentIndex = 1
+    }
     function selectTurn(turn) {
+        const wanted = Math.max(0, Math.min(results.length - 1, turn))
+        navigating = true
         clearOwnMove()
         endPreview()
-        selectedTurn = Math.max(0, Math.min(results.length - 1, turn))
         selectedCandidate = -1
-        navigate(selectedTurn)
+        selectedTurn = wanted
+        navigate(wanted)
+        navigating = false
+        if (controller && controller.move_number !== wanted) {
+            startError = qsTr("Could not open the position before move %1. The board is after move %2.")
+                .arg(wanted + 1).arg(controller.move_number)
+            selectedTurn = controller.move_number
+        }
         graph.requestPaint()
     }
     function navigationUnavailable() { navigationNotice.text = qsTr("Open the analysed game and line to navigate this saved report.") }
     function beginReview() {
+        reportDecisionMove = 0
+        colourFilter.currentIndex = myColour === "Black" ? 1 : myColour === "White" ? 2 : 0
         clearOwnMove()
         endPreview()
         deeperRequested = false
@@ -217,6 +290,7 @@ Frame {
             })
         }
         function onMove_numberChanged() {
+            if (panel.navigating) return
             panel.clearOwnMove()
             panel.endPreview()
             if (panel.matchesLoaded) {
@@ -233,6 +307,42 @@ Frame {
             Button { text: panel.returnText; onClicked: panel.leaveReview(); ToolTip.visible: hovered; ToolTip.text: qsTr("Return to the previous database or Study view") }
         }
         Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: (panel.gameTitle || qsTr("Current game")) + (panel.controller ? qsTr(" · %1 moves").arg(panel.controller.move_count) : "") }
+        Label {
+            Layout.fillWidth: true; wrapMode: Text.Wrap; font.bold: true
+            text: (panel.myColour ? qsTr("You: %1 · ").arg(panel.myColour) : "")
+                + (panel.currentResult ? qsTr("To play: %1 · Before move %2").arg(panel.currentResult.current_player).arg(panel.selectedTurn + 1) : qsTr("No saved estimate at this position"))
+                + (panel.gameIdentity && panel.gameIdentity.recordedResult ? qsTr(" · Recorded result: %1").arg(panel.gameIdentity.recordedResult) : "")
+        }
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            font.bold: true
+            visible: panel.previewActive || panel.pendingWhyVertex.length > 0
+            text: panel.pendingWhyVertex.length > 0
+                ? qsTr("Trying %1 · recorded game unchanged")
+                    .arg(panel.investigatingMove)
+                : qsTr("Trial continuation for %1 · showing %2 of %3 moves · recorded game unchanged")
+                    .arg(panel.chosenCandidate ? panel.vertexName(panel.chosenCandidate.vertex) : "")
+                    .arg(panel.previewStep).arg(panel.continuationLength)
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: panel.choosingOwnMove || panel.previewActive || panel.pendingWhyVertex.length > 0
+            Button {
+                text: panel.choosingOwnMove ? qsTr("Cancel choosing move") : qsTr("Back to game position")
+                onClicked: panel.returnToGamePosition()
+            }
+            Label {
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: qsTr("Return here to compare another candidate or continue through the game.")
+            }
+        }
+        RowLayout {
+            visible: panel.reportDecisionMove > 0
+            Layout.fillWidth: true
+            Label { text: qsTr("Report entry: move %1").arg(panel.reportDecisionMove); Layout.fillWidth: true }
+            Button { text: qsTr("Return to this decision"); onClicked: panel.showReportDecision(panel.reportDecisionMove) }
+        }
         ScrollView {
             id: scroller
             Layout.fillWidth: true
@@ -242,6 +352,41 @@ Frame {
             ColumnLayout {
                 width: scroller.availableWidth
                 spacing: 8
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap
+                    text: panel.recordedMove ? qsTr("Played in the game: %1 %2 (move %3)")
+                        .arg(panel.recordedMove.colour).arg(panel.vertexName(panel.recordedMove.vertex)).arg(panel.selectedTurn + 1) : qsTr("End of recorded game")
+                    font.bold: true
+                }
+                Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.decisionContext(panel.currentDecision) }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.fillWidth: true; wrapMode: Text.Wrap
+                        visible: panel.recordedMove !== null && panel.candidates.length > 0
+                        text: panel.recordedMove && panel.candidates.length && JSON.stringify(panel.recordedMove.vertex) === JSON.stringify(panel.candidates[0].vertex)
+                            ? qsTr("The recorded move matches this search’s recommendation.")
+                            : qsTr("The recorded move differs from this search’s recommendation. Explore both before drawing a conclusion.")
+                    }
+                    Button {
+                        text: qsTr("Investigate played move")
+                        enabled: panel.recordedMove !== null && panel.currentResult !== null && panel.matchesLoaded && panel.controller !== null && !panel.controller.whole_game_busy
+                        onClicked: {
+                            const vertex = panel.recordedMove.vertex
+                            panel.choosingOwnMove = true
+                            if (vertex === "Pass") panel.investigatePoint(-1, -1)
+                            else panel.investigatePoint(vertex.Point.x, panel.report.board_size - 1 - vertex.Point.y)
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap
+                    visible: panel.candidates.length > 0
+                    text: qsTr("KataGo recommends %1 for %2 to play. Estimates assume strong play; they are not your personal odds against this opponent.")
+                        .arg(panel.candidates.length ? panel.vertexName(panel.candidates[0].vertex) : "")
+                        .arg(panel.currentResult ? panel.currentResult.current_player : "")
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     Button { text: qsTr("Analysis settings"); checkable: true; checked: settings.visible; onClicked: settings.visible = !settings.visible }
@@ -263,7 +408,7 @@ Frame {
                 RowLayout {
                     Button {
                         text: qsTr("Open latest saved")
-                        enabled: panel.controller && !panel.controller.whole_game_busy
+                        enabled: (panel.controller !== null) && !panel.controller.whole_game_busy
                                  && !panel.controller.katago_analysis_in_progress
                         onClicked: panel.openSavedAnalysis()
                         ToolTip.visible: hovered
@@ -271,16 +416,16 @@ Frame {
                     }
                     Button {
                         text: panel.positionOnly ? qsTr("Analyse position") : panel.report.complete ? qsTr("Load / reanalyse") : panel.results.length ? qsTr("Resume analysis") : qsTr("Start analysis")
-                        enabled: panel.controller && !panel.controller.whole_game_busy && !panel.controller.katago_analysis_in_progress
+                        enabled: (panel.controller !== null) && !panel.controller.whole_game_busy && !panel.controller.katago_analysis_in_progress
                         onClicked: panel.startAnalysis()
                     }
-                    Button { text: panel.controller && panel.controller.candidate_analysis_busy ? qsTr("Stop") : qsTr("Pause"); enabled: panel.controller && panel.controller.whole_game_busy; onClicked: panel.controller.pauseWholeGame() }
+                    Button { text: (panel.controller !== null) && panel.controller.candidate_analysis_busy ? qsTr("Stop") : qsTr("Pause"); enabled: (panel.controller !== null) && panel.controller.whole_game_busy; onClicked: panel.controller.pauseWholeGame() }
                 }
                 Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.startError || (panel.matchesLoaded ? panel.controller.whole_game_status
-                    : panel.controller && panel.controller.whole_game_busy
+                    : (panel.controller !== null) && panel.controller.whole_game_busy
                         ? qsTr("Another game is being analysed. Pause it before starting this game.")
                         : panel.positionOnly ? qsTr("Ready to analyse this position. Matching saved results will be reused.") : qsTr("Ready to analyse this game. Matching saved results will be reused.")) }
-                ProgressBar { Layout.fillWidth: true; from: 0; to: panel.report.total || 1; value: panel.report.completed || 0; indeterminate: panel.controller && panel.controller.whole_game_busy && (panel.positionOnly || !panel.report.total) }
+                ProgressBar { Layout.fillWidth: true; from: 0; to: panel.report.total || 1; value: panel.report.completed || 0; indeterminate: (panel.controller !== null) && panel.controller.whole_game_busy && (panel.positionOnly || !panel.report.total) }
                 RowLayout {
                     Layout.fillWidth: true
                     Label { Layout.fillWidth: true; text: panel.currentResult ? (panel.showWinRate ? qsTr("Black %1%").arg((panel.currentResult.win_rate * 100).toFixed(1)) : panel.scoreName(panel.currentResult.score_lead)) : qsTr("No saved estimate") }
@@ -308,7 +453,20 @@ Frame {
                         function y(result) { const v = panel.showWinRate ? result.win_rate * 100 : result.score_lead; return 12 + (high - v) / (high - low) * (graph.height - 40) }
                         ctx.font = "11px sans-serif"; ctx.fillStyle = panel.palette.text
                         ctx.fillText(high.toFixed(0), 3, 14); ctx.fillText(low.toFixed(0), 3, height - 28)
-                        ctx.fillText("0", 40, height - 5); ctx.fillText(String(count), width - 30, height - 5)
+                        const step = count > 200 ? 50 : count > 80 ? 20 : 10
+                        ctx.textAlign = "center"
+                        for (let turn = 0; turn < count; turn += step) {
+                            ctx.fillText(String(turn), x(turn), height - 5)
+                            ctx.strokeStyle = panel.palette.mid; ctx.beginPath(); ctx.moveTo(x(turn), 16); ctx.lineTo(x(turn), height - 25); ctx.stroke()
+                        }
+                        ctx.textAlign = "right"; ctx.fillText(String(count), width - 10, height - 5)
+                        ctx.textAlign = "left"
+                        const lastSaved = panel.results.filter(function(r) { return r !== null }).slice(-1)[0]
+                        if (lastSaved && lastSaved.turn_number < count) {
+                            ctx.fillStyle = panel.palette.alternateBase
+                            ctx.fillRect(x(lastSaved.turn_number) + 1, 16, Math.max(0, width - 10 - x(lastSaved.turn_number)), height - 42)
+                            ctx.fillStyle = panel.palette.text
+                        }
                         const zeroY = 12 + (high - (panel.showWinRate ? 50 : 0)) / (high - low) * (height - 40)
                         ctx.strokeStyle = panel.palette.mid; ctx.beginPath(); ctx.moveTo(42, zeroY); ctx.lineTo(width - 10, zeroY); ctx.stroke()
                         ctx.strokeStyle = panel.palette.highlight; ctx.lineWidth = 2; ctx.beginPath()
@@ -339,6 +497,11 @@ Frame {
                     Button { Layout.preferredWidth: 40; Layout.minimumWidth: 32; text: "›|"; Accessible.name: qsTr("Last saved position"); enabled: panel.results.length > 0; onClicked: panel.selectTurn(panel.results.length - 1) }
                 }
                 CheckBox { text: qsTr("Show AI suggestions on board"); checked: panel.showSuggestions; onToggled: panel.showSuggestions = checked }
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap
+                    text: panel.positionOnly ? "" : qsTr("Analysis saved through move %1 of %2. Shaded area has no saved analysis.")
+                        .arg(Math.max(0, panel.results.length - 1)).arg(Math.max(0, (panel.report.total || 1) - 1))
+                }
                 TabBar {
                     id: tabs
                     visible: !panel.positionOnly
@@ -351,7 +514,7 @@ Frame {
                     visible: tabs.currentIndex === 0
                     Layout.fillWidth: true
                     RowLayout {
-                        Label { text: qsTr("Estimated loss ≥1 point"); Layout.fillWidth: true; wrapMode: Text.Wrap }
+                        ComboBox { id: decisionRanking; Layout.fillWidth: true; model: [qsTr("Win-chance drops ≥5 percentage points"), qsTr("Point losses ≥1 point")]; onCurrentIndexChanged: graph.requestPaint() }
                         ComboBox { id: colourFilter; model: [qsTr("Both"), qsTr("Black"), qsTr("White")]; onCurrentIndexChanged: graph.requestPaint() }
                     }
                     Repeater {
@@ -360,7 +523,8 @@ Frame {
                             required property var modelData
                             Layout.fillWidth: true
                             highlighted: panel.selectedTurn === modelData.move - 1
-                            text: qsTr("%1 · %2 · %3 points").arg(modelData.move).arg(modelData.player).arg(modelData.estimated_loss.toFixed(1))
+                            text: qsTr("%1 · %2 · %3 points · %4 percentage points\n%5").arg(modelData.move).arg(modelData.player)
+                                .arg(modelData.estimated_loss.toFixed(1)).arg(modelData.win_loss.toFixed(1)).arg(panel.decisionContext(modelData))
                             onClicked: panel.selectTurn(modelData.move - 1)
                         }
                     }
@@ -373,14 +537,18 @@ Frame {
                         Layout.fillWidth: true
                         spacing: 4
                         Button {
-                            text: panel.choosingOwnMove ? qsTr("Cancel choosing") : qsTr("Why not this?")
-                            enabled: panel.currentResult !== null && panel.matchesLoaded && panel.controller && !panel.controller.whole_game_busy
-                            onClicked: { panel.endPreview(); panel.choosingOwnMove = !panel.choosingOwnMove; panel.startError = "" }
+                            text: panel.choosingOwnMove ? qsTr("Cancel choosing move") : qsTr("Why not this?")
+                            enabled: panel.currentResult !== null && panel.matchesLoaded && (panel.controller !== null) && !panel.controller.whole_game_busy
+                            onClicked: {
+                                panel.endPreview()
+                                panel.choosingOwnMove = !panel.choosingOwnMove
+                                panel.startError = ""
+                            }
                         }
                         Button {
                             text: qsTr("Try pass")
                             visible: panel.choosingOwnMove
-                            enabled: panel.controller && !panel.controller.whole_game_busy
+                            enabled: (panel.controller !== null) && !panel.controller.whole_game_busy
                             onClicked: panel.investigatePoint(-1, -1)
                         }
                     }
@@ -388,9 +556,15 @@ Frame {
                         visible: panel.choosingOwnMove
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
-                        text: qsTr("Click your move on the board. KataGo will investigate the replies using the visit budget below.")
+                        text: qsTr("Click an empty intersection to try your move, or choose Try pass. Click Cancel choosing move to leave this mode.")
                     }
-                    Label { text: qsTr("Teal: KataGo recommendation · Blue: alternatives · Purple: your ideas. Click a marker to explore."); wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        visible: panel.investigatingMove.length > 0 && panel.controller !== null && panel.controller.candidate_analysis_busy
+                        text: qsTr("Investigating your move: %1…").arg(panel.investigatingMove)
+                    }
+                    Label { text: qsTr("Click a candidate marker to explore it. Why not this? lets you choose another move."); wrapMode: Text.Wrap; Layout.fillWidth: true }
                     Repeater {
                         model: panel.candidates
                         delegate: ItemDelegate {
@@ -405,14 +579,29 @@ Frame {
                             onClicked: panel.chooseCandidate(index)
                         }
                     }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        visible: panel.chosenCandidate !== null && !panel.choosingOwnMove
+                        text: panel.chosenCandidate && panel.currentResult
+                            ? qsTr("Exploring %1 %2: %3")
+                                .arg(panel.currentResult.current_player)
+                                .arg(panel.vertexName(panel.chosenCandidate.vertex))
+                                .arg(panel.candidateEstimate(panel.chosenCandidate))
+                                + (panel.recommendedCandidate && !panel.chosenCandidate.recommended
+                                    ? qsTr("\nRecommended %1: %2")
+                                        .arg(panel.vertexName(panel.recommendedCandidate.vertex))
+                                        .arg(panel.candidateEstimate(panel.recommendedCandidate)) : "")
+                            : ""
+                    }
                     Flow {
                         Layout.fillWidth: true
                         spacing: 4
-                        Button { text: qsTr("Return to position"); enabled: panel.previewActive; onClicked: panel.endPreview() }
+                        Button { text: qsTr("Back to game position"); enabled: panel.previewActive; onClicked: panel.returnToGamePosition() }
                         Button {
                             text: qsTr("Save move to study")
                             enabled: panel.chosenCandidate !== null && panel.matchesLoaded
-                                     && panel.controller && !panel.controller.whole_game_busy
+                                     && (panel.controller !== null) && !panel.controller.whole_game_busy
                             onClicked: panel.saveCandidate(false)
                         }
                     }
@@ -430,7 +619,7 @@ Frame {
                         Button {
                             text: qsTr("Analyse this candidate more deeply")
                             enabled: panel.chosenCandidate !== null && panel.matchesLoaded
-                                     && panel.controller && !panel.controller.whole_game_busy
+                                     && (panel.controller !== null) && !panel.controller.whole_game_busy
                                      && deeperVisits.value > panel.chosenCandidate.visits
                             onClicked: {
                                 panel.deeperRequested = true
@@ -442,7 +631,7 @@ Frame {
                         }
                         Button {
                             text: qsTr("Stop")
-                            visible: panel.controller && panel.controller.candidate_analysis_busy
+                            visible: (panel.controller !== null) && panel.controller.candidate_analysis_busy
                             onClicked: panel.controller.pauseWholeGame()
                         }
                     }
@@ -465,7 +654,7 @@ Frame {
                             : qsTr("Trying candidate %1 · source position unchanged").arg(panel.chosenCandidate ? panel.vertexName(panel.chosenCandidate.vertex) : "")
                     }
                     CheckBox {
-                        text: qsTr("Show engine continuation")
+                        text: qsTr("Explore KataGo’s reply")
                         checked: panel.showEngineLine
                         enabled: panel.chosenCandidate !== null && panel.matchesLoaded
                         onToggled: {
@@ -479,7 +668,7 @@ Frame {
                         Label {
                             Layout.fillWidth: true
                             wrapMode: Text.Wrap
-                            text: qsTr("One illustrative engine line, not a sequence you are expected to follow.")
+                            text: qsTr("Use Next or the slider to explore a possible reply. This line helps test your idea; it does not by itself prove the move is bad.")
                         }
                         Slider {
                             Layout.fillWidth: true
@@ -509,7 +698,7 @@ Frame {
                             Button {
                                 text: qsTr("Save engine line to study")
                                 enabled: panel.chosenCandidate !== null && panel.matchesLoaded
-                                         && panel.controller && !panel.controller.whole_game_busy
+                                         && (panel.controller !== null) && !panel.controller.whole_game_busy
                                 onClicked: panel.saveCandidate(true)
                             }
                         }
@@ -517,7 +706,7 @@ Frame {
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
-                        visible: panel.controller && panel.controller.whole_game_busy
+                        visible: (panel.controller !== null) && panel.controller.whole_game_busy
                         text: qsTr("Pause analysis before saving a continuation to a study.")
                     }
                 }

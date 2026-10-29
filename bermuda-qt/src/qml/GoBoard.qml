@@ -1379,7 +1379,7 @@ Item {
                 ctx.save()
                 for (const point of root.katagoCandidatePoints) {
                     // Visits are reported numerically; they do not change marker size.
-                    const radius = spacing * 0.34
+                    const radius = spacing * (point.pending ? 0.45 : 0.34)
                     const viewPoint =
                         root.boardToViewPoint(
                             Number(point.x),
@@ -1388,7 +1388,7 @@ Item {
                     const x = left + viewPoint.x * spacing
                     const y = top + viewPoint.y * spacing
 
-                    ctx.fillStyle = point.recommended ? "#087f8c" : point.userMove ? "rgba(110, 75, 160, 0.15)" : "rgba(48, 100, 160, 0.12)"
+                    ctx.fillStyle = point.pending ? (point.black ? "#202020" : "#ffffff") : point.recommended ? "#087f8c" : point.userMove ? "rgba(110, 75, 160, 0.15)" : "rgba(48, 100, 160, 0.12)"
                     ctx.strokeStyle = point.recommended ? "#075963" : point.userMove ? "#704c99" : "#386a9b"
                     ctx.lineWidth = point.selected ? Math.max(3, spacing * 0.11) : Math.max(1.25, spacing * 0.060)
 
@@ -1398,7 +1398,7 @@ Item {
                     ctx.stroke()
 
                     if (point.label) {
-                        ctx.fillStyle = point.recommended ? "#ffffff" : point.userMove ? "#704c99" : "#285781"
+                        ctx.fillStyle = point.pending ? "#bd8fe8" : point.recommended ? "#ffffff" : point.userMove ? "#704c99" : "#285781"
                         ctx.font = "bold " + Math.round(spacing * 0.40) + "px sans-serif"
                         ctx.textAlign = "center"
                         ctx.textBaseline = "middle"

@@ -8,6 +8,7 @@ mod database_operation_model;
 mod game_list_model;
 mod joseki_model;
 mod player_identity_model;
+mod personal_report_model;
 mod search_result_model;
 use bermuda::Board;
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QString, QUrl};

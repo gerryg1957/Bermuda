@@ -328,6 +328,10 @@ mod ffi {
         fn open_latest_saved_analysis(self: Pin<&mut BermudaApp>, position_only: bool) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "openSavedAnalysisRun"]
+        fn open_saved_analysis_run(self: Pin<&mut BermudaApp>, run_id: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "pauseWholeGame"]
         fn pause_whole_game(self: Pin<&mut BermudaApp>);
 
@@ -542,7 +546,7 @@ fn whole_game_report(run: &bermuda::game_analysis::GameAnalysis) -> String {
         "title": run.title, "total": run.total(), "complete": run.complete(),
         "rules": run.request.rules, "komi": run.request.komi,
         "visits": run.request.max_visits, "provenance": run.provenance,
-        "results": results, "decisions": run.decisions(), "board_size": run.request.board_size
+        "results": results, "decisions": run.decisions(), "moves": run.request.moves, "board_size": run.request.board_size
     }).to_string()
 }
 
@@ -2782,6 +2786,34 @@ impl ffi::BermudaApp {
         true
     }
 
+    fn open_saved_analysis_run(mut self: Pin<&mut Self>, run_id: &QString) -> bool {
+        let loaded = (|| -> anyhow::Result<_> {
+            anyhow::ensure!(!self.rust().whole_game_busy && !self.rust().katago_analysis_in_progress,
+                "Stop the current analysis before opening saved results");
+            let doc = self.rust().loaded_document.as_ref().ok_or_else(|| anyhow::anyhow!("No game loaded"))?;
+            let position = analysis_position_from_states(&doc.positions, doc.positions.len().saturating_sub(1))?;
+            let path = katago_working_directory().map_err(anyhow::Error::msg)?.join("game-analysis.sqlite3");
+            anyhow::ensure!(path.is_file(), "Saved analysis is no longer available");
+            let store = bermuda::game_analysis::AnalysisStore::open(&path)?;
+            let run = store.load(&run_id.to_string())?;
+            anyhow::ensure!(run.focus_turn.is_none() && run.request.board_size == position.board_size
+                && run.request.initial_player == position.initial_player
+                && run.request.initial_stones == position.initial_stones && run.request.moves == position.moves,
+                "Saved analysis does not match this game");
+            Ok((run, position))
+        })();
+        match loaded {
+            Ok((run, position)) => {
+                self.as_mut().rust_mut().whole_game_position = Some(position);
+                self.as_mut().set_whole_game_report(QString::from(whole_game_report(&run)));
+                self.as_mut().set_whole_game_status(QString::from("Saved report-card decision opened"));
+                self.as_mut().set_error_message(QString::default());
+                true
+            }
+            Err(error) => { self.as_mut().set_error_message(QString::from(format!("{error:#}"))); false }
+        }
+    }
+
     fn open_latest_saved_analysis(mut self: Pin<&mut Self>, position_only: bool) -> bool {
         self.as_mut().set_error_message(QString::default());
         let loaded = (|| -> Result<_, String> {
@@ -2837,23 +2869,8 @@ impl ffi::BermudaApp {
             if !["japanese", "chinese", "aga", "tromp-taylor"].contains(&rules.as_str()) { return Err("Select analysis rules".into()); }
             let doc = self.rust().loaded_document.as_ref().ok_or("No game loaded")?;
             let position = analysis_position_from_states(&doc.positions, doc.positions.len().saturating_sub(1)).map_err(|e| e.to_string())?;
-            let mut executable = katago_executable_path(executable)?;
-            if !executable.is_absolute() && executable.components().count() == 1 {
-                let name = executable.clone();
-                executable = env::split_paths(&env::var_os("PATH").unwrap_or_default())
-                    .flat_map(|dir| {
-                        let path = dir.join(&name);
-                        let mut paths = vec![path.clone()];
-                        if cfg!(windows) && path.extension().is_none() { paths.push(path.with_extension("exe")); }
-                        paths
-                    }).find(|p| p.is_file()).ok_or("KataGo executable was not found on PATH")?;
-            }
-            let working = katago_working_directory()?;
-            fs::create_dir_all(&working).map_err(|e| e.to_string())?;
-            let configuration = KataGoConfiguration::new(
-                executable.canonicalize().map_err(|e| e.to_string())?,
-                configured_katago_file("BERMUDA_KATAGO_MODEL", model, "model")?.canonicalize().map_err(|e| e.to_string())?,
-                configured_katago_file("BERMUDA_KATAGO_CONFIG", config, "configuration")?.canonicalize().map_err(|e| e.to_string())?, &working);
+            let configuration = review_configuration(executable, model, config)?;
+            let working = configuration.working_directory.clone();
             let request = AnalysisRequest { id: String::new(), board_size: position.board_size,
                 rules, komi, initial_stones: position.initial_stones.clone(), initial_player: position.initial_player,
                 moves: position.moves.clone(), max_visits: visits as u64 };
@@ -5430,7 +5447,7 @@ fn configured_katago_file(
     validate_katago_file(PathBuf::from(saved), &format!("saved KataGo {description}"))
 }
 
-fn katago_working_directory() -> Result<PathBuf, String> {
+pub(crate) fn katago_working_directory() -> Result<PathBuf, String> {
     let project_dirs = ProjectDirs::from("org", "Bermuda", "Bermuda")
         .ok_or_else(|| "could not determine the per-user Bermuda data directory".to_owned())?;
 
@@ -6388,4 +6405,25 @@ impl Drop for BermudaAppRust {
             cancel.store(true, Ordering::Relaxed);
         }
     }
+}
+
+pub(crate) fn review_configuration(executable: &QString, model: &QString, config: &QString) -> Result<KataGoConfiguration, String> {
+    let mut executable = katago_executable_path(executable)?;
+    if !executable.is_absolute() && executable.components().count() == 1 {
+        let name = executable.clone();
+        executable = env::split_paths(&env::var_os("PATH").unwrap_or_default())
+            .flat_map(|dir| {
+                let path = dir.join(&name);
+                let mut paths = vec![path.clone()];
+                if cfg!(windows) && path.extension().is_none() { paths.push(path.with_extension("exe")); }
+                paths
+            }).find(|p| p.is_file()).ok_or("KataGo executable was not found on PATH")?;
+    }
+    let working = katago_working_directory()?;
+    fs::create_dir_all(&working).map_err(|e| e.to_string())?;
+    let configuration = KataGoConfiguration::new(
+        executable.canonicalize().map_err(|e| e.to_string())?,
+        configured_katago_file("BERMUDA_KATAGO_MODEL", model, "model")?.canonicalize().map_err(|e| e.to_string())?,
+        configured_katago_file("BERMUDA_KATAGO_CONFIG", config, "configuration")?.canonicalize().map_err(|e| e.to_string())?, &working);
+    Ok(configuration)
 }

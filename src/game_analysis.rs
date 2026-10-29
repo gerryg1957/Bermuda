@@ -56,7 +56,15 @@ impl GameAnalysis {
             if after.turn_number != before.turn_number + 1 { return None; }
             let mv = self.request.moves.get(before.turn_number as usize)?;
             let loss = (before.score_lead - after.score_lead) * if mv.colour == Colour::Black { 1.0 } else { -1.0 };
-            Some(serde_json::json!({"move": after.turn_number, "player": mv.colour, "estimated_loss": loss}))
+            let sign = if mv.colour == Colour::Black { 1.0 } else { -1.0 };
+            let win_before = if mv.colour == Colour::Black { before.win_rate } else { 1.0 - before.win_rate };
+            let win_after = if mv.colour == Colour::Black { after.win_rate } else { 1.0 - after.win_rate };
+            Some(serde_json::json!({"move": after.turn_number, "player": mv.colour,
+                "estimated_loss": loss, "actual_move": mv.vertex,
+                "score_before": before.score_lead * sign, "score_after": after.score_lead * sign,
+                "win_before": win_before, "win_after": win_after,
+                "win_loss": (win_before - win_after) * 100.0,
+                "already_unlikely": win_before <= 0.05}))
         }).collect()
     }
 }
@@ -82,7 +90,12 @@ pub fn prepare(request: AnalysisRequest, title: String, config: &KataGoConfigura
         score_perspective: "Black; reportAnalysisWinratesAs=BLACK".into(),
         created_at: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
     };
-    let mut request = request; request.id.clear();
+    prepare_with_provenance(request, title, provenance)
+}
+
+pub(crate) fn prepare_with_provenance(mut request: AnalysisRequest, title: String, provenance: Provenance) -> Result<GameAnalysis> {
+    if request.max_visits == 0 || !request.komi.is_finite() { bail!("Invalid analysis settings"); }
+    request.id.clear();
     let key = serde_json::to_vec(&(&request, POLICY, &provenance.engine_sha256, &provenance.network_sha256, &provenance.config_sha256))?;
     Ok(GameAnalysis { run_id: digest(&key), title, request, provenance, results: Vec::new(), refinements: Vec::new(), focus_turn: None })
 }
@@ -156,6 +169,28 @@ impl AnalysisStore {
         }
         latest.map(|run| self.load(&run.run_id)).transpose()
     }
+    /// Scan headers once for a bounded report selection; load position data separately.
+    pub fn latest_whole_game_ids(&self, positions: &[crate::katago::AnalysisPosition]) -> Result<Vec<Option<String>>> {
+        let mut latest: Vec<Option<(u64, String)>> = vec![None; positions.len()];
+        let mut query = self.db.prepare("SELECT header FROM analysis_runs r
+            WHERE EXISTS (SELECT 1 FROM analysis_positions p WHERE p.run_id=r.id)")?;
+        let rows = query.query_map([], |r| r.get::<_, String>(0))?;
+        for row in rows {
+            let run: GameAnalysis = serde_json::from_str(&row?)?;
+            if run.focus_turn.is_some() { continue; }
+            for (index, position) in positions.iter().enumerate() {
+                if run.request.board_size == position.board_size
+                    && run.request.initial_player == position.initial_player
+                    && run.request.initial_stones == position.initial_stones
+                    && run.request.moves == position.moves {
+                    let key = (run.provenance.created_at, run.run_id.clone());
+                    if latest[index].as_ref().is_none_or(|old| key > *old) { latest[index] = Some(key); }
+                }
+            }
+        }
+        Ok(latest.into_iter().map(|item| item.map(|(_, id)| id)).collect())
+    }
+
     fn save_candidate(&self, run: &GameAnalysis, refinement: &CandidateRefinement) -> Result<()> {
         self.db.execute("INSERT OR REPLACE INTO analysis_candidates VALUES (?1,?2,?3,?4)",
             params![run.run_id, refinement.turn, serde_json::to_string(&refinement.candidate.vertex)?,
@@ -312,6 +347,31 @@ mod tests {
             score_lead: -2.0, win_rate: 0.4, principal_variation: vec![AnalysisVertex::Pass] }
     }
     #[test]
+    fn decisions_keep_player_perspective_and_already_unlikely_context() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let (config, request) = fixture(temp.path());
+        let mut run = prepare(request, "Context".into(), &config, &AtomicBool::new(false))?;
+        let mut before = result(0, 20.0); before.win_rate = 0.8;
+        let mut middle = result(1, 30.0); middle.win_rate = 0.99;
+        let mut after = result(2, 100.0); after.win_rate = 0.999;
+        run.results = vec![before, middle, after];
+        let decisions = run.decisions();
+        assert_eq!(decisions[0]["player"], "Black");
+        assert_eq!(decisions[0]["estimated_loss"], -10.0);
+        assert_eq!(decisions[1]["player"], "White");
+        assert_eq!(decisions[1]["estimated_loss"], 70.0);
+        assert_eq!(decisions[1]["score_before"], -30.0);
+        assert_eq!(decisions[1]["score_after"], -100.0);
+        assert!((decisions[1]["win_before"].as_f64().unwrap() - 0.01).abs() < 1e-10);
+        assert!((decisions[1]["win_loss"].as_f64().unwrap() - 0.9).abs() < 1e-10);
+        assert_eq!(decisions[1]["already_unlikely"], true);
+        assert_eq!(decisions[1]["actual_move"], "Pass");
+        // Late 70-point loss is not a five-percentage-point turning point.
+        assert!(decisions[1]["win_loss"].as_f64().unwrap() < 5.0);
+        Ok(())
+    }
+
+    #[test]
     fn saved_report_discovery_matches_history_and_scope_without_engine_files() -> Result<()> {
         let temp = tempfile::tempdir()?; let (config, request) = fixture(temp.path());
         let stop = AtomicBool::new(false);
@@ -336,10 +396,12 @@ mod tests {
         std::fs::remove_file(&config.model)?;
         std::fs::remove_file(&config.config)?;
         assert_eq!(store.latest_for_position(&position, None)?.unwrap().run_id, newer.run_id);
+        assert_eq!(store.latest_whole_game_ids(&[position.clone()])?, vec![Some(newer.run_id.clone())]);
         assert_eq!(store.latest_for_position(&position, Some(1))?.unwrap().run_id, focused.run_id);
         assert!(store.latest_for_position(&position, Some(0))?.is_none());
         position.moves.pop();
         assert!(store.latest_for_position(&position, None)?.is_none());
+        assert_eq!(store.latest_whole_game_ids(&[position])?, vec![None]);
         Ok(())
     }
     #[test]

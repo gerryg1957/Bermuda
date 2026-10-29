@@ -24,6 +24,7 @@ fn main() {
             .qml_file("src/qml/Main.qml")
             .qml_file("src/qml/WholeGameReviewPanel.qml")
             .qml_file("src/qml/NavigationHome.qml")
+            .qml_file("src/qml/PersonalReportPanel.qml")
             .qml_file("src/qml/AboutDialog.qml")
             .qml_file("src/qml/DatabaseImportDialog.qml")
             .qml_file("src/qml/DatabaseProgressDialog.qml")
@@ -38,5 +39,6 @@ fn main() {
     .file("src/joseki_model.rs")
     .file("src/game_list_model.rs")
     .file("src/player_identity_model.rs")
+    .file("src/personal_report_model.rs")
     .build();
 }

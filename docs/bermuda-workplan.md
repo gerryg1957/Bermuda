@@ -2,7 +2,7 @@
 
 **Status:** Canonical project-wide work plan.
 
-**Last updated:** 26 October 2026.
+**Last updated:** 29 October 2026.
 
 ## Purpose
 
@@ -89,7 +89,8 @@ A separate personal corpus exists and already supports:
 - SGF export;
 - adding a played game to My Games.
 
-The larger longitudinal-analysis purpose of My Games remains future work.
+My Games now has personal identity mapping, saved-analysis report cards and
+resumable batch analysis. Recurring themes and changes over time remain future work.
 
 ### KataGo
 
@@ -166,33 +167,64 @@ this move bad?”. This is player-led investigation, not automatic verbal Go
 coaching. The permanent navigation and inline pattern-results layout are also
 accepted. See `whole-game-analysis.md` for implementation and validation scope.
 
-**Presentation follow-up:** revisit explanatory text and control arrangement
-after the user has reflected. The functionality is accepted; no further layout
-change is agreed or required for this checkpoint. Candidate visits show search
-effort, not a human explanation of why a move succeeds or fails.
+**Accepted checkpoint:** The user completed the item 3 workflow review and
+accepted the current-position and whole-game candidate workflow, saved results,
+deeper investigation and saving continuations into studies. Item 3 is complete
+for the agreed scope. Version 0.8.3 release preparation followed on 26 October.
+Presentation improvements continued during the 29 October My Games work.
 
-Item 4 is the next major feature. Items 2 and 3 are complete for the agreed
-current scope; wider release regression checks remain ongoing maintenance.
-
-**26 October correction:** current-position analysis still used display-only
-candidate circles, whereas whole-game review had the accepted interactive
-workflow. The correction routes current-position analysis through the same
-candidate panel, searching and saving only the selected position. Local QML
-checks pass; the patch awaits the user's Rust/Qt build and real-engine check.
-Resolve this parity gap before starting item 4.
-
-The user subsequently confirmed that current-position candidate review works.
-Item 3 is now undergoing an end-to-end workflow review before presentation
-polish and item 4. The first follow-up adds **Open latest saved**, loading
-matching saved results without engine files or a new search. This increment
-awaits the user's build and walkthrough: reopen, navigate graph/decisions,
-compare candidates, deepen a candidate, save a variation and reopen the study.
+Items 2 and 3 are complete for their agreed scope. Item 4 is in progress.
+Release regression checks remain ongoing maintenance.
 
 ### 4. Find recurring strengths and weaknesses in My Games
 
 Use saved analysis to identify decisions worth investigating; find repeated
 patterns and behaviours across personal games; connect examples to professional
 searches; eventually show changes over time.
+
+**29 October first increment:** My games reuses the existing player-name editor
+through **Manage names…**. Explicit source-name links share a preferred display
+name without rewriting SGFs; one identity can be marked **Me**. The selection
+is stored in the personal database, survives rename/restart, and clears on
+identity deletion. This is identity groundwork only, not longitudinal analysis.
+The user has accepted the simpler name-selection workflow and the default label
+**Me**. See `my-games-names.md` for usage, compatibility and validation.
+
+**29 October report-card increment (built and exercised by the user):**
+My games gains a report for the most recent 20 unambiguously identified canonical
+games. It reuses saved whole-game results, shows complete/partial/pending coverage,
+groups comparable settings, charts estimated loss for the player's moves, and
+opens decisions in the existing candidate/Why not this workflow. It does not
+launch analysis on import. See `my-games-report-card.md`.
+
+**29 October batch increment (running on the real personal collection):**
+**Analyse pending games** snapshots the report's pending/partial selection,
+processes games sequentially, saves queue and position checkpoints, and offers
+explicit pause/resume across restart. Source komi is used with a visible fallback;
+engine/settings identities protect resumed results. The report now says **Back
+to Home** and unassigned analysis-controller QML warnings are addressed.
+
+**29 October review usability checkpoint:** Decision review identifies game, date,
+player colour, actual move and result; separates winning-chance drops from point
+losses; adds graph ticks and already-low-win-chance context. The report opens with
+an identified analysed game and provides Continue reviewing. Why not this shows
+the trial immediately, provides a prominent return action, and keeps temporary
+trials separate from lettered engine candidates. Saved trial results are retained
+for reuse. The user reports that the revised flow seems good.
+
+**Pause point:** Commit this foundation and let the CPU batch run overnight.
+The original seven-game queue is a snapshot: games imported afterwards require
+a fresh batch after that queue finishes. Review coverage and results afterwards;
+record full-batch completion and restart/recovery validation separately from
+the interactive checks already performed. Do not mark these overnight checks
+complete in advance.
+
+**Remaining item 4:** Collect and label examples using the player's own
+interpretation; bring recurring themes across games together; connect examples
+to professional pattern searches; eventually compare compatible analysis over
+time. Labelling is the proposed next increment, not an implemented feature.
+Item 4 remains in progress. No automatic strategic diagnosis or overall
+playing-strength grade.
 
 ### 5. Play against KataGo at a chosen strength
 
@@ -291,12 +323,15 @@ personal experience or the relationship between them.
 
 ## Immediate next task
 
-Walk through item 3 end to end, beginning with **Open latest saved**.
-Validate saved-result navigation, candidate exploration and Study persistence.
-Then hear the user's reflections on the analysis wording and arrangement;
-do not redesign it in advance. The next major feature is item 4: recurring strengths and weaknesses
-across My Games, using saved analysis and links to professional evidence.
-Windows investigation resumes when the tester supplies more information.
+Pause feature development and commit the 29 October My Games foundation.
+Run the existing personal-game batch overnight, then review completion,
+saved coverage and recovery behaviour. New imports do not join the saved queue;
+start a fresh pending-games batch after it finishes.
+
+The proposed next increment is collecting and labelling reviewed examples using
+the player's own interpretation, followed by recurring themes, links to
+professional searches and eventually changes over time. These are not yet
+implemented. Windows investigation resumes when tester information arrives.
 
 ## Documentation map
 

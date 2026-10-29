@@ -20,17 +20,28 @@ mod ffi {
         #[qobject]
         #[qml_element]
         #[qproperty(QString, players_json)]
+        #[qproperty(QString, my_names_json)]
         #[qproperty(QString, unresolved_json)]
         #[qproperty(QString, aliases_json)]
         #[qproperty(QString, known_names_json)]
         #[qproperty(QString, error_message)]
         #[qproperty(QString, status_message)]
         #[qproperty(i64, selected_player_id)]
+        #[qproperty(i64, personal_player_id)]
         type PlayerIdentityModel = super::PlayerIdentityModelRust;
 
         #[qinvokable]
         #[cxx_name = "loadProject"]
         fn load_project(self: Pin<&mut PlayerIdentityModel>, project_path: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "saveMyNames"]
+        fn save_my_names(self: Pin<&mut PlayerIdentityModel>, preferred_name: &QString,
+            selections: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "setPersonalPlayer"]
+        fn set_personal_player(self: Pin<&mut PlayerIdentityModel>, player_id: i64) -> bool;
 
         #[qinvokable]
         #[cxx_name = "loadAliases"]
@@ -78,12 +89,14 @@ mod ffi {
 
 pub struct PlayerIdentityModelRust {
     pub(crate) players_json: QString,
+    pub(crate) my_names_json: QString,
     pub(crate) unresolved_json: QString,
     pub(crate) aliases_json: QString,
     pub(crate) known_names_json: QString,
     pub(crate) error_message: QString,
     pub(crate) status_message: QString,
     pub(crate) selected_player_id: i64,
+    pub(crate) personal_player_id: i64,
 
     project_path: String,
 }
@@ -92,18 +105,22 @@ impl Default for PlayerIdentityModelRust {
     fn default() -> Self {
         Self {
             players_json: QString::from("[]"),
+            my_names_json: QString::from("[]"),
             unresolved_json: QString::from("[]"),
             aliases_json: QString::from("[]"),
             known_names_json: QString::from("[]"),
             error_message: QString::default(),
             status_message: QString::default(),
             selected_player_id: -1,
+            personal_player_id: -1,
             project_path: String::new(),
         }
     }
 }
 
 struct IdentitySnapshot {
+    my_names_json: QString,
+    personal_player_id: i64,
     players_json: QString,
     unresolved_json: QString,
     aliases_json: QString,
@@ -113,17 +130,52 @@ struct IdentitySnapshot {
 impl ffi::PlayerIdentityModel {
     fn load_project(mut self: Pin<&mut Self>, project_path: &QString) -> bool {
         let project_path = project_path.to_string();
+        self.as_mut().rust_mut().project_path.clear();
+        self.as_mut().set_players_json(QString::from("[]"));
+        self.as_mut().set_my_names_json(QString::from("[]"));
+        self.as_mut().set_unresolved_json(QString::from("[]"));
+        self.as_mut().set_aliases_json(QString::from("[]"));
+        self.as_mut().set_known_names_json(QString::from("[]"));
+        self.as_mut().set_selected_player_id(-1);
+        self.as_mut().set_personal_player_id(-1);
 
         if project_path.trim().is_empty() {
             return set_failure(self, "no Bermuda database is currently open".to_owned());
         }
 
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.project_path = project_path.clone();
-        }
+        if !refresh_model(self.as_mut(), &project_path, None, None) { return false; }
+        self.as_mut().rust_mut().project_path = project_path;
+        true
+    }
 
-        refresh_model(self, &project_path, None, None)
+    fn save_my_names(self: Pin<&mut Self>, preferred_name: &QString, selections: &QString) -> bool {
+        let path = self.as_ref().rust().project_path.clone();
+        if path.is_empty() { return set_failure(self, "No personal database is open".to_owned()); }
+        let expected = self.as_ref().rust().personal_player_id;
+        let result = (|| -> anyhow::Result<i64> {
+            let names: Vec<(i64, String)> = serde_json::from_str(&selections.to_string())?;
+            ProjectManager::new().open(Path::new(&path))?.player_directory()?.save_my_names(
+                if expected < 0 { None } else { Some(expected) }, &preferred_name.to_string(), &names)
+        })();
+        match result {
+            Ok(id) => refresh_model(self, &path, Some(id), Some("Your names have been saved".to_owned())),
+            Err(error) => set_failure(self, error.to_string()),
+        }
+    }
+
+    fn set_personal_player(self: Pin<&mut Self>, player_id: i64) -> bool {
+        let project_path = self.as_ref().rust().project_path.clone();
+        let selected_id = self.as_ref().rust().selected_player_id;
+        if project_path.is_empty() {
+            return set_failure(self, "no Bermuda database is currently open".to_owned());
+        }
+        let result = ProjectManager::new().open(Path::new(&project_path))
+            .and_then(|project| project.player_directory())
+            .and_then(|directory| directory.set_personal_player(
+                if player_id < 0 { None } else { Some(player_id) }));
+        if let Err(error) = result { return set_failure(self, error.to_string()); }
+        refresh_model(self, &project_path, if selected_id < 0 { None } else { Some(selected_id) },
+            Some(if player_id < 0 { "Cleared Me" } else { "Your player identity is now marked Me" }.to_owned()))
     }
 
     fn load_aliases(mut self: Pin<&mut Self>, player_id: i64) -> bool {
@@ -355,7 +407,9 @@ fn refresh_model(
         Err(error) => return set_failure(model, error),
     };
 
+    model.as_mut().set_personal_player_id(snapshot.personal_player_id);
     model.as_mut().set_players_json(snapshot.players_json);
+    model.as_mut().set_my_names_json(snapshot.my_names_json);
     model.as_mut().set_unresolved_json(snapshot.unresolved_json);
     model.as_mut().set_aliases_json(snapshot.aliases_json);
     model
@@ -417,6 +471,8 @@ fn load_snapshot(
     };
 
     Ok(IdentitySnapshot {
+        my_names_json: serialise_json(&directory.my_name_choices().map_err(|e| e.to_string())?)?,
+        personal_player_id: directory.personal_player_id().map_err(|e| e.to_string())?.unwrap_or(-1),
         players_json: serialise_json(&players)?,
         unresolved_json: serialise_json(&unresolved)?,
         aliases_json: serialise_json(&aliases)?,
