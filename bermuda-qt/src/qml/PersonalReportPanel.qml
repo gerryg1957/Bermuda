@@ -12,12 +12,28 @@ Frame {
     property string configuration: ""
     property int visitBudget: 200
     readonly property bool batchBusy: reportModel.batch_busy
+    property bool pauseRequested: false
+    function requestPause() {
+        if (!batchBusy || pauseRequested) return
+        pauseRequested = true
+        reportModel.pauseBatch()
+    }
+    function syncBatchDialog() {
+        if (panel.visible && panel.batchBusy) batchProgress.open()
+        else batchProgress.close()
+    }
+    onVisibleChanged: Qt.callLater(syncBatchDialog)
+    onBatchBusyChanged: {
+        if (!batchBusy) pauseRequested = false
+        Qt.callLater(syncBatchDialog)
+    }
     property var queue: {
         try { return JSON.parse(reportModel.queue_json || "{}") }
         catch (error) { return ({}) }
     }
     signal batchRequested(bool resume)
     function startBatch(resume) {
+        pauseRequested = false
         reportModel.startBatch(projectPath, resume, batchVisits.value, batchRules.currentText,
             batchKomi.text, executable, network, configuration)
     }
@@ -69,15 +85,14 @@ Frame {
         title: qsTr("Analysing My games")
         modal: true
         closePolicy: Popup.NoAutoClose
-        visible: panel.batchBusy
         contentItem: ColumnLayout {
             spacing: 12
-            Label { text: reportModel.batch_status; wrapMode: Text.Wrap; Layout.fillWidth: true }
+            Label { text: panel.pauseRequested ? qsTr("Pausing — waiting for the worker to stop. Saved positions will be kept.") : reportModel.batch_status; wrapMode: Text.Wrap; Layout.fillWidth: true }
             Label { text: qsTr("%1 of %2 games complete").arg(reportModel.completed_games).arg(reportModel.total_games) }
             ProgressBar { Layout.fillWidth: true; from: 0; to: Math.max(1, reportModel.total_games); value: reportModel.completed_games; indeterminate: reportModel.total_games === 0 }
             Label { text: qsTr("Current game") }
             ProgressBar { Layout.fillWidth: true; from: 0; to: Math.max(1, reportModel.total_positions); value: reportModel.completed_positions; indeterminate: reportModel.total_positions === 0 }
-            Button { text: qsTr("Pause batch"); onClicked: reportModel.pauseBatch() }
+            Button { text: panel.pauseRequested ? qsTr("Pausing…") : qsTr("Pause batch"); enabled: !panel.pauseRequested; onClicked: panel.requestPause() }
             Label { text: qsTr("Saved positions are kept. You can resume here after restarting Bermuda."); wrapMode: Text.Wrap; Layout.fillWidth: true }
         }
     }
@@ -86,7 +101,6 @@ Frame {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("My games · Report card"); font.pixelSize: 22; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
-            Button { text: qsTr("Refresh"); enabled: !reportModel.loading; onClicked: panel.refresh() }
             Button { text: qsTr("Back to Home"); onClicked: panel.closeReport() }
         }
         Label { text: qsTr("Summary across your most recent 20 identified games. Each decision below identifies its game; click it to open the position."); wrapMode: Text.Wrap; Layout.fillWidth: true }
@@ -103,29 +117,77 @@ Frame {
         }
         ColumnLayout {
             Layout.fillWidth: true
-            visible: panel.report.needs_names === false || panel.queue.remaining > 0
-            enabled: !reportModel.loading && !panel.batchBusy
+            spacing: 8
+            Label { text: qsTr("Analysis"); font.bold: true }
             Flow {
                 Layout.fillWidth: true
                 spacing: 8
                 Button {
                     text: panel.queue.remaining > 0 ? qsTr("Resume batch (%1 games left)").arg(panel.queue.remaining) : qsTr("Analyse pending games")
-                    enabled: panel.queue.remaining > 0 || (panel.report.pending || []).length + (panel.report.partial || 0) > 0
+                    visible: !panel.batchBusy
+                    enabled: !reportModel.loading && (panel.queue.remaining > 0 || (panel.report.pending || []).length + (panel.report.partial || 0) > 0)
                     onClicked: panel.batchRequested(panel.queue.remaining > 0)
                 }
-                Button { text: qsTr("Batch settings"); visible: !(panel.queue.remaining > 0); checkable: true; checked: batchSettings.visible; onClicked: batchSettings.visible = !batchSettings.visible }
-                Button { text: qsTr("Clear paused queue"); visible: panel.queue.remaining > 0; onClicked: reportModel.clearQueue(panel.projectPath) }
+                Button {
+                    text: panel.pauseRequested ? qsTr("Pausing…") : qsTr("Pause batch")
+                    visible: panel.batchBusy
+                    enabled: !panel.pauseRequested
+                    onClicked: panel.requestPause()
+                }
+                Button {
+                    text: qsTr("Refresh report")
+                    enabled: !reportModel.loading && !panel.batchBusy
+                    onClicked: panel.refresh()
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Update the report from saved results without starting analysis.")
+                }
+                Button {
+                    text: qsTr("Batch settings")
+                    visible: !(panel.queue.remaining > 0)
+                    enabled: !reportModel.loading && !panel.batchBusy
+                    checkable: true; checked: batchSettings.visible
+                    onClicked: batchSettings.visible = !batchSettings.visible
+                }
+                Button { text: qsTr("Show batch progress"); visible: panel.batchBusy; onClicked: batchProgress.open() }
             }
             Label {
                 Layout.fillWidth: true; wrapMode: Text.Wrap
+                visible: text.length > 0
+                text: panel.pauseRequested ? qsTr("Pausing — saved positions will be kept.") : reportModel.batch_status
+            }
+            ProgressBar {
+                visible: panel.batchBusy
+                Layout.fillWidth: true
+                from: 0; to: Math.max(1, reportModel.total_positions)
+                value: reportModel.completed_positions
+                indeterminate: reportModel.total_positions === 0
+            }
+            Label {
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                visible: panel.report.needs_names === false || panel.queue.remaining > 0
                 text: panel.queue.remaining > 0
-                    ? qsTr("Saved queue · %1 visits · %2 rules. Resume uses its original settings. Clearing the queue keeps saved analysis.").arg(panel.queue.visits).arg(panel.queue.rules)
+                    ? qsTr("Saved queue · %1 visits · %2 rules. Resume uses its original settings. New imports do not join this queue.").arg(panel.queue.visits).arg(panel.queue.rules)
                     : qsTr("Pending and partial games in this report · %1 visits · %2 rules · recorded komi (fallback %3). Matching checkpoints are reused; other saved runs are retained.").arg(batchVisits.value).arg(batchRules.currentText).arg(batchKomi.text)
+            }
+            Flow {
+                visible: panel.queue.remaining > 0
+                Layout.fillWidth: true
+                spacing: 8
+                Button {
+                    text: qsTr("Clear paused queue")
+                    enabled: !reportModel.loading && !panel.batchBusy
+                    onClicked: reportModel.clearQueue(panel.projectPath)
+                }
+                Label {
+                    width: Math.min(implicitWidth, parent.width)
+                    wrapMode: Text.Wrap
+                    text: qsTr("Keeps saved analysis. Start a fresh batch afterwards to include new games.")
+                }
             }
             GridLayout {
                 id: batchSettings
                 visible: false
-                enabled: !(panel.queue.remaining > 0)
+                enabled: !(panel.queue.remaining > 0) && !reportModel.loading && !panel.batchBusy
                 columns: 2
                 Layout.fillWidth: true
                 Label { text: qsTr("Visits / position") }
@@ -135,7 +197,6 @@ Frame {
                 Label { text: qsTr("Komi when absent from game") }
                 TextField { id: batchKomi; text: "6.5" }
             }
-            Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: reportModel.batch_status; visible: text.length > 0 }
         }
         BusyIndicator { running: reportModel.loading; visible: running; Layout.alignment: Qt.AlignHCenter }
         Label {

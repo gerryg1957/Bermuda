@@ -166,7 +166,11 @@ impl ffi::PersonalReportModel {
                         model.as_mut().set_total_games(total as i32);
                         model.as_mut().set_completed_positions(saved);
                         model.as_mut().set_total_positions(positions);
-                        model.as_mut().set_batch_status(QString::from(status));
+                        // Progress already queued before Pause must not replace
+                        // the acknowledgement with another running message.
+                        let pausing = model.rust().stop.as_ref()
+                            .map(|stop| stop.load(Ordering::Relaxed)).unwrap_or(false);
+                        if !pausing { model.as_mut().set_batch_status(QString::from(status)); }
                     }).is_ok()
                 })
             })();
