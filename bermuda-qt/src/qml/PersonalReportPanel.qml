@@ -7,6 +7,7 @@ Frame {
     id: panel
     padding: 16
     property string projectPath: ""
+    property var importedIds: []
     property string executable: ""
     property string network: ""
     property string configuration: ""
@@ -74,8 +75,9 @@ Frame {
     background: Rectangle { color: panel.palette.base; border.color: panel.palette.mid }
     PersonalReportModel {
         id: reportModel
+        selected_ids_json: JSON.stringify(panel.importedIds)
         onBatch_busyChanged: if (!batch_busy) panel.refresh()
-        onLoadingChanged: if (!loading && !error_message.length) Qt.callLater(function() { panel.reportReady() })
+        onLoadingChanged: if (!loading && !error_message.length) Qt.callLater(function() { if (!reportModel.loading && !reportModel.error_message.length) panel.reportReady() })
     }
     Dialog {
         id: batchProgress
@@ -103,7 +105,7 @@ Frame {
             Label { text: qsTr("My games · Report card"); font.pixelSize: 22; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
             Button { text: qsTr("Back to Home"); onClicked: panel.closeReport() }
         }
-        Label { text: qsTr("Summary across your most recent 20 identified games. Each decision below identifies its game; click it to open the position."); wrapMode: Text.Wrap; Layout.fillWidth: true }
+        Label { text: panel.importedIds.length ? qsTr("Analysis for the %1 games selected from your import. Only games with an identified playing colour are included.").arg(panel.importedIds.length) : qsTr("Summary across your most recent 20 identified games. Each decision below identifies its game; click it to open the position."); wrapMode: Text.Wrap; Layout.fillWidth: true }
         Frame {
             visible: panel.reviewTitle.length > 0
             Layout.fillWidth: true
@@ -119,11 +121,18 @@ Frame {
             Layout.fillWidth: true
             spacing: 8
             Label { text: qsTr("Analysis"); font.bold: true }
+            Label {
+                visible: panel.importedIds.length > 0
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: panel.queue.remaining > 0
+                    ? qsTr("An existing queue is saved. Resume finishes that queue, not this import. To analyse this import instead, clear the paused queue below; saved results are kept.")
+                    : qsTr("This batch includes only pending or partial games from this import. Completed games are skipped. Check the settings before starting.")
+            }
             Flow {
                 Layout.fillWidth: true
                 spacing: 8
                 Button {
-                    text: panel.queue.remaining > 0 ? qsTr("Resume batch (%1 games left)").arg(panel.queue.remaining) : qsTr("Analyse pending games")
+                    text: panel.queue.remaining > 0 ? qsTr("Resume batch (%1 games left)").arg(panel.queue.remaining) : panel.importedIds.length ? qsTr("Analyse imported games") : qsTr("Analyse pending games")
                     visible: !panel.batchBusy
                     enabled: !reportModel.loading && (panel.queue.remaining > 0 || (panel.report.pending || []).length + (panel.report.partial || 0) > 0)
                     onClicked: panel.batchRequested(panel.queue.remaining > 0)
@@ -228,7 +237,11 @@ Frame {
                     }
                     ProgressBar { Layout.fillWidth: true; from: 0; to: Math.max(1, panel.report.selected || 0); value: panel.report.complete || 0 }
                     Label {
-                        text: qsTr("Showing %1 of %2 identified games. %3 other games are excluded because your colour is unknown or ambiguous.")
+                        text: panel.importedIds.length
+                            ? qsTr("%1 of %2 imported games identified. %3 excluded because your colour is unknown or ambiguous.")
+                                .arg(panel.report.selected || 0).arg(panel.importedIds.length)
+                                .arg(panel.importedIds.length - (panel.report.selected || 0))
+                            : qsTr("Showing %1 of %2 identified games. %3 other games are excluded because your colour is unknown or ambiguous.")
                             .arg(panel.report.selected || 0).arg(panel.report.identified || 0)
                             .arg((panel.report.total || 0) - (panel.report.identified || 0))
                         wrapMode: Text.Wrap; Layout.fillWidth: true

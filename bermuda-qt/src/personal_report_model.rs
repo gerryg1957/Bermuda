@@ -11,6 +11,7 @@ mod ffi {
     unsafe extern "RustQt" {
         #[qobject]
         #[qml_element]
+        #[qproperty(QString, selected_ids_json)]
         #[qproperty(QString, report_json)]
         #[qproperty(QString, error_message)]
         #[qproperty(bool, loading)]
@@ -42,6 +43,7 @@ mod ffi {
 
 #[derive(Default)]
 pub struct PersonalReportModelRust {
+    selected_ids_json: QString,
     report_json: QString,
     error_message: QString,
     loading: bool,
@@ -61,16 +63,25 @@ impl ffi::PersonalReportModel {
         self.as_mut().set_loading(true);
         self.as_mut().set_report_json(QString::from("{}"));
         self.as_mut().set_error_message(QString::default());
+        let selected_text = self.rust().selected_ids_json.to_string();
         let path = project_path.to_string();
+        let retry_path = path.clone();
+        let requested_selection = selected_text.clone();
         let thread = self.qt_thread();
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<_> {
                 let project = bermuda::project_manager::ProjectManager::new().open(Path::new(&path))?;
                 let analysis = crate::app::katago_working_directory().map_err(anyhow::Error::msg)?
                     .join("game-analysis.sqlite3");
-                Ok((bermuda::personal_report::build(&project, &analysis)?, bermuda::personal_batch::summary(&project)?))
+                let selected: Vec<i64> = serde_json::from_str(if selected_text.is_empty() { "[]" } else { &selected_text })?;
+                Ok((bermuda::personal_report::build_selected(&project, &analysis, &selected)?, bermuda::personal_batch::summary(&project)?))
             })();
             let _ = thread.queue(move |mut model| {
+                if model.rust().selected_ids_json.to_string() != requested_selection {
+                    model.as_mut().set_loading(false);
+                    model.refresh(&QString::from(retry_path));
+                    return;
+                }
                 model.as_mut().set_loading(false);
                 match result {
                     Ok((report, queue)) => {
@@ -127,6 +138,7 @@ impl ffi::PersonalReportModel {
             Err(error) => { self.as_mut().set_batch_status(QString::from(format!("Cannot start: {error:#}"))); return; }
         };
         let path = project_path.to_string();
+        let selected_text = self.rust().selected_ids_json.to_string();
         let rules = rules.to_string();
         let stop = Arc::new(AtomicBool::new(false));
         self.as_mut().rust_mut().stop = Some(Arc::clone(&stop));
@@ -144,8 +156,9 @@ impl ffi::PersonalReportModel {
                 let batch = if resume {
                     bermuda::personal_batch::load(&project)?.ok_or_else(|| anyhow::anyhow!("No saved queue"))?
                 } else {
-                    bermuda::personal_batch::create(&project, &analysis, config.as_ref().unwrap(),
-                        visits as u64, &rules, fallback, &stop)?
+                    let selected: Vec<i64> = serde_json::from_str(if selected_text.is_empty() { "[]" } else { &selected_text })?;
+                    bermuda::personal_batch::create_selected(&project, &analysis, config.as_ref().unwrap(),
+                        visits as u64, &rules, fallback, &stop, &selected)?
                 };
                 let config = bermuda::personal_batch::configuration(&batch, &working)?;
                 let mut timing = None;

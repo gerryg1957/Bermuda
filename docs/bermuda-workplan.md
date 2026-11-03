@@ -2,7 +2,7 @@
 
 **Status:** Canonical project-wide work plan.
 
-**Last updated:** 29 October 2026.
+**Last updated:** 3 November 2026.
 
 ## Purpose
 
@@ -111,7 +111,7 @@ requests. Whole-game analysis, persistent reports and continuation preview/save
 are implemented. The user accepted graphical candidate exploration and deeper
 candidate analysis on 15 October 2026.
 
-## Agreed development order (October 2026)
+## Agreed development order (updated November 2026)
 
 This order supersedes the September roadmap and the older release sequencing in
 `workplan-status.md`.
@@ -212,19 +212,136 @@ the trial immediately, provides a prominent return action, and keeps temporary
 trials separate from lettered engine candidates. Saved trial results are retained
 for reuse. The user reports that the revised flow seems good.
 
-**Pause point:** Commit this foundation and let the CPU batch run overnight.
-The original seven-game queue is a snapshot: games imported afterwards require
-a fresh batch after that queue finishes. Review coverage and results afterwards;
-record full-batch completion and restart/recovery validation separately from
-the interactive checks already performed. Do not mark these overnight checks
-complete in advance.
+**30 October checkpoint:** The report's analysis controls are grouped together,
+with Refresh beside the action and pause available even if the progress dialog
+is hidden. These changes were tested, committed and pushed. The historical
+29 October overnight test is not treated as proof of every recovery scenario.
 
-**Remaining item 4:** Collect and label examples using the player's own
-interpretation; bring recurring themes across games together; connect examples
-to professional pattern searches; eventually compare compatible analysis over
-time. Labelling is the proposed next increment, not an implemented feature.
-Item 4 remains in progress. No automatic strategic diagnosis or overall
-playing-strength grade.
+**3 November import checkpoint (accepted in use):** **My games → Add games…**
+accepts several SGFs without replacing the current study, reports duplicates
+and file issues, reuses name mappings, and offers analysis options for the
+imported selection, including older games outside the latest-20 report.
+The user verified a four-file import with three existing games, then the
+analysis-options workflow. The initial Qt Dialog property-name conflict was
+corrected before acceptance. These changes still need their own commit.
+
+The latest 20 games is a convenient current view, not a retention limit or an
+agreed statistical sample size. Saved per-game analysis is the foundation;
+fixed groups and historical comparisons are not yet implemented.
+
+#### 4A. Preserve named game groups and analysis snapshots — next increment
+
+- Select games explicitly or by a date range, then save a named group with
+  fixed membership. Later imports must not change it. Show dates, game count,
+  player colour and identity coverage; allow overlapping groups but identify
+  overlap when comparing them.
+- Keep the group of games distinct from an analysis snapshot. A group may have
+  several snapshots; each records the actual analysis runs and their coverage,
+  engine/network/configuration identities, visits, rules and komi.
+- Freeze the evidence underlying a saved report, not merely a pointer to a
+  mutable latest result. Completing partial analysis or analysing more deeply
+  creates an explicit new snapshot; it must not silently rewrite the old one.
+- Preserve the source game/position references needed to inspect a snapshot.
+  Game deletion, identity edits and analysis cleanup must explicitly handle
+  these references rather than quietly invalidate history.
+- Show complete/partial/pending/excluded coverage and snapshot creation date.
+  Saved partial snapshots remain visibly partial.
+
+**Acceptance:** Save an October group and report, import November games, and
+reanalyze an October game. After restart, the original membership and report
+remain reproducible and the new analysis is separately selectable. Decide the
+storage/retention mechanism before implementation; do not assume today's
+checkpoint store already supplies immutable historical reports.
+
+#### 4B. Collect decisions with the player's interpretation
+
+- Save a decision from review with game, move, player colour, actual move,
+  analysis reference, notes and optional variations. Include good decisions
+  and uncertain cases as well as estimated mistakes.
+- Let the player create and amend labels such as missed threat, unnecessary
+  defence or wrong direction. These are interpretations, not engine diagnoses.
+- Keep measurable context separate: estimated point loss, change in winning
+  chances, already-low winning chances, board region and analysis coverage.
+  Phase filters may be useful, but their definition must be visible and
+  provisional rather than presented as strategic understanding.
+- Reuse the existing candidate, Why not this and save-to-study workflows.
+
+**Acceptance:** A labelled example survives restart and reanalysis, opens at the
+correct pre-decision board, and keeps the player's note separate from changes
+in engine estimates. Labels and example selection remain editable.
+
+#### 4C. Find recurrence and connect professional evidence
+
+- Group examples by player labels and explicit position/pattern searches.
+  Show occurrences, distinct games and the underlying examples.
+- Allow related decisions in one fight to be linked as one episode; do not
+  count a sequence of consequences as several independent recurrences without
+  making that distinction visible. Automatic fight recognition is not required.
+- Provide a direct route from a personal example to the existing professional
+  pattern search, retaining the chosen area and orientation. Save useful
+  professional examples back into the study with provenance.
+- Keep professional continuation frequency distinct from KataGo evaluation.
+  Geometric similarity is evidence to investigate, not proof of a shared cause.
+
+**Acceptance:** A theme can be inspected across several separate games and
+followed into supporting professional positions without losing the original
+personal decision or notes.
+
+#### 4D. Compare fixed groups over time
+
+- Compare two named groups using explicitly selected snapshots. Show changes
+  in theme frequency, severity and supported strengths, with clickable examples
+  on both sides.
+- Display denominators: games, assessed own moves, labelled examples and missing
+  analysis. Offer rates per assessed move or distinct game where appropriate;
+  hand-labelled counts alone must not be presented as unbiased error rates.
+- Keep compatible analysis settings distinguishable. Changed engines, networks,
+  budgets or coverage may explain a difference; offer a deliberate matched
+  reanalysis rather than silently mixing evidence or replacing the baseline.
+- Surface relevant context, including handicap/komi, player colour, known
+  opponent ranks and game conditions. Different opponents and game types can
+  affect apparent progress. Sparse evidence should be described as insufficient.
+- Prefer readable comparisons and example lists initially. A radar chart is
+  optional presentation, not a reason to invent skill scores. Final measures,
+  minimum sample requirements and group sizes will be chosen using real games.
+
+**Acceptance:** Compare two unequal-sized groups and trace every displayed
+change to its games and measurement basis. Missing or incompatible evidence and
+shared games are visible. No overall playing-strength grade is inferred.
+
+#### 4E. Turn chosen examples into practice — later within item 4
+
+- Let the player turn a reviewed decision into an exercise, hiding suggestions
+  until an attempt and then exploring alternatives and continuations.
+- Preserve its source position, acceptable alternatives, evidence depth and
+  player notes. Practice history is separate from evidence of improvement in
+  subsequently played games.
+- Reanalysis may change an answer or show that an exercise is unsuitable.
+  Offer revision or retirement while preserving previous attempts and notes.
+- Repetition scheduling and export can follow demonstrated need. This does not
+  bring forward the separate professional-game next-move quiz proposal.
+
+**Acceptance:** An exercise can be attempted, reviewed in its original game,
+revised after deeper analysis and revisited without losing its history.
+
+**Scope and inspiration:** The useful documented SWHub sequence is report →
+position → investigation → practice. Its Game Focus features informed this
+review; fixed named groups and frozen report evidence are Bermuda's explicit
+requirements, not an assertion that SWHub implements them. The 3 November
+review used public product documentation, not copied implementation code:
+
+- [WeiqiHub overview](https://github.com/ale64bit/WeiqiHub/blob/main/README.md)
+  and [BSD licence](https://github.com/ale64bit/WeiqiHub/blob/main/LICENSE.md).
+- [SWHub overview](https://github.com/SoumyaK4/SWHub/blob/SWHub/README.md),
+  [Game Focus release notes](https://github.com/SoumyaK4/SWHub/blob/SWHub/CHANGELOG.md)
+  and [proprietary licence](https://github.com/SoumyaK4/SWHub/blob/SWHub/LICENSE.md).
+
+HumanSL rank/style estimates, inferred human reading depth, automatic strategic
+labels and elaborate skill radars remain exploratory, not agreed features.
+No proprietary code, assets or wording are to be incorporated. Any future
+reuse of BSD-licensed material requires a separate provenance/licence review.
+Item 4 remains in progress. Each increment is to be reviewed with real games
+before moving to the next; this is not authorization to build every stage at once.
 
 ### 5. Play against KataGo at a chosen strength
 
@@ -323,15 +440,18 @@ personal experience or the relationship between them.
 
 ## Immediate next task
 
-Pause feature development and commit the 29 October My Games foundation.
-Run the existing personal-game batch overnight, then review completion,
-saved coverage and recovery behaviour. New imports do not join the saved queue;
-start a fresh pending-games batch after it finishes.
+Commit the accepted direct-import changes, including the Qt Dialog property
+correction, together with this updated plan after reviewing local status.
+Then design the smallest usable **4A** increment: named fixed game groups and
+reproducible saved reports. Agree how games are selected, how analysis snapshots
+are retained and how reanalysis is presented before implementing comparisons.
 
-The proposed next increment is collecting and labelling reviewed examples using
-the player's own interpretation, followed by recurring themes, links to
-professional searches and eventually changes over time. These are not yet
-implemented. Windows investigation resumes when tester information arrives.
+Continue using the existing reports to collect concrete questions and possible
+labels. GPU setup and benchmarking can proceed when the card arrives, keeping
+existing CPU analysis as a baseline; new hardware is not a prerequisite for
+preserving groups. Do not interpret a change in engine/settings as an improvement
+in the player's decisions. Windows investigation resumes when tester information
+arrives.
 
 ## Documentation map
 

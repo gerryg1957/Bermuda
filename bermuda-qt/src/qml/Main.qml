@@ -1062,7 +1062,8 @@ ApplicationWindow {
     property int lastReportGameId: -1
     property int lastReportMove: 0
     property string lastReportProject: ""
-    function openPersonalReport() {
+    function openPersonalReport(importedIds) {
+        personalReport.importedIds = importedIds || []
         root.reportNeedsBoard = !(root.reviewFromPersonalReport
             && wholeGameReview.controller === gameController && wholeGameReview.matchesLoaded
             && !root.navigationHomeVisible)
@@ -1318,7 +1319,10 @@ ApplicationWindow {
              * discard stale pattern-result presentation rows.
              */
             gameList.clearSearchResults()
-            if (playerIdentityDialog.personalMode) gameList.reloadMyGamesProject()
+            if (playerIdentityDialog.personalMode) {
+                gameList.reloadMyGamesProject()
+                if (root.personalReportActive) personalReport.refresh()
+            }
             else gameList.reloadDatabaseProject()
         }
     }
@@ -1568,6 +1572,100 @@ ApplicationWindow {
       boardPane.applyLoadedPosition()
       return true
   }
+
+    PersonalImportModel {
+        id: personalImport
+        onBusyChanged: {
+            if (busy) return
+            const result = myGamesImportResult.importSummary
+            gameList.showImportedGames(result.game_ids || [])
+        }
+    }
+    FileDialog {
+        id: addMyGamesDialog
+        title: qsTr("Add games to My games")
+        fileMode: FileDialog.OpenFiles
+        nameFilters: [qsTr("SGF files (*.sgf)"), qsTr("All files (*)")]
+        onAccepted: {
+            const paths = []
+            for (let i = 0; i < selectedFiles.length; ++i)
+                paths.push(root.localPathFromUrl(selectedFiles[i]))
+            if (!paths.length || personalImport.busy || personalReport.batchBusy) return
+            myGamesImportResult.stopRequested = false
+            personalImport.importFiles(JSON.stringify(paths))
+            myGamesImportResult.open()
+        }
+    }
+    Dialog {
+        id: myGamesImportResult
+        title: personalImport.busy ? qsTr("Adding games…") : qsTr("My games · Import result")
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        width: Math.min(root.width - 40, 660)
+        x: Math.round((root.width - width) / 2)
+        y: Math.round((root.height - height) / 2)
+        property bool stopRequested: false
+        readonly property var importSummary: {
+            try { return JSON.parse(personalImport.result_json || "{}") }
+            catch (error) { return ({}) }
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: personalImport.busy
+                    ? qsTr("%1 of %2 files processed").arg(personalImport.processed).arg(personalImport.total)
+                    : personalImport.error_message || qsTr("%1 games added · %2 already present · %3 issues%4")
+                        .arg(myGamesImportResult.importSummary.added || 0)
+                        .arg(myGamesImportResult.importSummary.existing || 0)
+                        .arg((myGamesImportResult.importSummary.errors || []).length)
+                        .arg(myGamesImportResult.importSummary.cancelled ? qsTr(" · Stopped early") : "")
+            }
+            ProgressBar { visible: personalImport.busy; Layout.fillWidth: true; from: 0; to: Math.max(1, personalImport.total); value: personalImport.processed }
+            ScrollView {
+                visible: !personalImport.busy && (myGamesImportResult.importSummary.errors || []).length > 0
+                Layout.fillWidth: true; Layout.preferredHeight: 160
+                TextArea { text: (myGamesImportResult.importSummary.errors || []).join("\n\n"); readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true }
+            }
+            Label {
+                visible: !personalImport.busy && (myGamesImportResult.importSummary.game_ids || []).length > 0
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: qsTr("The games are in My games and highlighted in the library. Your current study is unchanged. Analysis has not started. Analysis options checks your name mappings and any saved queue before you start.")
+            }
+            Label {
+                visible: !personalImport.busy && myGamesImportResult.importSummary.unidentified > 0
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+                text: qsTr("Your colour is unknown or ambiguous in %1 of these games. They are saved, but will be excluded from personal analysis until you resolve your names.").arg(myGamesImportResult.importSummary.unidentified || 0)
+            }
+            Flow {
+                Layout.fillWidth: true; spacing: 8
+                Button {
+                    visible: !personalImport.busy && myGamesImportResult.importSummary.unidentified > 0
+                    text: qsTr("Manage names…")
+                    onClicked: { myGamesImportResult.close(); playerIdentityDialog.openForProject(root.personalProjectPath, true) }
+                }
+                Button {
+                    visible: personalImport.busy
+                    text: myGamesImportResult.stopRequested ? qsTr("Stopping…") : qsTr("Stop after this file")
+                    enabled: !myGamesImportResult.stopRequested
+                    onClicked: { myGamesImportResult.stopRequested = true; personalImport.stop() }
+                }
+                Button {
+                    visible: !personalImport.busy && (myGamesImportResult.importSummary.game_ids || []).length > 0
+                    text: qsTr("Analysis options…")
+                    onClicked: {
+                        myGamesImportResult.close()
+                        root.openPersonalReport(myGamesImportResult.importSummary.game_ids)
+                    }
+                }
+                Button {
+                    visible: !personalImport.busy
+                    text: qsTr("Done")
+                    onClicked: myGamesImportResult.close()
+                }
+            }
+        }
+    }
 
   FileDialog {
     id: openSgfDialog
@@ -4111,6 +4209,8 @@ menuBar: MenuBar {
             libraryNavigation: root.navigationTrial
             searchResultsHost: root.navigationTrial ? inlinePatternResultsContent : null
             onLibraryTabRequested: function(index) { root.showBrowserTab(index) }
+            importEnabled: !personalImport.busy && !personalReport.batchBusy
+            onAddMyGamesRequested: addMyGamesDialog.open()
             onPersonalReportRequested: root.openPersonalReport()
             onManageMyNamesRequested: playerIdentityDialog.openForProject(root.personalProjectPath, true)
             enabled: !root.wholeGameReviewActive

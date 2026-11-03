@@ -5491,7 +5491,7 @@ fn personal_project_root() -> Result<PathBuf, String> {
         .join(PERSONAL_PROJECT_DIRECTORY))
 }
 
-fn open_or_create_personal_project() -> Result<Project, String> {
+pub(crate) fn open_or_create_personal_project() -> Result<Project, String> {
     let root = personal_project_root()?;
     let manager = ProjectManager::new();
 

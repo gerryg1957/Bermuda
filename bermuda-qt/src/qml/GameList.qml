@@ -37,6 +37,18 @@ Kirigami.AbstractCard {
     property string databaseProjectPath: ""
     signal manageMyNamesRequested()
     signal personalReportRequested()
+    signal addMyGamesRequested()
+    property bool importEnabled: true
+    property var importedGameIds: []
+    function showImportedGames(ids) {
+        showCatalogue(true)
+        importedGameIds = ids
+        cataloguePlayer = ""; catalogueVersus = ""; catalogueColour = "either"
+        catalogueEvent = ""; catalogueDateFrom = ""; catalogueDateTo = ""; catalogueResult = "any"
+        sortColumn = "date"; sortAscending = false
+        sortThenColumn = "none"; sortThirdColumn = "none"
+        applyCatalogueSearch()
+    }
     property string myGamesProjectPath: ""
     property bool showingMyGames: false
     property alias currentTabIndex: mainTabs.currentIndex
@@ -1440,6 +1452,11 @@ Kirigami.AbstractCard {
         visible: root.libraryNavigation && mainTabs.currentIndex === 1
         Layout.fillWidth: true
         Button {
+            text: qsTr("Add games…")
+            enabled: root.importEnabled && !root.catalogueLoading
+            onClicked: root.addMyGamesRequested()
+        }
+        Button {
             text: qsTr("Report card")
             visible: mainTabs.currentIndex === 1
             enabled: root.myGamesProjectLoaded && !root.catalogueLoading
@@ -2361,7 +2378,7 @@ Kirigami.AbstractCard {
                 rightPadding: verticalScrollBar.width + 4
                 clip: true
 
-                highlighted: root.selectedRow === index
+                highlighted: root.selectedRow === index || (root.showingMyGames && root.importedGameIds.indexOf(gameId) >= 0)
 
                 background: Rectangle {
                     anchors {

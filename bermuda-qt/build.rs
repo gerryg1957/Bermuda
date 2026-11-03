@@ -40,5 +40,6 @@ fn main() {
     .file("src/game_list_model.rs")
     .file("src/player_identity_model.rs")
     .file("src/personal_report_model.rs")
+    .file("src/personal_import_model.rs")
     .build();
 }

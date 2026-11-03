@@ -8,6 +8,21 @@ The separate My Games corpus and basic browse, replay, search and play workflow
 are implemented. Longitudinal analysis of recurring personal behaviour remains
 planned. Current project ordering is maintained in `bermuda-workplan.md`.
 
+## Current implementation direction — 3 November 2026
+
+Personal identity mapping, saved-analysis reports, resumable batches and direct
+multi-file My Games import are implemented and have been exercised by the user.
+The current latest-20 report is a view, not a limit on retaining personal games
+or saved analysis. Named fixed groups and historical report snapshots remain
+planned. A fixed game group and a frozen analysis report are separate concepts:
+reanalyzing a member game must not silently replace an earlier report's evidence.
+
+The authoritative sequence and acceptance criteria are in
+`bermuda-workplan.md`, item 4A–4E: preserve groups and snapshots; collect labelled
+decisions; investigate recurrence and professional examples; compare groups;
+then create practice from selected examples. Later sections here describe design
+possibilities, not additional approved milestones or current capabilities.
+
 ## Purpose
 
 Bermuda's personal corpus is a collection of a player's own games intended for longitudinal study. Its purpose is not merely to provide another SGF library. It should allow Bermuda to discover recurring strengths, weaknesses, decisions, and patterns of behaviour across many games.

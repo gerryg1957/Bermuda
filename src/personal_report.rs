@@ -21,6 +21,11 @@ fn loss_bucket(loss: f64) -> usize {
 /// Uses canonical games once, even when imported from several sources.
 /// Conflicting colours (including self-play) are excluded rather than guessed.
 pub fn build(project: &Project, analysis_path: &Path) -> Result<Value> {
+    build_selected(project, analysis_path, &[])
+}
+
+/// An empty selection means the normal latest-20 report. Explicit IDs can include older games.
+pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64]) -> Result<Value> {
     let directory = project.player_directory()?;
     let Some(me) = directory.personal_player_id()? else {
         return Ok(json!({"needs_names": true}));
@@ -40,7 +45,7 @@ pub fn build(project: &Project, analysis_path: &Path) -> Result<Value> {
     let mut identified = 0;
     while let Some(row) = rows.next()? {
         identified += 1;
-        if games.len() < 20 {
+        if (selected.is_empty() && games.len() < 20) || selected.contains(&row.get::<_, i64>(0)?) {
             games.push((row.get::<_, i64>(0)?, if row.get::<_, i64>(1)? == 1 { Colour::Black } else { Colour::White }));
         }
     }
@@ -116,6 +121,30 @@ pub fn build(project: &Project, analysis_path: &Path) -> Result<Value> {
 mod tests {
     use super::*;
     use crate::{AnalysisRequest, AnalysisResult, game_analysis::Provenance};
+
+    #[test]
+    fn explicit_selection_includes_old_games_and_ignores_unmatched_ids() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let project = crate::project_manager::ProjectManager::new().create("Personal", temp.path().join("project"))?;
+        let mut ids = Vec::new();
+        for n in 0..22u8 {
+            let sgf = format!("(;SZ[19]PB[me]PW[other]DT[2026-10-{:02}];B[{}{}])", n+1, (b'a'+n/19) as char, (b'a'+n%19) as char);
+            let record = crate::extract_main_variation(&crate::parse_collection(sgf.as_bytes())?)?;
+            let outcome = project.importer()?.import_record("Test", "1", &n.to_string(), &record)?;
+            if let crate::importer::ImportOutcome::Imported { game_id, .. } = outcome { ids.push(game_id); }
+        }
+        let db = crate::database::open(&project.database_root())?;
+        let source: i64 = db.query_row("SELECT id FROM sources WHERE name='Test'", [], |r| r.get(0))?;
+        drop(db);
+        project.player_directory()?.save_my_names(None, "Me", &[(source, "me".into())])?;
+        let path = temp.path().join("analysis.sqlite3");
+        assert_eq!(build(&project, &path)?["selected"], 20);
+        let selected = build_selected(&project, &path, &[ids[0], ids[0], -1])?;
+        assert_eq!(selected["selected"], 1);
+        assert_eq!(selected["pending"][0]["game_id"], ids[0]);
+        assert!(!path.exists());
+        Ok(())
+    }
 
     #[test]
     fn report_reuses_saved_results_deduplicates_games_and_only_counts_me() -> Result<()> {

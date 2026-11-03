@@ -54,10 +54,15 @@ pub fn summary(project: &Project) -> Result<Value> {
 /// Completed reports are not automatically reanalysed with new settings.
 pub fn create(project: &Project, analysis: &Path, config: &KataGoConfiguration,
     visits: u64, rules: &str, fallback_komi: f64, stop: &AtomicBool) -> Result<Batch> {
+    create_selected(project, analysis, config, visits, rules, fallback_komi, stop, &[])
+}
+
+pub fn create_selected(project: &Project, analysis: &Path, config: &KataGoConfiguration,
+    visits: u64, rules: &str, fallback_komi: f64, stop: &AtomicBool, selected: &[i64]) -> Result<Batch> {
     ensure!((10..=100_000).contains(&visits) && fallback_komi.is_finite(), "Invalid analysis settings");
     ensure!(["japanese", "chinese", "aga", "tromp-taylor"].contains(&rules), "Select analysis rules");
     ensure!(load(project)?.is_none_or(|b| b.completed == b.jobs.len()), "Resume or clear the saved queue first");
-    let report = crate::personal_report::build(project, analysis)?;
+    let report = crate::personal_report::build_selected(project, analysis, selected)?;
     ensure!(report["needs_names"] == false, "Set up your names first");
     let mut entries = report["pending"].as_array().cloned().unwrap_or_default();
     for group in report["groups"].as_array().into_iter().flatten() {
@@ -150,6 +155,13 @@ mod tests {
         let config = KataGoConfiguration::new(&executable, &network, &config_file, temp.path());
         let analysis = temp.path().join("analysis.sqlite3");
         let stop = AtomicBool::new(false);
+        let report = crate::personal_report::build(&project, &analysis)?;
+        let selected_id = report["pending"][1]["game_id"].as_i64().unwrap();
+        let selected = create_selected(&project, &analysis, &config, 10, "japanese", 6.5, &stop, &[selected_id])?;
+        assert_eq!(selected.jobs.len(), 1);
+        assert_eq!(selected.jobs[0].request.komi, 6.5);
+        assert!(create_selected(&project, &analysis, &config, 10, "japanese", 6.5, &stop, &[selected_id]).is_err());
+        clear(&project)?;
         let batch = create(&project, &analysis, &config, 10, "japanese", 6.5, &stop)?;
         assert_eq!(batch.jobs.len(), 2);
         assert_eq!(batch.jobs[0].request.komi, 7.5);

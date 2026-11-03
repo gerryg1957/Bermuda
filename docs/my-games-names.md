@@ -67,3 +67,37 @@ The simplified-form follow-up adds atomic-save and stale-selection regression
 coverage. An offscreen mock-model check exercises the Me default, checkbox
 payload, review-before-save, saved state and advanced/professional routes. Rust
 tests still require execution on the maintainer's toolchain.
+
+## Adding SGF files directly (3 November 2026)
+
+Use **Home → My games → Add games…** and select one or several SGF files.
+The library imports their recorded main lines without replacing the current
+study. Existing canonical games are counted as already present, including files
+previously added through the study workspace. Existing personal-name mappings
+are reused. Unknown or ambiguous playing identities are reported with a
+**Manage names…** action; these games remain in the library.
+
+The result shows added/duplicate counts and individual file issues. A malformed
+file does not discard other successful imports. Importing runs off the UI thread;
+**Stop after this file** keeps completed imports. Position-only SGFs and
+multi-game SGF collections are rejected explicitly. An indexing failure is
+reported even if the game was successfully saved; reimporting retries indexing.
+
+**Done** stays in the library. Imported games are highlighted; catalogue filters
+are cleared and games sorted newest first. **Analysis options…** opens a report
+restricted to these imported game IDs, including older games outside the normal
+latest-20 window. Nothing starts automatically. **Analyse imported games** then
+analyses only identified pending/partial games in that selection, using the
+visible settings. Completed analysis is skipped.
+
+An existing saved queue is never overwritten or silently extended. Resume runs
+that original queue. To analyse the import instead, explicitly clear the paused
+queue (saved results remain), then start the selected import batch. Returning to
+the ordinary Report card restores its usual latest-20 scope.
+
+**Open → SGF** remains the route for opening a file for study without importing it.
+
+Verification: core tests cover duplicates, mixed success/failure, cancellation,
+identity reuse, explicit older-game selection, and selected queue creation.
+Local delivery checks include QML parsing and a mocked report-panel selection/
+start/pause check; a full Rust/Qt build must be run on the development machine.
