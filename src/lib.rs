@@ -1,3 +1,5 @@
+pub mod personal_snapshots;
+mod snapshot_html;
 pub mod game_analysis;
 pub mod board;
 pub mod board_display;

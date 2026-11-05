@@ -128,6 +128,9 @@ impl AnalysisStore {
         let saved: GameAnalysis = serde_json::from_str(&header)?;
         // Keep original provenance when resuming the exact same input and settings.
         run.provenance = saved.provenance;
+        self.read_results(run)
+    }
+    fn read_results(&self, mut run: GameAnalysis) -> Result<GameAnalysis> {
         run.results.clear();
         run.refinements.clear();
         let mut query = self.db.prepare("SELECT result FROM analysis_positions WHERE run_id=?1 ORDER BY turn")?;
@@ -144,7 +147,22 @@ impl AnalysisStore {
     }
     pub fn load(&self, run_id: &str) -> Result<GameAnalysis> {
         let header: String = self.db.query_row("SELECT header FROM analysis_runs WHERE id=?1", [run_id], |r| r.get(0))?;
-        self.restore(serde_json::from_str(&header)?)
+        self.read_results(serde_json::from_str(&header)?)
+    }
+    /// Copy all selected runs from one SQLite read transaction, without touching
+    /// the live checkpoints. Even an active batch cannot mix versions here.
+    pub fn freeze_latest(path: &Path, positions: &[crate::katago::AnalysisPosition]) -> Result<Vec<Option<GameAnalysis>>> {
+        if !path.is_file() { return Ok(vec![None; positions.len()]); }
+        let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_timeout(Duration::from_secs(5))?;
+        db.execute_batch("BEGIN")?;
+        let store = Self { db };
+        let copied = (|| {
+            store.latest_whole_game_ids(positions)?.into_iter()
+                .map(|id| id.map(|id| store.load(&id)).transpose()).collect()
+        })();
+        store.db.execute_batch("ROLLBACK")?;
+        copied
     }
     /// Find the newest non-empty report for the exact game history and scope.
     /// Reading saved evidence must not require installed engine files.

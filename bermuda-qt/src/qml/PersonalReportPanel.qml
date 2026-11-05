@@ -79,6 +79,7 @@ Frame {
         onBatch_busyChanged: if (!batch_busy) panel.refresh()
         onLoadingChanged: if (!loading && !error_message.length) Qt.callLater(function() { if (!reportModel.loading && !reportModel.error_message.length) panel.reportReady() })
     }
+    PersonalSnapshotsDialog { id: snapshotsDialog }
     Dialog {
         id: batchProgress
         parent: Overlay.overlay
@@ -103,6 +104,7 @@ Frame {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("My games · Report card"); font.pixelSize: 22; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
+            Button { text: qsTr("Groups and snapshots…"); enabled: !panel.batchBusy && !reportModel.loading; onClicked: snapshotsDialog.openForProject(panel.projectPath) }
             Button { text: qsTr("Back to Home"); onClicked: panel.closeReport() }
         }
         Label { text: panel.importedIds.length ? qsTr("Analysis for the %1 games selected from your import. Only games with an identified playing colour are included.").arg(panel.importedIds.length) : qsTr("Summary across your most recent 20 identified games. Each decision below identifies its game; click it to open the position."); wrapMode: Text.Wrap; Layout.fillWidth: true }
@@ -270,7 +272,7 @@ Frame {
                     visible: panel.groups.length > 0
                     Layout.fillWidth: true
                     spacing: 8
-                    Label { text: qsTr("Consistency"); font.pixelSize: 18; font.bold: true }
+                    Label { text: qsTr("Estimated cost of my moves"); font.pixelSize: 18; font.bold: true }
                     Label {
                         text: qsTr("%1 of your moves assessed across %2 games · %3 visits")
                             .arg(panel.group.decisions || 0).arg(panel.group.games || 0).arg(panel.group.visits || 0)

@@ -2,7 +2,7 @@
 
 **Status:** Canonical project-wide work plan.
 
-**Last updated:** 3 November 2026.
+**Last updated:** 5 November 2026.
 
 ## Purpose
 
@@ -229,7 +229,7 @@ The latest 20 games is a convenient current view, not a retention limit or an
 agreed statistical sample size. Saved per-game analysis is the foundation;
 fixed groups and historical comparisons are not yet implemented.
 
-#### 4A. Preserve named game groups and analysis snapshots — next increment
+#### 4A. Preserve named game groups and analysis snapshots — first implementation, awaiting user acceptance
 
 - Select games explicitly or by a date range, then save a named group with
   fixed membership. Later imports must not change it. Show dates, game count,
@@ -247,11 +247,26 @@ fixed groups and historical comparisons are not yet implemented.
 - Show complete/partial/pending/excluded coverage and snapshot creation date.
   Saved partial snapshots remain visibly partial.
 
+**First implementation (5 November):** The report card now offers **Groups and
+snapshots…**. Select games explicitly or by an inclusive date filter, save a
+fixed group, then capture separately named reports. Group membership, names and
+your playing colour are fixed at group creation. Main-line SGF copies and full
+analysis evidence live in the personal project's `personal-snapshots.sqlite3`,
+separate from mutable checkpoints. Source deletion, identity edits and subsequent
+analysis do not rewrite a saved report. Unknown/ambiguous identities are retained
+as explicitly excluded members; partial and missing analysis remain visible.
+
+**Print / Save as PDF** is included through a self-contained browser report,
+with optional individual game pages, score graphs and position diagrams. It
+prints the chosen frozen snapshot. This is a read-only archive view; interactive
+live review remains unchanged. See `my-games-snapshots.md` for the workflow,
+storage/retention policy and checks. Automated preservation tests pass; local
+application acceptance remains outstanding. Side-by-side group comparison is 4D.
+
 **Acceptance:** Save an October group and report, import November games, and
 reanalyze an October game. After restart, the original membership and report
-remain reproducible and the new analysis is separately selectable. Decide the
-storage/retention mechanism before implementation; do not assume today's
-checkpoint store already supplies immutable historical reports.
+remain reproducible and the new analysis is separately selectable. Check summary
+and individual-game printouts against the preserved evidence.
 
 #### 4B. Collect decisions with the player's interpretation
 
@@ -440,11 +455,10 @@ personal experience or the relationship between them.
 
 ## Immediate next task
 
-Commit the accepted direct-import changes, including the Qt Dialog property
-correction, together with this updated plan after reviewing local status.
-Then design the smallest usable **4A** increment: named fixed game groups and
-reproducible saved reports. Agree how games are selected, how analysis snapshots
-are retained and how reanalysis is presented before implementing comparisons.
+The direct-import changes and their workplan update were committed in `51092cc`.
+Exercise the first **4A** increment: named fixed game groups, reproducible saved
+reports and printing. Verify game selection, retention across reanalysis and
+restart, and the report layout before implementing comparisons.
 
 Continue using the existing reports to collect concrete questions and possible
 labels. GPU setup and benchmarking can proceed when the card arrives, keeping

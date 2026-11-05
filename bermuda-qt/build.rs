@@ -25,6 +25,7 @@ fn main() {
             .qml_file("src/qml/WholeGameReviewPanel.qml")
             .qml_file("src/qml/NavigationHome.qml")
             .qml_file("src/qml/PersonalReportPanel.qml")
+            .qml_file("src/qml/PersonalSnapshotsDialog.qml")
             .qml_file("src/qml/AboutDialog.qml")
             .qml_file("src/qml/DatabaseImportDialog.qml")
             .qml_file("src/qml/DatabaseProgressDialog.qml")
@@ -41,5 +42,6 @@ fn main() {
     .file("src/player_identity_model.rs")
     .file("src/personal_report_model.rs")
     .file("src/personal_import_model.rs")
+    .file("src/personal_snapshot_model.rs")
     .build();
 }

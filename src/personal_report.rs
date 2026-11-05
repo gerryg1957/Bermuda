@@ -64,18 +64,30 @@ pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64])
         Some(store) => store.latest_whole_game_ids(&positions)?,
         None => vec![None; games.len()],
     };
+    let mut evidence = Vec::new();
+    for ((game_id, colour), run_id) in games.iter().zip(ids) {
+        let game = catalogue.get(*game_id)?;
+        let title = format!("{} — {}", game.black_player_display.as_deref().unwrap_or("Black"), game.white_player_display.as_deref().unwrap_or("White"));
+        let metadata = json!({"game_id": game_id, "title": title, "date": game.game_date,
+            "colour": colour, "result": game.result});
+        let run = run_id.map(|id| store.as_ref().expect("saved ID requires store").load(&id)).transpose()?;
+        evidence.push((metadata, run));
+    }
+    summarise(&evidence, total, identified)
+}
+
+/// Shared by the live report and immutable snapshots. Never reloads a run.
+pub(crate) fn summarise(evidence: &[(Value, Option<GameAnalysis>)], total: i64, identified: i64) -> Result<Value> {
     let mut complete = 0;
     let mut partial = 0;
     let mut groups: BTreeMap<String, Value> = BTreeMap::new();
     let mut pending = Vec::new();
-    for ((game_id, colour), run_id) in games.iter().zip(ids) {
-        let game = catalogue.get(*game_id)?;
-        let title = format!("{} — {}", game.black_player_display.as_deref().unwrap_or("Black"), game.white_player_display.as_deref().unwrap_or("White"));
-        let Some(run_id) = run_id else {
-            pending.push(json!({"game_id": game_id, "title": title, "date": game.game_date, "colour": colour, "result": game.result}));
-            continue;
-        };
-        let run = store.as_ref().expect("saved ID requires store").load(&run_id)?;
+    for (game, run) in evidence {
+        let game_id = &game["game_id"];
+        let colour = &game["colour"];
+        let title = &game["title"];
+        let Some(run) = run else { pending.push(game.clone()); continue; };
+        let run_id = &run.run_id;
         if run.complete() { complete += 1; } else { partial += 1; }
         let group = groups.entry(settings_key(&run)?).or_insert_with(|| json!({
             "visits": run.request.max_visits, "rules": run.request.rules,
@@ -84,8 +96,8 @@ pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64])
         }));
         group["games"] = json!(group["games"].as_u64().unwrap() + 1);
         group["analysed"].as_array_mut().unwrap().push(json!({
-            "game_id": game_id, "run_id": run_id, "title": title, "date": game.game_date,
-            "colour": colour, "result": game.result, "complete": run.complete(), "positions": run.results.len(), "total": run.total()
+            "game_id": game_id, "run_id": run_id, "title": title, "date": game["date"],
+            "colour": colour, "result": game["result"], "complete": run.complete(), "positions": run.results.len(), "total": run.total()
         }));
         for decision in run.decisions() {
             if decision["player"] != json!(colour) { continue; }
@@ -97,8 +109,8 @@ pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64])
             example["game_id"] = json!(game_id);
             example["run_id"] = json!(run_id);
             example["title"] = json!(title);
-            example["date"] = json!(game.game_date);
-            example["result"] = json!(game.result);
+            example["date"] = json!(game["date"]);
+            example["result"] = json!(game["result"]);
             example["colour"] = json!(colour);
             example["loss"] = json!(loss);
             for (list, key, threshold) in [("examples", "loss", 1.0), ("win_examples", "win_loss", 5.0)] {
@@ -113,7 +125,7 @@ pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64])
         }
     }
     Ok(json!({"needs_names": false, "total": total, "identified": identified,
-        "selected": games.len(), "complete": complete, "partial": partial,
+        "selected": evidence.len(), "complete": complete, "partial": partial,
         "pending": pending, "groups": groups.into_values().collect::<Vec<_>>() }))
 }
 

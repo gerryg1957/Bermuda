@@ -2,15 +2,16 @@
 
 _Last updated: 2026-09-22 · branch: `master` · base checkpoint: `553fdbd`_
 
-**Current direction (3 November 2026):** `bermuda-workplan.md` is authoritative.
+**Current direction (5 November 2026):** `bermuda-workplan.md` is authoritative.
 The numbered sequence below is a historical September checklist, not the current
 development order. Items 2 and 3 are complete for their agreed scope. Windows
 startup/memory work still awaits tester information. Item 4 is in progress:
 personal name mapping, saved-analysis reports, resumable batches, decision review
 and direct multi-file import have been exercised by the user. Named fixed game
-groups and reproducible analysis snapshots are next; labelled examples,
-recurrence, professional links, comparisons and practice follow the acceptance
-criteria in item 4A–4E. These planned stages are not yet implemented.
+groups and reproducible analysis snapshots now have a first implementation,
+including printable preserved reports, awaiting user acceptance. Labelled
+examples, recurrence, professional links, comparisons and practice remain
+planned under 4B–4E. See `my-games-snapshots.md` for the 4A workflow and checks.
 
 ## 1.0 objective
 
