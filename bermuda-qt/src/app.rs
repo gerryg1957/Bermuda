@@ -105,6 +105,10 @@ mod ffi {
         fn ensure_personal_project(self: Pin<&mut BermudaApp>) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "reviewPlayerRanks"]
+        fn review_player_ranks(self: &BermudaApp) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "loadGame"]
         fn load_game(self: Pin<&mut BermudaApp>, project_path: &QString, game_id: i64) -> bool;
 
@@ -1140,6 +1144,24 @@ impl ffi::BermudaApp {
                 false
             }
         }
+    }
+
+    fn review_player_ranks(&self) -> QString {
+        let ranks = (|| -> Option<(Option<String>, Option<String>)> {
+            let document = self.rust().loaded_document.as_ref()?;
+            if let Some(collection) = &document.study.collection {
+                let record = extract_main_variation(collection).ok()?;
+                return Some((record.metadata.black_rank, record.metadata.white_rank));
+            }
+            if let StudyOrigin::ProjectGame { project_path, game_id } = &document.study.metadata.origin {
+                let project = ProjectManager::new().open(Path::new(project_path)).ok()?;
+                let game = project.catalogue().ok()?.get(*game_id).ok()?;
+                return Some((game.black_rank, game.white_rank));
+            }
+            None
+        })();
+        let (black, white) = ranks.unwrap_or_default();
+        QString::from(serde_json::json!({"black":black, "white":white}).to_string())
     }
 
     fn load_game(mut self: Pin<&mut Self>, project_path: &QString, game_id: i64) -> bool {
@@ -4022,6 +4044,8 @@ fn study_game_record(document: &LoadedDocument) -> Result<GameRecord, String> {
     Ok(GameRecord {
         board_size,
         metadata: Metadata {
+            black_rank: document.study.collection.as_ref().and_then(|c| c.trees.first()).and_then(|t| t.sequence.first()).and_then(|n| n.first("BR")).map(str::to_owned),
+            white_rank: document.study.collection.as_ref().and_then(|c| c.trees.first()).and_then(|t| t.sequence.first()).and_then(|n| n.first("WR")).map(str::to_owned),
             black_player: document.black_player.clone(),
             white_player: document.white_player.clone(),
             date: None,
@@ -5632,6 +5656,8 @@ fn played_game_record(document: &LoadedDocument) -> Result<GameRecord, String> {
         board_size: initial.board.size(),
 
         metadata: Metadata {
+            black_rank: None,
+            white_rank: None,
             black_player: document.black_player.clone(),
             white_player: document.white_player.clone(),
             date: None,

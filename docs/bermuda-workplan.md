@@ -2,7 +2,7 @@
 
 **Status:** Canonical project-wide work plan.
 
-**Last updated:** 5 November 2026.
+**Last updated:** 7 November 2026.
 
 ## Purpose
 
@@ -223,13 +223,13 @@ and file issues, reuses name mappings, and offers analysis options for the
 imported selection, including older games outside the latest-20 report.
 The user verified a four-file import with three existing games, then the
 analysis-options workflow. The initial Qt Dialog property-name conflict was
-corrected before acceptance. These changes still need their own commit.
+corrected before acceptance; committed in `51092cc`.
 
 The latest 20 games is a convenient current view, not a retention limit or an
 agreed statistical sample size. Saved per-game analysis is the foundation;
 fixed groups and historical comparisons are not yet implemented.
 
-#### 4A. Preserve named game groups and analysis snapshots — first implementation, awaiting user acceptance
+#### 4A. Preserve named game groups and analysis snapshots — implemented and accepted
 
 - Select games explicitly or by a date range, then save a named group with
   fixed membership. Later imports must not change it. Show dates, game count,
@@ -261,7 +261,7 @@ with optional individual game pages, score graphs and position diagrams. It
 prints the chosen frozen snapshot. This is a read-only archive view; interactive
 live review remains unchanged. See `my-games-snapshots.md` for the workflow,
 storage/retention policy and checks. Automated preservation tests pass; local
-application acceptance remains outstanding. Side-by-side group comparison is 4D.
+application use and graphical printing were accepted on 5 November 2026. Side-by-side group comparison is 4D.
 
 **Acceptance:** Save an October group and report, import November games, and
 reanalyze an October game. After restart, the original membership and report
@@ -455,17 +455,36 @@ personal experience or the relationship between them.
 
 ## Immediate next task
 
-The direct-import changes and their workplan update were committed in `51092cc`.
-Exercise the first **4A** increment: named fixed game groups, reproducible saved
-reports and printing. Verify game selection, retention across reanalysis and
-restart, and the report layout before implementing comparisons.
+4A was accepted and committed in `521aa04`: fixed named groups, frozen analysis
+snapshots and graphical printable reports. The next main increment is **4B**,
+keeping and labelling decisions for study.
 
-Continue using the existing reports to collect concrete questions and possible
-labels. GPU setup and benchmarking can proceed when the card arrives, keeping
-existing CPU analysis as a baseline; new hardware is not a prerequisite for
-preserving groups. Do not interpret a change in engine/settings as an improvement
-in the player's decisions. Windows investigation resumes when tester information
-arrives.
+The 7 November review polish adds recorded player ranks and a square board marker
+for the actual next move, including when it overlaps an engine candidate. Verify
+these in use before resuming 4B.
+
+The Windows tester reports that resetting AppData permits startup, but creating
+even a 30-game database causes the next launch to freeze/crash on an earlier
+build. Obtain the exact version and preserve the failing profile/database; compare
+a current-build relaunch with manual database opening. The cause is not yet known.
+
+### Planned: remote/cloud KataGo analysis
+
+Offer **This computer** and **Remote/cloud engine** in KataGo setup, using the
+same review, whole-game and personal-batch workflows. This is an agreed work item;
+provider selection and implementation are pending the user's service suggestions.
+Investigate suitable APIs or a user-controlled remote GPU engine, including any
+free/low-cost compute options; do not promise availability or pricing yet.
+
+Before implementation, settle authentication and credential storage, explicit
+consent to send game/position data, usage/cost visibility and limits, cancellation,
+connection failure and checkpoint recovery. Preserve engine/network/settings and
+provider provenance so saved reports remain interpretable and comparable. Remote
+compute does not require cloud synchronisation of the user's library.
+
+Keep existing CPU snapshots as a baseline when testing GPU or remote analysis.
+A change in analysis quality is not evidence of improvement in the player's past
+decisions.
 
 ## Documentation map
 

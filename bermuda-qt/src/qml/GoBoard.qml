@@ -20,6 +20,8 @@ Item {
     onPreviewMarkupChanged: boardCanvas.requestPaint()
     property var continuationPoints: []
     property var katagoCandidatePoints: []
+    property var playedMovePoint: null
+    onPlayedMovePointChanged: boardCanvas.requestPaint()
 
     onKatagoCandidatePointsChanged: boardCanvas.requestPaint()
     onMarkupChanged: boardCanvas.requestPaint()
@@ -645,6 +647,7 @@ Item {
             drawCoordinates(ctx, left, top, usable, spacing)
             drawContinuationMap(ctx, left, top, spacing)
             drawKataGoCandidateMap(ctx, left, top, spacing)
+            drawPlayedMove(ctx, left, top, spacing)
             drawStones(ctx, left, top, spacing)
             drawBoardMarkup(ctx, left, top, spacing)
             drawPatternSelection(ctx, left, top, spacing)
@@ -1369,6 +1372,21 @@ Item {
                 ctx.stroke()
             }
         }
+
+            function drawPlayedMove(ctx, left, top, spacing) {
+                if (!root.playedMovePoint) return
+                const p = root.boardToViewPoint(root.playedMovePoint.x, root.playedMovePoint.y)
+                const x = left + p.x * spacing, y = top + p.y * spacing
+                const radius = spacing * 0.43
+                ctx.save()
+                ctx.strokeStyle = "#ffffff"
+                ctx.lineWidth = Math.max(4, spacing * 0.13)
+                ctx.strokeRect(x - radius, y - radius, radius * 2, radius * 2)
+                ctx.strokeStyle = "#202020"
+                ctx.lineWidth = Math.max(2, spacing * 0.065)
+                ctx.strokeRect(x - radius, y - radius, radius * 2, radius * 2)
+                ctx.restore()
+            }
 
             function drawKataGoCandidateMap(ctx, left, top, spacing) {
                 if (root.katagoCandidatePoints === null

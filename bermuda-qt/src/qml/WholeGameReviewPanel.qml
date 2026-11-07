@@ -119,6 +119,17 @@ Frame {
     }
     property var gameIdentity
     property string gameTitle: ""
+    readonly property var playerRanks: {
+        const identity = gameIdentity, revision = contextRevision
+        return controller ? JSON.parse(controller.reviewPlayerRanks()) : ({})
+    }
+    readonly property string rankedGameTitle: {
+        if (!gameIdentity) return gameTitle
+        const black = gameIdentity.black || "", white = gameIdentity.white || ""
+        return [black + (playerRanks.black ? " · " + playerRanks.black : ""),
+                white + (playerRanks.white ? " · " + playerRanks.white : "")].filter(function(n) { return n.length }).join(" — ")
+            + (gameIdentity.reportDate ? " · " + gameIdentity.reportDate : "")
+    }
     property int contextRevision: 0
     property string startError: ""
     property var rawReport: {
@@ -174,6 +185,20 @@ Frame {
                 visits: c.visits, label: c.user_move ? "?" : candidateLabel(index), recommended: c.recommended, userMove: c.user_move,
                 selected: index === selectedCandidate }
         }).filter(function(p) { return p !== null })
+    }
+    // Separate from candidates: the recorded move is evidence, not an engine ranking.
+    readonly property var playedMovePoint: {
+        if (positionOnly || previewActive || choosingOwnMove || pendingWhyVertex.length
+                || !matchesLoaded || !recordedMove || !controller
+                || controller.move_number !== selectedTurn || !recordedMove.vertex.Point) return null
+        return {x: recordedMove.vertex.Point.x, y: report.board_size - 1 - recordedMove.vertex.Point.y}
+    }
+    function investigatePlayedMove() {
+        if (!recordedMove || !currentResult || !matchesLoaded || !controller || controller.whole_game_busy) return
+        const vertex = recordedMove.vertex
+        choosingOwnMove = true
+        if (vertex === "Pass") investigatePoint(-1, -1)
+        else investigatePoint(vertex.Point.x, report.board_size - 1 - vertex.Point.y)
     }
     signal navigate(int moveNumber)
     signal leaveReview()
@@ -306,7 +331,7 @@ Frame {
             Label { text: panel.positionOnly ? qsTr("Review position %1").arg(panel.selectedTurn) : qsTr("Review game"); font.bold: true; Layout.fillWidth: true }
             Button { text: panel.returnText; onClicked: panel.leaveReview(); ToolTip.visible: hovered; ToolTip.text: qsTr("Return to the previous database or Study view") }
         }
-        Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: (panel.gameTitle || qsTr("Current game")) + (panel.controller ? qsTr(" · %1 moves").arg(panel.controller.move_count) : "") }
+        Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: (panel.rankedGameTitle || qsTr("Current game")) + (panel.controller ? qsTr(" · %1 moves").arg(panel.controller.move_count) : "") }
         Label {
             Layout.fillWidth: true; wrapMode: Text.Wrap; font.bold: true
             text: (panel.myColour ? qsTr("You: %1 · ").arg(panel.myColour) : "")
@@ -354,7 +379,7 @@ Frame {
                 spacing: 8
                 Label {
                     Layout.fillWidth: true; wrapMode: Text.Wrap
-                    text: panel.recordedMove ? qsTr("Played in the game: %1 %2 (move %3)")
+                    text: panel.recordedMove ? qsTr("□ Played in the game: %1 %2 (move %3)")
                         .arg(panel.recordedMove.colour).arg(panel.vertexName(panel.recordedMove.vertex)).arg(panel.selectedTurn + 1) : qsTr("End of recorded game")
                     font.bold: true
                 }
@@ -371,12 +396,7 @@ Frame {
                     Button {
                         text: qsTr("Investigate played move")
                         enabled: panel.recordedMove !== null && panel.currentResult !== null && panel.matchesLoaded && panel.controller !== null && !panel.controller.whole_game_busy
-                        onClicked: {
-                            const vertex = panel.recordedMove.vertex
-                            panel.choosingOwnMove = true
-                            if (vertex === "Pass") panel.investigatePoint(-1, -1)
-                            else panel.investigatePoint(vertex.Point.x, panel.report.board_size - 1 - vertex.Point.y)
-                        }
+                        onClicked: panel.investigatePlayedMove()
                     }
                 }
 
@@ -564,7 +584,7 @@ Frame {
                         visible: panel.investigatingMove.length > 0 && panel.controller !== null && panel.controller.candidate_analysis_busy
                         text: qsTr("Investigating your move: %1…").arg(panel.investigatingMove)
                     }
-                    Label { text: qsTr("Click a candidate marker to explore it. Why not this? lets you choose another move."); wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    Label { text: qsTr("Square outline: played in the game; click it to investigate. Lettered circles: engine candidates. Why not this? lets you choose another move."); wrapMode: Text.Wrap; Layout.fillWidth: true }
                     Repeater {
                         model: panel.candidates
                         delegate: ItemDelegate {

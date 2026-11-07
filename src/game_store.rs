@@ -224,7 +224,11 @@ pub(crate) fn load_game_record(
 
     let move_file = database_root.join(relative_move_file);
 
-    read_move_file(&move_file).with_context(|| format!("reading move file for game {game_id}"))
+    let mut record = read_move_file(&move_file).with_context(|| format!("reading move file for game {game_id}"))?;
+    let metadata = crate::game_list::get_game(connection, game_id)?;
+    record.metadata.black_rank = metadata.black_rank;
+    record.metadata.white_rank = metadata.white_rank;
+    Ok(record)
 }
 
 pub(crate) fn load_positions(
@@ -302,6 +306,8 @@ mod tests {
         GameRecord {
             board_size: 19,
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: Some("Alpha".to_owned()),
                 white_player: Some("Beta".to_owned()),
                 date: Some("2026-07-27".to_owned()),

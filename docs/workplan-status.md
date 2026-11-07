@@ -9,7 +9,7 @@ startup/memory work still awaits tester information. Item 4 is in progress:
 personal name mapping, saved-analysis reports, resumable batches, decision review
 and direct multi-file import have been exercised by the user. Named fixed game
 groups and reproducible analysis snapshots now have a first implementation,
-including printable preserved reports, awaiting user acceptance. Labelled
+including graphical printable preserved reports, accepted on 5 November 2026. Labelled
 examples, recurrence, professional links, comparisons and practice remain
 planned under 4B–4E. See `my-games-snapshots.md` for the 4A workflow and checks.
 

@@ -101,3 +101,19 @@ Verification: core tests cover duplicates, mixed success/failure, cancellation,
 identity reuse, explicit older-game selection, and selected queue creation.
 Local delivery checks include QML parsing and a mocked report-panel selection/
 start/pause check; a full Rust/Qt build must be run on the development machine.
+
+## Recorded ranks (7 November 2026)
+
+The library shows each player's recorded SGF rank beside their name, including
+a mapped name such as Me. The review heading shows both ranks. These are BR/WR
+values from that game, not a current rating or a strength inferred from KataGo.
+Missing values stay blank; rank systems from different servers are not normalised.
+
+New imports retain ranks as optional source metadata. Older imports recover them
+from readable original SGFs only when their canonical game hash still matches.
+For personal imports whose source locator is a hash, use Add games again with the
+original SGFs: missing ranks are filled without duplicating games or rerunning
+analysis. Previously preserved analysis snapshots remain unchanged.
+
+The optional database columns are added transactionally without changing schema
+version 8 or the compact move-file format. Old 0.8.3 builds can still open it.

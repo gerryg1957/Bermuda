@@ -904,6 +904,8 @@ mod tests {
             setup: Vec::new(),
             moves,
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: None,
                 white_player: None,
                 date: None,

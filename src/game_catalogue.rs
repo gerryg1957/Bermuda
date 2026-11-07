@@ -28,11 +28,41 @@ impl GameCatalogue {
     }
 
     pub fn list(&self, query: &GameListQuery) -> Result<Vec<GameListRow>> {
-        game_list::list_games(&self.connection, query)
+        let rows = game_list::list_games(&self.connection, query)?;
+        let mut recovered = false;
+        for row in &rows { recovered |= self.recover_ranks(row.game_id)?; }
+        if recovered { game_list::list_games(&self.connection, query) } else { Ok(rows) }
     }
 
     pub fn list_occurrences(&self, query: &GameListQuery) -> Result<Vec<GameOccurrenceRow>> {
-        game_list::list_game_occurrences(&self.connection, query)
+        let rows = game_list::list_game_occurrences(&self.connection, query)?;
+        let mut recovered = false;
+        for row in &rows { recovered |= self.recover_ranks(row.game_id)?; }
+        if recovered { game_list::list_game_occurrences(&self.connection, query) } else { Ok(rows) }
+    }
+
+    // Older imports did not retain BR/WR. Recover only from an unchanged,
+    // readable source; hash-based personal imports can instead be re-added.
+    fn recover_ranks(&self, game_id: i64) -> Result<bool> {
+        let mut stmt = self.connection.prepare("SELECT s.id, s.original_path, g.canonical_hash
+            FROM game_sources s JOIN games g ON g.id=s.game_id
+            JOIN game_metadata m ON m.game_source_id=s.id
+            WHERE s.game_id=?1 AND (m.black_rank IS NULL OR m.white_rank IS NULL)")?;
+        let sources = stmt.query_map([game_id], |row| Ok((row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?, row.get::<_, Vec<u8>>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut recovered = false;
+        for (id, path, hash) in sources {
+            let Ok(bytes) = std::fs::read(path) else { continue };
+            let Ok(collection) = crate::parse_collection(&bytes) else { continue };
+            let Ok(record) = crate::extract_main_variation(&collection) else { continue };
+            if crate::canonical_hash(&record)?.as_slice() != hash.as_slice() { continue; }
+            if record.metadata.black_rank.is_none() && record.metadata.white_rank.is_none() { continue; }
+            self.connection.execute("UPDATE game_metadata SET black_rank=COALESCE(black_rank,?1),
+                white_rank=COALESCE(white_rank,?2) WHERE game_source_id=?3",
+                rusqlite::params![record.metadata.black_rank, record.metadata.white_rank, id])?;
+            recovered = true;
+        }
+        Ok(recovered)
     }
 
     pub fn count(&self, query: &GameListQuery) -> Result<u64> {
@@ -40,6 +70,7 @@ impl GameCatalogue {
     }
 
     pub fn get(&self, game_id: i64) -> Result<GameListRow> {
+        self.recover_ranks(game_id)?;
         game_list::get_game(&self.connection, game_id)
     }
 }

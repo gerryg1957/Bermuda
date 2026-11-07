@@ -126,6 +126,14 @@ impl Importer {
         let source_id = find_or_create_source(&transaction, source_name, source_version)?;
 
         if let Some(game_id) = find_existing_source_path(&transaction, source_id, source_locator)? {
+            // Re-adding an existing SGF can recover ranks omitted by older releases.
+            // Do not attach metadata from a changed file to a different game.
+            if find_game_by_hash(&transaction, &canonical_hash)? == Some(game_id) {
+                transaction.execute("UPDATE game_metadata SET
+                    black_rank = COALESCE(black_rank, ?1), white_rank = COALESCE(white_rank, ?2)
+                    WHERE game_source_id IN (SELECT id FROM game_sources WHERE source_id=?3 AND original_path=?4)",
+                    params![record.metadata.black_rank, record.metadata.white_rank, source_id, source_locator])?;
+            }
             transaction
                 .commit()
                 .context("committing duplicate-source transaction")?;
@@ -360,11 +368,11 @@ fn insert_metadata(
                 black_player_id,
                 white_player_id,
                 black_player_catalogue_derived,
-                white_player_catalogue_derived
+                white_player_catalogue_derived, black_rank, white_rank
             )
             VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                ?8, ?9, ?10, ?11, ?12, ?13
+                ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
             )
             "#,
             params![
@@ -381,6 +389,8 @@ fn insert_metadata(
                 white_player.player_id,
                 black_player.catalogue_derived,
                 white_player.catalogue_derived,
+                record.metadata.black_rank.as_deref(),
+                record.metadata.white_rank.as_deref(),
             ],
         )
         .context("inserting source-specific game metadata")?;
@@ -743,6 +753,7 @@ mod tests {
         connection.execute_batch(
             r#"
         CREATE TABLE game_metadata (
+                black_rank TEXT, white_rank TEXT,
             id              INTEGER PRIMARY KEY,
             game_source_id  INTEGER NOT NULL,
             black_player    TEXT,
@@ -903,6 +914,7 @@ mod tests {
             );
 
             CREATE TABLE game_metadata (
+                black_rank TEXT, white_rank TEXT,
                 id                INTEGER PRIMARY KEY,
                 game_source_id    INTEGER NOT NULL,
                 black_player      TEXT,

@@ -2366,6 +2366,8 @@ Kirigami.AbstractCard {
                 required property int index
                 required property var gameId
                 required property var gameSourceId
+                required property string blackRank
+                required property string whiteRank
                 required property string blackPlayer
                 required property string whitePlayer
                 required property string playedDate
@@ -2405,6 +2407,7 @@ Kirigami.AbstractCard {
                         gameId: gameId,
                         gameSourceId: gameSourceId,
                         black: blackPlayer,
+                        blackRank: blackRank, whiteRank: whiteRank,
                         white: whitePlayer,
                         gameDate: playedDate,
                         result: result,
@@ -2427,8 +2430,8 @@ Kirigami.AbstractCard {
 
                     Label {
                         text: root.whiteColumnFirst
-                              ? rowDelegate.whitePlayer
-                              : rowDelegate.blackPlayer
+                              ? (rowDelegate.whitePlayer + (rowDelegate.whiteRank ? " · " + rowDelegate.whiteRank : ""))
+                              : (rowDelegate.blackPlayer + (rowDelegate.blackRank ? " · " + rowDelegate.blackRank : ""))
                         Layout.preferredWidth: root.playerColumnWidth
                         Layout.maximumWidth: root.playerColumnWidth
                         elide: Text.ElideRight
@@ -2441,8 +2444,8 @@ Kirigami.AbstractCard {
 
                     Label {
                         text: root.whiteColumnFirst
-                              ? rowDelegate.blackPlayer
-                              : rowDelegate.whitePlayer
+                              ? (rowDelegate.blackPlayer + (rowDelegate.blackRank ? " · " + rowDelegate.blackRank : ""))
+                              : (rowDelegate.whitePlayer + (rowDelegate.whiteRank ? " · " + rowDelegate.whiteRank : ""))
                         Layout.preferredWidth: root.playerColumnWidth
                         Layout.maximumWidth: root.playerColumnWidth
                         elide: Text.ElideRight

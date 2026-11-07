@@ -93,6 +93,8 @@ pub struct GameListRow {
      * selected source metadata. The display fields are Bermuda's preferred
      * presentation when a confirmed identity exists.
      */
+    pub black_rank: Option<String>,
+    pub white_rank: Option<String>,
     pub black_player: Option<String>,
     pub white_player: Option<String>,
     pub black_player_id: Option<i64>,
@@ -113,6 +115,8 @@ pub struct GameOccurrenceRow {
     pub game_source_id: i64,
     pub game_id: i64,
 
+    pub black_rank: Option<String>,
+    pub white_rank: Option<String>,
     pub black_player: Option<String>,
     pub white_player: Option<String>,
     pub black_player_id: Option<i64>,
@@ -480,6 +484,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
         WITH ranked_metadata AS (
             SELECT
                 game_sources.game_id,
+                game_metadata.black_rank,
+                game_metadata.white_rank,
                 game_metadata.black_player,
                 game_metadata.white_player,
                 game_metadata.black_player_id,
@@ -501,6 +507,7 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
                             (game_metadata.event IS NOT NULL) +
                             (game_metadata.komi IS NOT NULL)
                         ) DESC,
+                        ((game_metadata.black_rank IS NOT NULL) + (game_metadata.white_rank IS NOT NULL)) DESC,
                         game_sources.id ASC
                 ) AS metadata_rank
 
@@ -513,6 +520,8 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
         selected_metadata AS (
             SELECT
                 game_id,
+                black_rank,
+                white_rank,
                 black_player,
                 white_player,
                 black_player_id,
@@ -546,7 +555,9 @@ pub fn list_games(connection: &Connection, query: &GameListQuery) -> Result<Vec<
 
             selected_metadata.result,
             selected_metadata.event,
-            selected_metadata.komi
+            selected_metadata.komi,
+            selected_metadata.black_rank,
+            selected_metadata.white_rank
 
         FROM games
 
@@ -628,6 +639,8 @@ ORDER BY {order_by}
                     result: row.get(8)?,
                     event: row.get(9)?,
                     komi: row.get(10)?,
+                    black_rank: row.get(11)?,
+                    white_rank: row.get(12)?,
                     matched_move: None,
                     match_count: None,
                 })
@@ -687,7 +700,9 @@ pub fn list_game_occurrences(
             selected_metadata.played_date,
             selected_metadata.result,
             selected_metadata.event,
-            selected_metadata.komi
+            selected_metadata.komi,
+            selected_metadata.black_rank,
+            selected_metadata.white_rank
 
         FROM game_sources
 
@@ -773,6 +788,8 @@ pub fn list_game_occurrences(
                     result: row.get(9)?,
                     event: row.get(10)?,
                     komi: row.get(11)?,
+                    black_rank: row.get(12)?,
+                    white_rank: row.get(13)?,
                 })
             },
         )
@@ -794,6 +811,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
         WITH ranked_metadata AS (
             SELECT
                 game_sources.game_id,
+                game_metadata.black_rank,
+                game_metadata.white_rank,
                 game_metadata.black_player,
                 game_metadata.white_player,
                 game_metadata.black_player_id,
@@ -815,6 +834,7 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
                             (game_metadata.event IS NOT NULL) +
                             (game_metadata.komi IS NOT NULL)
                         ) DESC,
+                        ((game_metadata.black_rank IS NOT NULL) + (game_metadata.white_rank IS NOT NULL)) DESC,
                         game_sources.id ASC
                 ) AS metadata_rank
 
@@ -827,6 +847,8 @@ pub fn count_games(connection: &Connection, query: &GameListQuery) -> Result<u64
         selected_metadata AS (
             SELECT
                 game_id,
+                black_rank,
+                white_rank,
                 black_player,
                 white_player,
                 black_player_id,
@@ -906,6 +928,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
         WITH ranked_metadata AS (
             SELECT
                 game_sources.game_id,
+                game_metadata.black_rank,
+                game_metadata.white_rank,
                 game_metadata.black_player,
                 game_metadata.white_player,
                 game_metadata.black_player_id,
@@ -927,6 +951,7 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                             (game_metadata.event IS NOT NULL) +
                             (game_metadata.komi IS NOT NULL)
                         ) DESC,
+                        ((game_metadata.black_rank IS NOT NULL) + (game_metadata.white_rank IS NOT NULL)) DESC,
                         game_sources.id ASC
                 ) AS metadata_rank
 
@@ -939,6 +964,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
         selected_metadata AS (
             SELECT
                 game_id,
+                black_rank,
+                white_rank,
                 black_player,
                 white_player,
                 black_player_id,
@@ -971,7 +998,9 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
             selected_metadata.played_date,
             selected_metadata.result,
             selected_metadata.event,
-            selected_metadata.komi
+            selected_metadata.komi,
+            selected_metadata.black_rank,
+            selected_metadata.white_rank
 
         FROM games
 
@@ -1001,6 +1030,8 @@ pub fn get_game(connection: &Connection, game_id: i64) -> Result<GameListRow> {
                 result: row.get(8)?,
                 event: row.get(9)?,
                 komi: row.get(10)?,
+                black_rank: row.get(11)?,
+                white_rank: row.get(12)?,
                 matched_move: None,
                 match_count: None,
             })
@@ -1162,6 +1193,8 @@ mod tests {
         );
 
         CREATE TABLE game_metadata (
+            black_rank TEXT,
+            white_rank TEXT,
             game_source_id  INTEGER PRIMARY KEY,
             black_player    TEXT,
             white_player    TEXT,

@@ -130,6 +130,8 @@ pub fn initialise(root: &Path) -> Result<()> {
 
             CREATE TABLE IF NOT EXISTS game_metadata (
                 game_source_id  INTEGER PRIMARY KEY,
+                black_rank      TEXT,
+                white_rank      TEXT,
                 black_player    TEXT,
                 white_player    TEXT,
                 played_date     TEXT,
@@ -234,6 +236,7 @@ CREATE INDEX IF NOT EXISTS exact_positions_game
         .context("creating database schema")?;
 
     check_or_record_schema_version(&mut connection)?;
+    ensure_rank_columns(&mut connection)?;
 
     println!("Initialised database: {}", root.display());
     println!("Schema version: {SCHEMA_VERSION}");
@@ -555,6 +558,23 @@ fn migrate_7_to_8(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+// Additive, optional source metadata: older 0.8.3 executables remain compatible.
+fn ensure_rank_columns(connection: &mut Connection) -> Result<()> {
+    fn missing(connection: &Connection) -> Result<Vec<&'static str>> {
+        let mut stmt = connection.prepare("PRAGMA table_info(game_metadata)")?;
+        let columns = stmt.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(["black_rank", "white_rank"].into_iter().filter(|c| !columns.iter().any(|v| v == c)).collect())
+    }
+    if missing(connection)?.is_empty() { return Ok(()); }
+    connection.busy_timeout(SCHEMA_MIGRATION_BUSY_TIMEOUT)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for column in missing(&transaction)? {
+        transaction.execute_batch(&format!("ALTER TABLE game_metadata ADD COLUMN {column} TEXT"))?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 fn read_schema_version(connection: &Connection) -> Result<Option<i64>> {
     connection
         .query_row(
@@ -657,6 +677,7 @@ pub fn open(root: &Path) -> Result<Connection> {
         .context("enabling SQLite foreign keys")?;
 
     check_or_record_schema_version(&mut connection)?;
+    ensure_rank_columns(&mut connection)?;
 
     Ok(connection)
 }

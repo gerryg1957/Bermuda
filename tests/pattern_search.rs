@@ -74,6 +74,8 @@ fn write_test_move_file(root: &Path, relative_path: &str) {
             },
         ],
         metadata: Metadata {
+            black_rank: None,
+            white_rank: None,
             black_player: None,
             white_player: None,
             date: None,

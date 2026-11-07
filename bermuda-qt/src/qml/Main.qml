@@ -8643,6 +8643,8 @@ RowLayout {
                          * language as professional continuations, while
                          * sharing the candidate preview interaction in both review modes.
                          */
+                        playedMovePoint: root.wholeGameReviewActive && wholeGameReview.controller === gameController
+                            ? wholeGameReview.playedMovePoint : null
                         katagoCandidatePoints: root.wholeGameReviewActive && wholeGameReview.controller === gameController
                             ? wholeGameReview.candidatePoints : []
 
@@ -8679,6 +8681,11 @@ RowLayout {
                                       return
                                   if (wholeGameReview.choosingOwnMove) {
                                       wholeGameReview.investigatePoint(x, y)
+                                      return
+                                  }
+                                  const played = wholeGameReview.playedMovePoint
+                                  if (played && played.x === x && played.y === y) {
+                                      wholeGameReview.investigatePlayedMove()
                                       return
                                   }
                                   const candidates = wholeGameReview.candidates

@@ -218,3 +218,19 @@ reports is separate future work.
   refinements; keep focused searches distinct from the original score graph.
 
 Recurring-pattern analysis across My Games remains item 4.
+
+## Recorded next-move marker (7 November 2026)
+
+In whole-game review a black square with a white rim marks the actual next move.
+It appears whether or not the move is among the candidates; overlapping candidate
+letters and recommendation colours remain visible. Clicking the square invokes
+Investigate played move. The text beside the board identifies the move and colour.
+A pass is identified in text only. The square is independent of Show AI suggestions
+and disappears while choosing a trial or previewing a continuation, at the end of
+the record, and in current-position-only analysis. It uses the same coordinate
+transform as the stones, including board rotations/reflections.
+
+Verification: core rank import/recovery/export and additive-column migration tests,
+plus offscreen QML checks for recommended/alternative/non-candidate moves, passes,
+preview hiding and SGF-to-board coordinates. The full Rust/Qt application build
+and interactive acceptance must be checked on the maintainer's Qt toolchain.

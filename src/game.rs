@@ -6,6 +6,8 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Metadata {
+    pub black_rank: Option<String>,
+    pub white_rank: Option<String>,
     pub black_player: Option<String>,
     pub white_player: Option<String>,
     pub date: Option<String>,
@@ -77,6 +79,8 @@ fn extract_tree_main_variation(tree: &GameTree) -> Result<GameRecord, GameError>
     }
 
     let metadata = Metadata {
+        black_rank: owned(root.first("BR")),
+        white_rank: owned(root.first("WR")),
         black_player: owned(root.first("PB")),
         white_player: owned(root.first("PW")),
         date: owned(root.first("DT")),

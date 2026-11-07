@@ -127,6 +127,8 @@ pub fn read_move_file(path: impl AsRef<Path>) -> Result<GameRecord, MoveFileErro
     Ok(GameRecord {
         board_size,
         metadata: Metadata {
+            black_rank: None,
+            white_rank: None,
             black_player,
             white_player,
             date,

@@ -45,6 +45,9 @@ pub fn write_game_record_sgf(record: &GameRecord) -> Result<String, SgfWriteErro
 
     push_optional_property(&mut output, "PW", record.metadata.white_player.as_deref());
 
+    push_optional_property(&mut output, "BR", record.metadata.black_rank.as_deref());
+    push_optional_property(&mut output, "WR", record.metadata.white_rank.as_deref());
+
     push_optional_property(&mut output, "DT", record.metadata.date.as_deref());
 
     push_optional_property(&mut output, "EV", record.metadata.event.as_deref());
@@ -281,6 +284,8 @@ mod tests {
             board_size: 19,
 
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: Some(r"Black ] \ Player".to_owned()),
 
                 white_player: Some("White Player".to_owned()),
@@ -340,6 +345,8 @@ mod tests {
             board_size: 19,
 
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: None,
                 white_player: None,
                 date: None,
@@ -377,6 +384,8 @@ mod tests {
             board_size: 19,
 
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: Some(r"A]B\C".to_owned()),
                 white_player: None,
                 date: None,
@@ -407,6 +416,8 @@ mod tests {
             board_size: 19,
 
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: None,
                 white_player: None,
                 date: None,
@@ -439,6 +450,8 @@ mod tests {
             board_size: 0,
 
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: None,
                 white_player: None,
                 date: None,
@@ -464,6 +477,8 @@ mod tests {
             board_size: 19,
 
             metadata: Metadata {
+                black_rank: None,
+                white_rank: None,
                 black_player: None,
                 white_player: None,
                 date: None,

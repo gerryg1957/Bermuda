@@ -10,6 +10,8 @@ fn played_record(black_player: &str, result: &str) -> GameRecord {
         board_size: 19,
 
         metadata: Metadata {
+            black_rank: None,
+            white_rank: None,
             black_player: Some(black_player.to_owned()),
             white_player: Some("Opponent".to_owned()),
             date: Some("2026-08-30".to_owned()),
