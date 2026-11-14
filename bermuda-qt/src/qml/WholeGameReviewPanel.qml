@@ -140,6 +140,15 @@ Frame {
     property var report: matchesLoaded && ((rawReport.focus_turn !== null && rawReport.focus_turn !== undefined) === positionOnly) ? rawReport : ({})
     property var results: report.results || []
     property var currentResult: results[selectedTurn] || null
+    readonly property bool hasReport: report.total !== undefined
+    readonly property string reviewStatus: {
+        if (startError) return startError
+        if (controller && controller.whole_game_busy)
+            return matchesLoaded ? controller.whole_game_status : qsTr("Another analysis is running. Pause it before starting here.")
+        if (hasReport && (!positionOnly || currentResult)) return controller.whole_game_status
+        return positionOnly ? qsTr("Ready to analyse this position. Matching saved results will be reused.")
+                            : qsTr("Ready to analyse this game. Matching saved results will be reused.")
+    }
     property var candidates: {
         if (!currentResult) return []
         const all = (currentResult.candidates || []).map(function(c, index) { return Object.assign({}, c, {sourceIndex: index}) })
@@ -253,6 +262,7 @@ Frame {
         } else {
             visits.value = visitBudget
             komiInput.text = komi
+            rules.currentIndex = 0
         }
         settings.visible = !report.total
         graph.requestPaint()
@@ -318,10 +328,8 @@ Frame {
             if (panel.navigating) return
             panel.clearOwnMove()
             panel.endPreview()
-            if (panel.matchesLoaded) {
-                panel.selectedTurn = panel.controller.move_number
-                panel.selectedCandidate = -1
-            }
+            panel.selectedTurn = panel.controller.move_number
+            panel.selectedCandidate = -1
         }
     }
     contentItem: ColumnLayout {
@@ -379,6 +387,7 @@ Frame {
                 spacing: 8
                 Label {
                     Layout.fillWidth: true; wrapMode: Text.Wrap
+                    visible: panel.recordedMove !== null || (panel.controller !== null && panel.selectedTurn === panel.controller.move_count)
                     text: panel.recordedMove ? qsTr("□ Played in the game: %1 %2 (move %3)")
                         .arg(panel.recordedMove.colour).arg(panel.vertexName(panel.recordedMove.vertex)).arg(panel.selectedTurn + 1) : qsTr("End of recorded game")
                     font.bold: true
@@ -410,7 +419,7 @@ Frame {
                 RowLayout {
                     Layout.fillWidth: true
                     Button { text: qsTr("Analysis settings"); checkable: true; checked: settings.visible; onClicked: settings.visible = !settings.visible }
-                    Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.report.rules ? panel.report.rules + " · komi " + panel.report.komi + " · " + panel.report.visits + qsTr(" visits") : qsTr("Choose rules and komi before starting") }
+                    Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.report.rules ? qsTr("Saved analysis: %1 · komi %2 · %3 visits").arg(panel.report.rules).arg(panel.report.komi).arg(panel.report.visits) : qsTr("Choose rules and komi before starting") }
                 }
                 GridLayout {
                     id: settings
@@ -418,6 +427,7 @@ Frame {
                     Layout.fillWidth: true
                     columns: 2
                     enabled: !panel.controller || !panel.controller.whole_game_busy
+                    Label { text: qsTr("Settings for the next analysis"); Layout.columnSpan: 2; Layout.fillWidth: true; wrapMode: Text.Wrap }
                     Label { text: qsTr("Visits / position") }
                     SpinBox { id: visits; from: 10; to: 100000; value: panel.visitBudget; editable: true; Layout.fillWidth: true }
                     Label { text: qsTr("Analysis komi") }
@@ -435,22 +445,19 @@ Frame {
                         ToolTip.text: qsTr("Open the newest saved analysis for this game and review mode without running KataGo.")
                     }
                     Button {
-                        text: panel.positionOnly ? qsTr("Analyse position") : panel.report.complete ? qsTr("Load / reanalyse") : panel.results.length ? qsTr("Resume analysis") : qsTr("Start analysis")
+                        text: panel.positionOnly ? qsTr("Analyse this position") : panel.report.complete ? qsTr("Load / reanalyse") : panel.results.length ? qsTr("Resume analysis") : qsTr("Start analysis")
                         enabled: (panel.controller !== null) && !panel.controller.whole_game_busy && !panel.controller.katago_analysis_in_progress
                         onClicked: panel.startAnalysis()
                     }
                     Button { text: (panel.controller !== null) && panel.controller.candidate_analysis_busy ? qsTr("Stop") : qsTr("Pause"); enabled: (panel.controller !== null) && panel.controller.whole_game_busy; onClicked: panel.controller.pauseWholeGame() }
                 }
-                Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.startError || (panel.matchesLoaded ? panel.controller.whole_game_status
-                    : (panel.controller !== null) && panel.controller.whole_game_busy
-                        ? qsTr("Another game is being analysed. Pause it before starting this game.")
-                        : panel.positionOnly ? qsTr("Ready to analyse this position. Matching saved results will be reused.") : qsTr("Ready to analyse this game. Matching saved results will be reused.")) }
-                ProgressBar { Layout.fillWidth: true; from: 0; to: panel.report.total || 1; value: panel.report.completed || 0; indeterminate: (panel.controller !== null) && panel.controller.whole_game_busy && (panel.positionOnly || !panel.report.total) }
+                Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.reviewStatus }
+                ProgressBar { Layout.fillWidth: true; from: 0; to: panel.report.total || 1; value: panel.report.completed || 0; visible: panel.hasReport || ((panel.controller !== null) && panel.controller.whole_game_busy); indeterminate: (panel.controller !== null) && panel.controller.whole_game_busy && (panel.positionOnly || !panel.report.total) }
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { Layout.fillWidth: true; text: panel.currentResult ? (panel.showWinRate ? qsTr("Black %1%").arg((panel.currentResult.win_rate * 100).toFixed(1)) : panel.scoreName(panel.currentResult.score_lead)) : qsTr("No saved estimate") }
-                    Button { text: qsTr("Score"); checkable: true; checked: !panel.showWinRate; onClicked: panel.showWinRate = false }
-                    Button { text: qsTr("Win %"); checkable: true; checked: panel.showWinRate; onClicked: panel.showWinRate = true }
+                    Label { Layout.fillWidth: true; text: panel.currentResult ? (panel.positionOnly ? qsTr("%1 · Black win estimate %2%").arg(panel.scoreName(panel.currentResult.score_lead)).arg((panel.currentResult.win_rate * 100).toFixed(1)) : panel.showWinRate ? qsTr("Black %1%").arg((panel.currentResult.win_rate * 100).toFixed(1)) : panel.scoreName(panel.currentResult.score_lead)) : qsTr("No saved estimate") }
+                    Button { text: qsTr("Score"); visible: !panel.positionOnly; checkable: true; checked: !panel.showWinRate; onClicked: panel.showWinRate = false }
+                    Button { text: qsTr("Win %"); visible: !panel.positionOnly; checkable: true; checked: panel.showWinRate; onClicked: panel.showWinRate = true }
                 }
                 Canvas {
                     id: graph

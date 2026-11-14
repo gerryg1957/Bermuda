@@ -5796,10 +5796,22 @@ menuBar: MenuBar {
                                                              contentItem: ColumnLayout {
                                                                  spacing: 4
 
-                                                                 Button {
-                                                                     text: qsTr("Whole game…")
-                                                                     onClicked: {
-                                                                         root.openWholeGameReview()
+                                                                 Flow {
+                                                                     Layout.fillWidth: true
+                                                                     spacing: 6
+                                                                     Button {
+                                                                         text: qsTr("Review whole game…")
+                                                                         enabled: !gameController.katago_analysis_in_progress && !gameController.whole_game_busy
+                                                                         onClicked: root.openWholeGameReview()
+                                                                         ToolTip.visible: hovered
+                                                                         ToolTip.text: qsTr("Open saved analysis or analyse all moves, with score and win-rate graphs.")
+                                                                     }
+                                                                     Button {
+                                                                         text: qsTr("Analyse this position")
+                                                                         enabled: !gameController.katago_analysis_in_progress && !gameController.whole_game_busy
+                                                                         onClicked: root.openPositionReview()
+                                                                         ToolTip.visible: hovered
+                                                                         ToolTip.text: qsTr("Analyse the displayed board and explore candidate moves.")
                                                                      }
                                                                  }
 
@@ -5814,7 +5826,7 @@ menuBar: MenuBar {
                                                                      spacing: 6
 
                                                                      Label {
-                                                                         text: qsTr("Visit budget:")
+                                                                         text: qsTr("Position visits:")
                                                                      }
 
                                                                      SpinBox {
@@ -5859,20 +5871,6 @@ menuBar: MenuBar {
                                                                          visible: gameController.komi.length === 0
                                                                          text: qsTr("(assumed)")
                                                                          opacity: 0.7
-                                                                     }
-
-                                                                     Button {
-                                                                         text:
-                                                                             gameController
-                                                                                 .katago_analysis_in_progress
-                                                                             ? qsTr("Analysing…")
-                                                                             : qsTr("Analyse")
-
-                                                                         enabled:
-                                                                             !gameController
-                                                                                 .katago_analysis_in_progress && !gameController.whole_game_busy
-
-                                                                         onClicked: root.openPositionReview()
                                                                      }
 
                                                                      Button {

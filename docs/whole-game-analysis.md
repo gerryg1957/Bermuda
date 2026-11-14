@@ -234,3 +234,26 @@ Verification: core rank import/recovery/export and additive-column migration tes
 plus offscreen QML checks for recommended/alternative/non-candidate moves, passes,
 preview hiding and SGF-to-board coordinates. The full Rust/Qt application build
 and interactive acceptance must be checked on the maintainer's Qt toolchain.
+
+## Review entry and status clarity (14 November 2026)
+
+Study's KataGo panel now presents **Review whole game…** and **Analyse this
+position** together. The former opens the existing graph/review workflow; the
+latter starts focused analysis of the displayed board. The adjacent visit field
+is labelled **Position visits**; whole-game settings remain in game review.
+
+Completion text and progress must belong to the displayed review mode. Moving
+to another position without a focused result shows readiness rather than stale
+completion. Missing report move metadata does not imply the end of the game;
+that label requires the board to be at the recorded move count. Review selection
+tracks board navigation even before matching analysis has been loaded.
+
+Saved analysis settings are explicitly labelled separately from settings for the
+next run. A fresh review without a matching saved report resets the rules to the
+existing Japanese default, rather than retaining another review's selection.
+Single-position review shows score and win estimate together; graph mode buttons
+are shown only in whole-game review.
+
+Validation: offscreen Qt checks cover mode isolation, a focused result at turn
+267, navigation away from that result, rules reset, and absence of a false game-end
+label at move zero. Real-application acceptance is still required.
