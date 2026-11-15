@@ -4495,13 +4495,18 @@ menuBar: MenuBar {
 
                                                         text: {
                                                             if (boardPane.selectedGame) {
+                                                                const ranks = boardPane.studyPlayerRanks
+                                                                const black = boardPane.selectedGame.black
+                                                                    + (ranks.black ? " · " + ranks.black : "")
+                                                                const white = boardPane.selectedGame.white
+                                                                    + (ranks.white ? " · " + ranks.white : "")
                                                                 if (boardPane.selectedGame.white.length > 0) {
                                                                     return qsTr("%1 — %2")
-                                                                        .arg(boardPane.selectedGame.black)
-                                                                        .arg(boardPane.selectedGame.white)
+                                                                        .arg(black)
+                                                                        .arg(white)
                                                                 }
 
-                                                                return boardPane.selectedGame.black
+                                                                return black
                                                             }
 
                                                             return gameList.searchResultsSelected
@@ -6691,6 +6696,7 @@ RowLayout {
             visible: true
 
             property var selectedGame: null
+            property var studyPlayerRanks: ({})
             onSelectedGameChanged: root.studySaveMessage = ""
 
 
@@ -7567,6 +7573,9 @@ RowLayout {
             }
 
             function applyLoadedPosition() {
+                // Read from the loaded document, including unsaved external SGFs.
+                // Replace both values so a subsequent unranked game stays unranked.
+                boardPane.studyPlayerRanks = JSON.parse(gameController.reviewPlayerRanks())
                 goBoard.boardSize = gameController.board_size
                 goBoard.stones = JSON.parse(
                             gameController.stones_json)

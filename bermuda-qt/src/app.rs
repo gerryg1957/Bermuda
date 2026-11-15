@@ -5272,12 +5272,15 @@ fn load_game_document(project_path: &str, game_id: i64) -> Result<LoadedDocument
     // Retain source metadata when this database game becomes a saved study.
     let sgf = write_game_record_sgf(&record).map_err(|error| error.to_string())?;
     let collection = parse_collection(sgf.as_bytes()).map_err(|error| error.to_string())?;
+    // The visible structural tree and its replay/navigation tree must be
+    // available together, before any edit or save promotes this to a study.
+    let study_tree = build_study_tree(&collection).map_err(|error| error.to_string())?;
 
     Ok(LoadedDocument {
         description: format!("game {game_id}"),
         positions,
         source_comments: Vec::new(),
-        study_tree: None,
+        study_tree: Some(study_tree),
         study: StudyDocumentState {
             collection: Some(collection),
             ..StudyDocumentState::new(StudyOrigin::ProjectGame {
@@ -6084,6 +6087,60 @@ fn board_stones_json(board: &Board) -> QString {
 #[cfg(test)]
 mod played_game_record_tests {
     use super::*;
+
+    fn assert_study_navigation(document: &mut LoadedDocument, source: StudySourceLocation, expected_move: i32) {
+        let structure = bermuda::build_study_structure_tree(
+            document.study.collection.as_ref().unwrap(),
+        ).unwrap();
+        let node = structure.node_id_for_source(&source).unwrap();
+        let expected = bermuda::study_position_at_source(
+            document.study.collection.as_ref().unwrap(), &source,
+        ).unwrap();
+        let move_number = activate_study_structure_node(document, node).unwrap();
+        assert_eq!(move_number, expected_move);
+        assert_eq!(document.positions[move_number as usize].board, expected.board);
+        let replay_node = document.study_tree.as_ref().unwrap().active_path[move_number as usize];
+        let (_, highlighted_node) = study_tree_presentation(document, replay_node as i32);
+        assert_eq!(highlighted_node, node as i32);
+        assert!(document.study.library_path.is_none());
+        assert!(document.study.history.undo.is_empty());
+    }
+
+    #[test]
+    fn study_navigation_database_game_works_before_editing_or_saving() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = ProjectManager::new().create("Source", temp.path().join("project")).unwrap();
+        let collection = parse_collection(b"(;SZ[19]PB[Black]PW[White];B[dd];W[pp])").unwrap();
+        let record = extract_main_variation(&collection).unwrap();
+        let locator = bermuda::canonical_hash_hex(&record).unwrap();
+        let id = import_personal_record(&project, "Test source", "1", &locator, &record).unwrap();
+        let mut document = load_game_document(project.root().to_str().unwrap(), id).unwrap();
+        for index in [0, 2, 1, 0] {
+            assert_study_navigation(&mut document, StudySourceLocation {
+                variation_path: vec![], sequence_index: index,
+            }, index as i32);
+        }
+    }
+
+    #[test]
+    fn study_navigation_external_sgf_preserves_source_and_variations() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("external.sgf");
+        let original = "(;SZ[19]PB[Black]PW[White];B[dd](;W[pp]C[main])(;W[qq]C[variation]))";
+        fs::write(&source, original).unwrap();
+        let mut document = load_sgf_document(source.to_str().unwrap()).unwrap();
+        for branch in [1, 0, 1] {
+            assert_study_navigation(&mut document, StudySourceLocation {
+                variation_path: vec![branch], sequence_index: 0,
+            }, 2);
+            assert_eq!(document.source_comments[2], if branch == 0 { "main" } else { "variation" });
+        }
+        assert_study_navigation(&mut document, StudySourceLocation {
+            variation_path: vec![], sequence_index: 0,
+        }, 0);
+        assert_eq!(fs::read_to_string(&source).unwrap(), original);
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn study_save_preserves_variations_comments_and_reuses_destination() {

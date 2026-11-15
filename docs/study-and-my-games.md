@@ -46,6 +46,19 @@ analysis storage is a separate future feature.
 
 ## Inserted SGF nodes
 
+### Opening a game for study (15 November 2026)
+
+Library games now initialise the replay tree alongside the displayed SGF tree.
+Previously the tree could be visible without a current-move highlight, and
+selecting a node failed with "the Study document has no SGF game tree" until
+another operation rebuilt it. Navigation must not require adding a game to
+My Games or saving a study first.
+
+Regression tests cover library-game navigation and direct external SGF loading,
+including switching variations, highlighting the selected move, and leaving
+the external file unchanged. Rust/Qt execution and desktop acceptance remain
+to be checked on the development machine.
+
 Insert node creates a selectable empty node. Select it and use Add/Edit comment
 in the SGF comment panel to annotate that exact node; neighbouring comments stay
 on their own nodes. Under Study → Moves, choose Play moves and optionally
