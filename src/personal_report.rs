@@ -5,7 +5,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 use crate::{Colour, analysis_position_from_states, game_analysis::{AnalysisStore, GameAnalysis}, project::Project};
 
-fn settings_key(run: &GameAnalysis) -> Result<String> {
+pub(crate) fn settings_key(run: &GameAnalysis) -> Result<String> {
     Ok(serde_json::to_string(&(
         run.provenance.policy, &run.provenance.engine_sha256,
         &run.provenance.network_sha256, &run.provenance.config_sha256,
@@ -26,6 +26,11 @@ pub fn build(project: &Project, analysis_path: &Path) -> Result<Value> {
 
 /// An empty selection means the normal latest-20 report. Explicit IDs can include older games.
 pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64]) -> Result<Value> {
+    build_selected_with_limit(project, analysis_path, selected, 20)
+}
+
+/// Zero selects all identified games. Explicit IDs take precedence over the limit.
+pub fn build_selected_with_limit(project: &Project, analysis_path: &Path, selected: &[i64], limit: usize) -> Result<Value> {
     let directory = project.player_directory()?;
     let Some(me) = directory.personal_player_id()? else {
         return Ok(json!({"needs_names": true}));
@@ -45,7 +50,7 @@ pub fn build_selected(project: &Project, analysis_path: &Path, selected: &[i64])
     let mut identified = 0;
     while let Some(row) = rows.next()? {
         identified += 1;
-        if (selected.is_empty() && games.len() < 20) || selected.contains(&row.get::<_, i64>(0)?) {
+        if (selected.is_empty() && (limit == 0 || games.len() < limit)) || selected.contains(&row.get::<_, i64>(0)?) {
             games.push((row.get::<_, i64>(0)?, if row.get::<_, i64>(1)? == 1 { Colour::Black } else { Colour::White }));
         }
     }
@@ -89,7 +94,9 @@ pub(crate) fn summarise(evidence: &[(Value, Option<GameAnalysis>)], total: i64, 
         let Some(run) = run else { pending.push(game.clone()); continue; };
         let run_id = &run.run_id;
         if run.complete() { complete += 1; } else { partial += 1; }
-        let group = groups.entry(settings_key(&run)?).or_insert_with(|| json!({
+        let key = settings_key(&run)?;
+        let group = groups.entry(key.clone()).or_insert_with(|| json!({
+            "key": key,
             "visits": run.request.max_visits, "rules": run.request.rules,
             "komi": run.request.komi, "board_size": run.request.board_size,
             "games": 0, "decisions": 0, "buckets": [0,0,0,0], "examples": [], "win_examples": [], "analysed": []
@@ -99,11 +106,13 @@ pub(crate) fn summarise(evidence: &[(Value, Option<GameAnalysis>)], total: i64, 
             "game_id": game_id, "run_id": run_id, "title": title, "date": game["date"],
             "colour": colour, "result": game["result"], "complete": run.complete(), "positions": run.results.len(), "total": run.total()
         }));
+        let mut game_buckets = [0u64; 4];
         for decision in run.decisions() {
             if decision["player"] != json!(colour) { continue; }
             let Some(loss) = decision["estimated_loss"].as_f64().filter(|v| v.is_finite()) else { continue; };
             group["decisions"] = json!(group["decisions"].as_u64().unwrap() + 1);
             let bucket = loss_bucket(loss);
+            game_buckets[bucket] += 1;
             group["buckets"][bucket] = json!(group["buckets"][bucket].as_u64().unwrap() + 1);
             let mut example = decision.clone();
             example["game_id"] = json!(game_id);
@@ -123,6 +132,9 @@ pub(crate) fn summarise(evidence: &[(Value, Option<GameAnalysis>)], total: i64, 
                 }
             }
         }
+        let game_summary = group["analysed"].as_array_mut().unwrap().last_mut().unwrap();
+        game_summary["buckets"] = json!(game_buckets);
+        game_summary["decisions"] = json!(game_buckets.iter().sum::<u64>());
     }
     Ok(json!({"needs_names": false, "total": total, "identified": identified,
         "selected": evidence.len(), "complete": complete, "partial": partial,
@@ -151,6 +163,10 @@ mod tests {
         project.player_directory()?.save_my_names(None, "Me", &[(source, "me".into())])?;
         let path = temp.path().join("analysis.sqlite3");
         assert_eq!(build(&project, &path)?["selected"], 20);
+        assert_eq!(build_selected_with_limit(&project, &path, &[], 5)?["selected"], 5);
+        assert_eq!(build_selected_with_limit(&project, &path, &[], 50)?["selected"], 22);
+        assert_eq!(build_selected_with_limit(&project, &path, &[], 0)?["selected"], 22);
+        assert_eq!(build_selected_with_limit(&project, &path, &[ids[0], ids[1]], 1)?["selected"], 2);
         let selected = build_selected(&project, &path, &[ids[0], ids[0], -1])?;
         assert_eq!(selected["selected"], 1);
         assert_eq!(selected["pending"][0]["game_id"], ids[0]);
@@ -213,6 +229,8 @@ mod tests {
         assert_eq!(report["groups"][0]["win_examples"].as_array().unwrap().len(), 1);
         assert!((report["groups"][0]["win_examples"][0]["win_loss"].as_f64().unwrap() - 20.0).abs() < 1e-10);
         assert_eq!(report["groups"][0]["analysed"][0]["colour"], "Black");
+        assert_eq!(report["groups"][0]["analysed"][0]["buckets"], json!([0,0,0,1]));
+        assert_eq!(report["groups"][0]["analysed"][0]["decisions"], 1);
         // New imports appear on refresh without discarding the old saved result.
         let later = crate::extract_main_variation(&crate::parse_collection(
             b"(;SZ[19]PB[opponent]PW[my_online_name]DT[2026-10-29];B[cc];W[dd])")?)?;

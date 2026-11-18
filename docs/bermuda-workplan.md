@@ -304,6 +304,14 @@ personal decision or notes.
 
 #### 4D. Compare fixed groups over time
 
+18 November 2026: a first distribution-trend increment is implemented for
+acceptance. Reports now has an explicit library, new-report workflow and in-app
+Trends tab; the live report count and saved-group recent-game selection are user
+selectable. Trends reuse frozen loss-bucket percentages, separate incompatible
+settings, show coverage and dates, and flag shared games. Existing reports are
+preserved. This brings forward the requested numerical trend view; theme-based
+comparisons and interpretation still depend on 4B/4C and remain below.
+
 - Compare two named groups using explicitly selected snapshots. Show changes
   in theme frequency, severity and supported strengths, with clickable examples
   on both sides.
@@ -523,3 +531,36 @@ A Bermuda milestone is useful when it improves one or more of:
 - ability for another user to install and understand Bermuda.
 
 Feature count by itself is not progress.
+
+
+### Reports follow-up — 18 November 2026
+
+Implemented for desktop acceptance: live Trends from all identified games' saved
+analysis, selectable periods and weekly/monthly/user-sized game blocks. No
+scheduled report creation is required. Preserved report comparisons remain a
+separate tab. Added report removal and empty-group removal with confirmation,
+clear group/report labels and counts; source games and analysis are retained.
+Core and offscreen UI checks pass. Next check: Gerry's real collection, including
+removing the unused Q4 2026 group and comparing periods with matching settings.
+
+Reports presentation follow-up: added All categories to live trends and saved
+comparisons, with four coloured/styled lines, a legend and per-period percentages.
+Offscreen category-switching and existing trend calculation checks pass.
+
+Study import fix: support SGF compressed point lists in triangle, square, circle,
+cross and selected-point markup, including variation diagrams. A supplied
+commented game reproduced the failure; its full Study tree now loads with 246
+main-line positions matching replay. Eight Study-tree tests pass. Opening
+failures now show a visible dialog instead of only logging to the terminal.
+The supplied commentary file is not included in the repository or patch.
+
+Study comment panel: larger 240-pixel default, draggable lower handle and
+remembered height. Double-click the handle to reset. Height is constrained to
+the available panel space so Study controls remain accessible.
+
+Live trend usability follow-up: combined komi values automatically, retained
+engine/depth/rules separation, replaced numbered sets with analysis labels and
+contributing counts, added Each game with date or equal game-order spacing,
+and trimmed empty timeline ends. Game blocks use contributing games only.
+Preserved report contents and comparisons stay unchanged. Calculation and
+offscreen UI checks pass; desktop acceptance pending.

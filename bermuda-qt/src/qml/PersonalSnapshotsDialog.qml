@@ -49,7 +49,7 @@ Dialog {
     anchors.centerIn: parent
     width: Math.min(1050, parent.width - 32)
     height: Math.min(780, parent.height - 32)
-    title: qsTr("My games · Groups and snapshots")
+    title: qsTr("My games · Reports")
     modal: true
     closePolicy: Popup.NoAutoClose
     standardButtons: Dialog.Close
@@ -59,12 +59,12 @@ Dialog {
         onArchive_jsonChanged: {
             dialog.archive = dialog.parse(archive_json, {groups: [], snapshots: []})
             if (!dialog.selectedGroup && dialog.savedGroups.length) dialog.selectedGroupId = dialog.savedGroups[0].id
-            if (!dialog.savedGroups.length) Qt.callLater(function() { if (!dialog.savedGroups.length) tabs.currentIndex = 1 })
+            if (!dialog.savedGroups.length) dialog.selectedGroupId = -1
         }
         onBusyChanged: {
             if (!busy && dialog.creatingGroup) {
                 dialog.creatingGroup = false
-                if (!error_message.length) tabs.currentIndex = 0
+                if (!error_message.length) tabs.currentIndex = 1
             }
         }
         onReport_urlChanged: {
@@ -72,17 +72,39 @@ Dialog {
                 dialog.browserError = qsTr("The browser could not open the report: %1").arg(report_url)
         }
     }
+    Dialog {
+        id: removal
+        property int targetId: -1
+        property bool group: false
+        property string targetName: ""
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: group ? qsTr("Remove game group?") : qsTr("Remove saved report?")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        Label { text: qsTr("Remove “%1” from the library?\nYour games and saved analysis will be kept.").arg(removal.targetName); wrapMode: Text.Wrap }
+        onAccepted: {
+            if (group) archiveModel.removeGroup(dialog.projectPath, targetId)
+            else archiveModel.removeReport(dialog.projectPath, targetId)
+        }
+    }
+    function confirmRemoval(id, name, group) {
+        removal.targetId = id; removal.targetName = name; removal.group = group; removal.open()
+    }
     contentItem: ColumnLayout {
         spacing: 10
         Label {
-            text: qsTr("A group keeps chosen games together. A snapshot keeps their current analysis unchanged, so you can return to it later.")
+            text: qsTr("Saved reports stay unchanged. To make another report, choose games or reuse a group, then save its current analysis with a new report name.")
             wrapMode: Text.Wrap; Layout.fillWidth: true
         }
         TabBar {
             id: tabs; objectName: "snapshotTabs"
             Layout.fillWidth: true
-            TabButton { text: qsTr("Saved groups and reports") }
-            TabButton { text: qsTr("1. Choose games") }
+            TabButton { text: qsTr("Reports library") }
+            TabButton { text: qsTr("New report") }
+            TabButton { text: qsTr("Choose games") }
+            TabButton { text: qsTr("Trends") }
+            TabButton { text: qsTr("Saved comparisons") }
         }
         Label {
             text: dialog.browserError || archiveModel.error_message || archiveModel.notice
@@ -97,7 +119,38 @@ Dialog {
             enabled: !archiveModel.busy
             ColumnLayout {
                 RowLayout {
+                    Button { text: qsTr("New report…"); onClicked: tabs.currentIndex = dialog.savedGroups.length ? 1 : 2 }
+                    Button { text: qsTr("New group of games…"); onClicked: tabs.currentIndex = 2 }
+                    Button { text: qsTr("Refresh list"); onClicked: archiveModel.refresh(dialog.projectPath) }
+                }
+                Label { visible: !(dialog.archive.snapshots || []).length; text: qsTr("No saved reports yet. Choose games, then save their analysis as a report."); Layout.fillWidth: true; wrapMode: Text.Wrap }
+                ListView {
+                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    model: dialog.archive.snapshots || []
+                    ScrollBar.vertical: ScrollBar {}
+                    delegate: Frame {
+                        required property var modelData
+                        width: ListView.view.width
+                        contentItem: ColumnLayout {
+                        Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: modelData.group_name + " — " + modelData.label + " (#" + modelData.id + ")\n"
+                            + dialog.dateText(modelData.created_at) + " · "
+                            + qsTr("%1 complete · %2 partial · %3 awaiting · %4 excluded")
+                                .arg(modelData.report.complete).arg(modelData.report.partial)
+                                .arg((modelData.report.pending || []).length).arg(modelData.report.excluded || 0)
+                        }
+                        RowLayout {
+                            Button { text: qsTr("Open report…"); onClicked: archiveModel.openReport(dialog.projectPath, modelData.id) }
+                            Button { text: qsTr("Remove report…"); onClicked: dialog.confirmRemoval(modelData.id, modelData.label, false) }
+                        }
+                        }
+                    }
+                }
+                Label { text: qsTr("Open a report to see its charts and board diagrams in your browser, where you can print or save as PDF."); Layout.fillWidth: true; wrapMode: Text.Wrap }
+            }
+            ColumnLayout {
+                RowLayout {
                     Layout.fillWidth: true
+                    Label { text: qsTr("Game group") }
                     ComboBox {
                         id: groupChoice
                         Layout.fillWidth: true
@@ -107,9 +160,18 @@ Dialog {
                     }
                     Button { text: qsTr("Refresh list"); onClicked: archiveModel.refresh(dialog.projectPath) }
                 }
+                RowLayout {
+                    Label { text: qsTr("%1 saved reports in this group").arg(dialog.snapshots.length) }
+                    Button {
+                        text: qsTr("Remove group…")
+                        enabled: !!dialog.selectedGroup && dialog.snapshots.length === 0
+                        onClicked: dialog.confirmRemoval(dialog.selectedGroupId, dialog.selectedGroup.name, true)
+                    }
+                    Label { visible: dialog.snapshots.length > 0; text: qsTr("Remove its reports first to remove this group."); wrapMode: Text.Wrap; Layout.fillWidth: true }
+                }
                 Label {
                     visible: !dialog.selectedGroup
-                    text: qsTr("Start with 1. Choose games. Save a named group, then preserve its analysis here.")
+                    text: qsTr("Start with Choose games. Save a named group, then preserve its analysis here.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
                 Label {
@@ -123,7 +185,7 @@ Dialog {
                     text: qsTr("These are the games you kept together. Adding more games to My games will not change this group.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
-                Label { text: qsTr("2. Preserve their current analysis"); font.bold: true }
+                Label { text: qsTr("Save a new report for this group"); font.bold: true }
                 Label {
                     text: qsTr("This saves a baseline of what KataGo currently says. It does not run analysis or measure improvement. If analysis changes later, you can save another snapshot.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
@@ -132,7 +194,7 @@ Dialog {
                     Layout.fillWidth: true
                     TextField { id: snapshotName; Layout.fillWidth: true; maximumLength: 120; placeholderText: qsTr("Report name, e.g. First review or CPU baseline") }
                     Button {
-                        text: qsTr("Preserve analysis")
+                        text: qsTr("Save new report")
                         enabled: !!dialog.selectedGroup && snapshotName.text.trim().length > 0
                         onClicked: archiveModel.saveSnapshot(dialog.projectPath, dialog.selectedGroupId, snapshotName.text)
                     }
@@ -146,8 +208,8 @@ Dialog {
                     clip: true; contentWidth: availableWidth
                     ColumnLayout {
                         width: parent.width
-                        Label { text: qsTr("3. View a saved report"); font.bold: true }
-                        Label { visible: dialog.snapshots.length === 0; text: qsTr("No snapshot saved yet. Give the current analysis a name above and click Preserve analysis.") }
+                        Label { text: qsTr("Earlier reports for this group"); font.bold: true }
+                        Label { visible: dialog.snapshots.length === 0; text: qsTr("No snapshot saved yet. Give the current analysis a name above and click Save new report.") }
                         Repeater {
                             model: dialog.snapshots
                             delegate: Frame {
@@ -161,7 +223,10 @@ Dialog {
                                             .arg((modelData.report.pending || []).length).arg(modelData.report.excluded || 0)
                                         wrapMode: Text.Wrap; Layout.fillWidth: true
                                     }
-                                    Button { text: qsTr("View report / Print…"); onClicked: { dialog.browserError = ""; archiveModel.openReport(dialog.projectPath, modelData.id) } }
+                                    RowLayout {
+                                        Button { text: qsTr("View report / Print…"); onClicked: { dialog.browserError = ""; archiveModel.openReport(dialog.projectPath, modelData.id) } }
+                                        Button { text: qsTr("Remove report…"); onClicked: dialog.confirmRemoval(modelData.id, modelData.label, false) }
+                                    }
                                 }
                             }
                         }
@@ -183,6 +248,12 @@ Dialog {
                 Label {
                     text: qsTr("For example, keep your October games together so you can later compare them with a different period. There is no required group size.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Most recent games") }
+                    SpinBox { id: groupSize; from: 1; to: Math.max(1, dialog.visibleGames.length); value: Math.min(50, to); editable: true }
+                    Button { text: qsTr("Select this many"); enabled: dialog.dateRangeValid; onClicked: dialog.selectedIds = dialog.visibleGames.slice(0, groupSize.value).map(function(g) { return g.game_id }) }
                 }
                 TextField { id: groupName; Layout.fillWidth: true; maximumLength: 120; placeholderText: qsTr("Group name, e.g. October 2026") }
                 RowLayout {
@@ -228,6 +299,15 @@ Dialog {
                         archiveModel.createGroup(dialog.projectPath, groupName.text, JSON.stringify(dialog.selectedIds))
                     }
                 }
+            }
+            LiveTrends {
+                report: dialog.parse(archiveModel.live_json, {})
+                errorMessage: archiveModel.live_error
+                onRefreshRequested: archiveModel.refresh(dialog.projectPath)
+            }
+            ReportTrends {
+                snapshots: dialog.archive.snapshots || []
+                onOpenReport: function(snapshotId) { archiveModel.openReport(dialog.projectPath, snapshotId) }
             }
         }
     }

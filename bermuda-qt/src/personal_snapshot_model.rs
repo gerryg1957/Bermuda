@@ -16,12 +16,20 @@ mod ffi {
         #[qproperty(bool, busy)]
         #[qproperty(QString, games_json)]
         #[qproperty(QString, archive_json)]
+        #[qproperty(QString, live_json)]
+        #[qproperty(QString, live_error)]
         #[qproperty(QString, error_message)]
         #[qproperty(QString, notice)]
         #[qproperty(QUrl, report_url)]
         type PersonalSnapshotModel = super::PersonalSnapshotModelRust;
         #[qinvokable]
         fn refresh(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString);
+        #[qinvokable]
+        #[cxx_name = "removeReport"]
+        fn remove_report(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString, id: i32);
+        #[qinvokable]
+        #[cxx_name = "removeGroup"]
+        fn remove_group(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString, id: i32);
         #[qinvokable]
         #[cxx_name = "createGroup"]
         fn create_group(
@@ -53,17 +61,27 @@ pub struct PersonalSnapshotModelRust {
     busy: bool,
     games_json: QString,
     archive_json: QString,
+    live_json: QString,
+    live_error: QString,
     error_message: QString,
     notice: QString,
     report_url: QUrl,
 }
 enum Action {
     Refresh,
+    RemoveReport(i64),
+    RemoveGroup(i64),
     Create(String, String),
     Capture(i64, String),
     Export(i64),
 }
 impl ffi::PersonalSnapshotModel {
+    fn remove_report(self: Pin<&mut Self>, path: &QString, id: i32) {
+        self.perform(path.to_string(), Action::RemoveReport(i64::from(id)));
+    }
+    fn remove_group(self: Pin<&mut Self>, path: &QString, id: i32) {
+        self.perform(path.to_string(), Action::RemoveGroup(i64::from(id)));
+    }
     fn refresh(self: Pin<&mut Self>, path: &QString) {
         self.perform(path.to_string(), Action::Refresh);
     }
@@ -98,12 +116,27 @@ impl ffi::PersonalSnapshotModel {
                     bermuda::project_manager::ProjectManager::new().open(Path::new(&path))?;
                 let store = bermuda::personal_snapshots::SnapshotStore::open(&project)?;
                 let mut exported = None;
+                let live = if matches!(&action, Action::Refresh) {
+                    Some((|| -> anyhow::Result<_> {
+                        let analysis = crate::app::katago_working_directory()
+                            .map_err(anyhow::Error::msg)?.join("game-analysis.sqlite3");
+                        bermuda::personal_report::build_selected_with_limit(&project, &analysis, &[], 0)
+                    })().map_err(|error| format!("{error:#}")))
+                } else { None };
                 let notice = match action {
                     Action::Refresh => String::new(),
+                    Action::RemoveReport(id) => {
+                        store.remove_report(id)?;
+                        "Report removed from the library. Games and analysis are unchanged.".into()
+                    }
+                    Action::RemoveGroup(id) => {
+                        store.remove_empty_group(id)?;
+                        "Game group removed. Its games and analysis are unchanged.".into()
+                    }
                     Action::Create(name, ids) => {
                         let ids: Vec<i64> = serde_json::from_str(&ids)?;
                         store.create_group(&project, &name, &ids)?;
-                        "Group saved. Next, name and preserve its current analysis in step 2."
+                        "Group saved. Enter a report name, then click Save new report."
                             .into()
                     }
                     Action::Capture(id, label) => {
@@ -111,7 +144,7 @@ impl ffi::PersonalSnapshotModel {
                             .map_err(anyhow::Error::msg)?
                             .join("game-analysis.sqlite3");
                         store.capture(id, &label, &analysis)?;
-                        "Snapshot saved. Step 3: open it with View report / Print. No new analysis was run.".into()
+                        "Report saved separately. Find it in Reports library or open it below. No new analysis was run.".into()
                     }
                     Action::Export(id) => {
                         let dir = project.cache_path().join("snapshot-reports");
@@ -129,12 +162,25 @@ impl ffi::PersonalSnapshotModel {
                     store.listing()?.to_string(),
                     notice,
                     exported,
+                    live,
                 ))
             })();
             let _ =
                 thread.queue(move |mut model| {
                     match result {
-                        Ok((games, archive, notice, exported)) => {
+                        Ok((games, archive, notice, exported, live)) => {
+                            if let Some(live) = live {
+                                match live {
+                                    Ok(report) => {
+                                        model.as_mut().set_live_json(QString::from(report.to_string()));
+                                        model.as_mut().set_live_error(QString::default());
+                                    }
+                                    Err(error) => {
+                                        model.as_mut().set_live_json(QString::from("{}"));
+                                        model.as_mut().set_live_error(QString::from(error));
+                                    }
+                                }
+                            }
                             model.as_mut().set_games_json(QString::from(games));
                             model.as_mut().set_archive_json(QString::from(archive));
                             model.as_mut().set_notice(QString::from(notice));

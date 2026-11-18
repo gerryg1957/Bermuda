@@ -1,14 +1,19 @@
 # My Games: fixed groups and preserved reports (4A)
 
-The first 4A implementation adds **Groups and snapshots…** to the report card.
-The existing recent-20 report remains a live view. Twenty is not a limit on
-saved groups, or a prescribed sample size for measuring improvement.
+Open **My games → Report card → Reports…** for the reports library, creation
+controls and an in-app trend graph. Existing snapshots remain available here.
+
+The live report has a **Games in live report** control: choose a count and click
+**Apply**, or use **0** for all identified games. The choice is remembered. A new
+analysis batch uses the same selection; resuming a paused batch retains its
+original queue. The selection of games from an import still takes precedence.
+Twenty is only the initial live-report default, not a required sample size.
 
 ## Workflow
 
-1. Open **My games → Report card → Groups and snapshots… → 1. Choose games**.
+1. Open **My games → Report card → Reports… → Choose games**.
 2. Give the group a name, for example `October 2026`.
-3. Tick individual games, or enter an inclusive date range and click **Use shown
+3. Select a user-chosen number of the most recent shown games, tick individual games, or enter an inclusive date range and click **Use shown
    games**. This replaces the selection with the displayed games. Changing the
    date filter alone does not change the selection; its total includes hidden
    selections. Clear the dates to include undated or partially dated records.
@@ -17,10 +22,11 @@ saved groups, or a prescribed sample size for measuring improvement.
    games can be included, but are visibly excluded from personal statistics.
    Fix name mappings before saving; to change membership or identity details,
    create a new group. Overlapping groups are allowed.
-5. Under **Saved groups and reports**, enter a report name such as `CPU baseline — 200
-   visits`, then **Preserve analysis**. This copies each game's latest available
+5. Under **New report**, enter a report name such as `CPU baseline — 200
+   visits`, then **Save new report**. This copies each game's latest available
    whole-game run. It does not run KataGo or replace an earlier snapshot.
-6. **View report / Print…** opens a self-contained local HTML report in the default
+6. **Reports library** lists every saved report, across all groups. Click one to
+   open it. **View report / Print…** under New report also opens a self-contained local HTML report in the default
    browser. Its **Print / Save as PDF** button uses the browser's print dialog.
    The visual summary is printed by default: analysis coverage, move-cost bar
    charts with percentages and counts, and up to three positions from distinct
@@ -33,8 +39,8 @@ The diagram ring marks the move actually played, not an engine recommendation.
 SGF and complete analysis JSON downloads on the game pages provide the preserved
 main line and evidence, including candidates and deeper investigations. The
 browser report is read-only; it does not replace Bermuda's interactive live
-review or start analysis. Automatic group comparisons and interpretation of
-recurring patterns remain later work.
+review or start analysis. The **Saved comparisons** tab compares preserved move-cost distributions. Interpretation of
+recurring patterns remains later work.
 
 Run new/deeper analysis through the existing analysis workflow, then explicitly
 save another snapshot for the same group. The new report can have different
@@ -48,7 +54,7 @@ an older complete run.
 
 `database/personal-snapshots.sqlite3` belongs to the personal project. It is not
 in the cache or the professional database. Group and snapshot APIs only append;
-SQL triggers also reject updates. No deletion UI is supplied in this increment.
+SQL triggers also reject updates. Removal controls hide reports and empty groups from the library using persistent removal records. Immutable evidence remains internally stored; removal is not a disk purge. Exported HTML/PDF copies are unaffected.
 Back up the personal project to preserve these records. They intentionally use
 additional disk space: freezing a reference to a mutable checkpoint is not enough.
 
@@ -119,4 +125,110 @@ investigation, not a diagnosis of recurring weaknesses.
 Reopen an existing snapshot to get the visual presentation; its stored data is
 unchanged. Compare different groups under comparable analysis to investigate
 changes in play. A deeper new snapshot of the same games changes the evidence,
-not the player's historical performance. Automatic comparisons remain 4D.
+not the player's historical performance. The first distribution trend view is described below; richer comparisons remain 4D.
+
+
+## Distribution trends (18 November 2026)
+
+In **Reports → Saved comparisons**, select saved reports from different groups. Initially
+one report per group is selected (the newest). Selecting another report for the
+same group replaces its selection: a deeper analysis of the same games is not
+another period of play. Older reports are not changed or deleted.
+
+Choose a loss category and an analysis settings set. The graph plots the
+percentage of assessed personal moves in that category, using the exact frozen
+counts from each report's bars. It does not average percentages per game or
+rescore the archived decisions. It works with reports saved before this update.
+Points use each set's last game date, ordered chronologically; the full date
+range, games, complete games and assessed moves appear below. The horizontal
+axis is elapsed calendar time, not report creation order.
+
+Only matching engine, network, configuration, scoring policy, score perspective,
+visits, rules, komi and board size are combined. Thus CPU and graphics-card
+baselines may be separate sets. Missing/unidentified games do not contribute
+personal moves; partial games contribute only assessed moves. Reports with
+unknown/partial game dates, no assessed moves or no matching settings do not
+produce points. The underlying report can always be opened from the library.
+Shared games are flagged and the connecting line is suppressed. Every plotted
+point has an Open this report button for the underlying evidence.
+
+More moves below one estimated point of loss, or fewer at five-plus, can be a
+useful improvement signal. Changes in opponent strength, handicap, colour and
+coverage can also alter those proportions; this is not a playing-strength grade
+or proof of improvement. There is no claim that twenty, fifty or any other fixed
+number guarantees a reliable trend. Use meaningful dated groups and inspect
+coverage. Creating another snapshot does not run KataGo.
+
+Acceptance: reopen an old report; save a second named report without replacing
+the first; create two disjoint dated groups at a chosen size; compare their bars
+and trend percentages; check separate settings, partial evidence and shared-game
+warnings. Automated tests cover preserved counts, settings identity, game-count
+selection and the graph's normalisation/ordering/overlap logic.
+
+
+## Live trends and removal (18 November 2026)
+
+**Reports → Trends** reads the latest saved whole-game analysis for all identified
+My games, independently of the report-card game limit and saved reports. Opening
+Reports refreshes this data; use **Refresh analysis** to pick up further analysis
+while the dialog stays open. This never launches KataGo or schedules reports.
+
+Select 1, 3 or 6 months, 1 year, All, or an inclusive custom date range. Relative
+periods end today. Show each contributing game, or group by calendar week (Monday start),
+calendar month, or a chosen number of consecutive contributing games. Blocks
+restart at the selected range and may end in a smaller final block.
+Weekly/monthly points mark the period start; game blocks use the last game date.
+The game list under each point makes its membership inspectable.
+
+Percentages divide the selected loss bucket's move count by assessed personal
+moves, not by games. Partial games contribute only assessed moves. The engine,
+network, configuration, visits, rules and board size remain separate. Komi
+values are combined in the live view; each loss retains its original analysis
+at that game's komi. Other
+settings and pending games are counted but do not enter the selected denominator.
+Undated games are omitted explicitly. Empty periods are not zero; lines break
+across missing evidence or skipped calendar periods. These are descriptive
+trends, affected by opponents, colour and handicap, not a playing-strength grade.
+Later analysis or identity edits can change this live view; preserved reports
+and **Saved comparisons** remain fixed reference points.
+
+The New report tab labels the **Game group** and its saved-report count. An
+unwanted group such as Q4 2026 with no saved reports can be removed there.
+Remove reports individually from Reports library or the group's report list;
+remove all its reports before removing a group. Both operations require an
+explicit confirmation, persist across restarts, and retain source games and
+saved KataGo analysis. There is currently no restore control.
+
+Validation: core personal-analysis tests include per-game bucket accounting,
+removal guards, persistence and non-reused IDs. JavaScript tests cover weighted
+percentages, date ranges, mixed settings, missing evidence and game blocks.
+All five tabs instantiate in an offscreen Qt harness; desktop acceptance remains
+required with the user's actual collection.
+
+### All categories
+
+Both Trends and Saved comparisons offer **All categories** alongside the four
+individual loss categories. The chart draws four lines with the same teal, blue,
+amber and red colours as the printed bar charts, plus distinct line styles and
+a legend. Period/report entries show all four percentages. Matching settings,
+move-weighted percentages and missing-evidence gaps are unchanged.
+
+### Clearer live timeline and komi pooling
+
+Live Trends now defaults to Each game and the highest available visit budget.
+The analysis selector shows depth, rules, board size and the number of dated
+games in the selected range that have assessed personal moves. Compatible
+settings differing only in komi are combined automatically; no reanalysis is
+performed. Older preserved reports and their Saved comparisons retain their
+original grouping.
+
+Game dates preserves elapsed calendar time. Game order spaces contributing
+games equally; same-date ties use canonical game ID rather than inventing
+unknown playing times. Weekly and monthly views retain gaps in evidence, while
+the timeline trims leading/trailing bins with no contributing moves. Counters
+separate contributing games from all games in range, pending analysis, other
+settings, unassessed personal moves and undated games.
+
+Verified by JavaScript tests for komi pooling, provenance separation, weighted
+percentages, date filtering, same-date game ordering and exclusion counts, plus
+offscreen UI switching through grouping and axis choices.

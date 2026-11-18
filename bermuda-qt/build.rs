@@ -27,6 +27,8 @@ fn main() {
             .qml_file("src/qml/NavigationHome.qml")
             .qml_file("src/qml/PersonalReportPanel.qml")
             .qml_file("src/qml/PersonalSnapshotsDialog.qml")
+            .qml_file("src/qml/ReportTrends.qml")
+            .qml_file("src/qml/LiveTrends.qml")
             .qml_file("src/qml/AboutDialog.qml")
             .qml_file("src/qml/DatabaseImportDialog.qml")
             .qml_file("src/qml/DatabaseProgressDialog.qml")
@@ -35,7 +37,7 @@ fn main() {
             .qml_file("src/qml/GoBoard.qml")
             .qml_file("src/qml/ReplyInfluenceAnalysis.qml"),
     )
-    .qrc_resources(["src/qml/assets/lgc-logo.png", "src/qml/FilePaths.js"])
+    .qrc_resources(["src/qml/assets/lgc-logo.png", "src/qml/FilePaths.js", "src/qml/SnapshotTrends.js", "src/qml/LiveTrends.js"])
     .file("src/app.rs")
     .file("src/database_operation_model.rs")
     .file("src/joseki_model.rs")

@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -73,8 +74,10 @@ Frame {
     signal openGame(var game)
     function refresh() { openError = ""; reportModel.refresh(projectPath) }
     background: Rectangle { color: panel.palette.base; border.color: panel.palette.mid }
+    Settings { id: reportPreferences; category: "PersonalReports"; property int gameLimit: 20 }
     PersonalReportModel {
         id: reportModel
+        recent_game_limit: reportPreferences.gameLimit
         selected_ids_json: JSON.stringify(panel.importedIds)
         onBatch_busyChanged: if (!batch_busy) panel.refresh()
         onLoadingChanged: if (!loading && !error_message.length) Qt.callLater(function() { if (!reportModel.loading && !reportModel.error_message.length) panel.reportReady() })
@@ -104,10 +107,21 @@ Frame {
         RowLayout {
             Layout.fillWidth: true
             Label { text: qsTr("My games · Report card"); font.pixelSize: 22; font.bold: true; Layout.fillWidth: true; wrapMode: Text.Wrap }
-            Button { text: qsTr("Groups and snapshots…"); enabled: !panel.batchBusy && !reportModel.loading; onClicked: snapshotsDialog.openForProject(panel.projectPath) }
+            Button { text: qsTr("Reports…"); enabled: !panel.batchBusy && !reportModel.loading; onClicked: snapshotsDialog.openForProject(panel.projectPath) }
             Button { text: qsTr("Back to Home"); onClicked: panel.closeReport() }
         }
-        Label { text: panel.importedIds.length ? qsTr("Analysis for the %1 games selected from your import. Only games with an identified playing colour are included.").arg(panel.importedIds.length) : qsTr("Summary across your most recent 20 identified games. Each decision below identifies its game; click it to open the position."); wrapMode: Text.Wrap; Layout.fillWidth: true }
+        Label { text: panel.importedIds.length ? qsTr("Analysis for the %1 games selected from your import. Only games with an identified playing colour are included.").arg(panel.importedIds.length) : (reportPreferences.gameLimit === 0 ? qsTr("Live summary across all identified games.") : qsTr("Live summary across your most recent %1 identified games.").arg(reportPreferences.gameLimit)); wrapMode: Text.Wrap; Layout.fillWidth: true }
+        RowLayout {
+            visible: panel.importedIds.length === 0
+            enabled: !panel.batchBusy && !reportModel.loading
+            Label { text: qsTr("Games in live report") }
+            SpinBox { id: gameLimit; from: 0; to: 100000; editable: true; value: reportPreferences.gameLimit }
+            Label { text: qsTr("0 = all") }
+            Button {
+                text: qsTr("Apply")
+                onClicked: { reportPreferences.gameLimit = gameLimit.value; panel.refresh() }
+            }
+        }
         Frame {
             visible: panel.reviewTitle.length > 0
             Layout.fillWidth: true

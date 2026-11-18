@@ -1463,9 +1463,30 @@ ApplicationWindow {
       }
   }
 
+  function showStudyOpenError(message) {
+      studyOpenError.message = message || qsTr("The SGF could not be opened.")
+      studyOpenError.open()
+  }
+
+  Dialog {
+      id: studyOpenError
+      property string message: ""
+      parent: Overlay.overlay
+      anchors.centerIn: parent
+      width: Math.min(640, parent.width - 40)
+      title: qsTr("Could not open study")
+      modal: true
+      standardButtons: Dialog.Ok
+      contentItem: Label {
+          text: studyOpenError.message
+          textFormat: Text.PlainText
+          wrapMode: Text.Wrap
+      }
+  }
+
   function openStudySgfPath(filePath, displayName, sourceName) {
       if (!root.prepareStudyReplacement()) {
-          console.warn(gameController.error_message)
+          root.showStudyOpenError(gameController.error_message)
           return false
       }
 
@@ -1521,7 +1542,7 @@ ApplicationWindow {
           goBoard.lastMoveNumber = 0
       }
 
-      console.warn(error)
+      root.showStudyOpenError(error)
       return false
   }
 
@@ -3673,6 +3694,7 @@ menuBar: MenuBar {
         property string knownDatabasePathsJson: "[]"
         property var trialBrowserSplitState
         property var trialStudySplitState
+        property real studyCommentHeight: 240
         property int katagoVisitBudget: 200
         property var browserSplitViewStateV3
         property var studySplitViewStateV1
@@ -4861,12 +4883,11 @@ menuBar: MenuBar {
 
                                             Layout.fillWidth: true
                                             Layout.fillHeight: false
-                                            Layout.minimumHeight:
-                                                Kirigami.Units.gridUnit * 3.5
-                                            Layout.preferredHeight:
-                                                Kirigami.Units.gridUnit * 5.5
-                                            Layout.maximumHeight:
-                                                Kirigami.Units.gridUnit * 8
+                                            readonly property real heightLimit: Math.max(120, parent.height * 0.6)
+                                            readonly property real panelHeight: Math.max(120, Math.min(uiSettings.studyCommentHeight, heightLimit))
+                                            Layout.minimumHeight: panelHeight
+                                            Layout.preferredHeight: panelHeight
+                                            Layout.maximumHeight: panelHeight
 
                                             contentItem: ColumnLayout {
                                                 spacing:
@@ -4943,11 +4964,39 @@ menuBar: MenuBar {
                                             }
                                         }
 
-                                        Kirigami.Separator {
+                                        Item {
+                                            visible: sourceCommentSection.visible
                                             Layout.fillWidth: true
-                                            Layout.fillHeight: false
-                                            Layout.preferredHeight: implicitHeight
-                                            Layout.maximumHeight: implicitHeight
+                                            Layout.preferredHeight: 12
+                                            Layout.minimumHeight: 12
+                                            Layout.maximumHeight: 12
+                                            Rectangle {
+                                                anchors.centerIn: parent
+                                                width: 64; height: 3; radius: 1.5
+                                                color: commentResize.containsMouse || commentResize.pressed
+                                                       ? root.palette.highlight : root.palette.mid
+                                            }
+                                            MouseArea {
+                                                id: commentResize
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.SizeVerCursor
+                                                property real pressY: 0
+                                                property real startHeight: 0
+                                                onPressed: function(mouse) {
+                                                    pressY = mapToItem(root.contentItem, mouse.x, mouse.y).y
+                                                    startHeight = sourceCommentSection.height
+                                                }
+                                                onPositionChanged: function(mouse) {
+                                                    if (!pressed) return
+                                                    const y = mapToItem(root.contentItem, mouse.x, mouse.y).y
+                                                    uiSettings.studyCommentHeight = Math.max(120,
+                                                        Math.min(sourceCommentSection.heightLimit, startHeight + y - pressY))
+                                                }
+                                                onDoubleClicked: uiSettings.studyCommentHeight = 240
+                                                ToolTip.visible: containsMouse && !pressed
+                                                ToolTip.text: qsTr("Drag to resize comments. Double-click to reset the height.")
+                                            }
                                         }
 
                                         StudyToolBar {

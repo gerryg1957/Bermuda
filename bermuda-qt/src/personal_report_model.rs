@@ -11,6 +11,7 @@ mod ffi {
     unsafe extern "RustQt" {
         #[qobject]
         #[qml_element]
+        #[qproperty(i32, recent_game_limit)]
         #[qproperty(QString, selected_ids_json)]
         #[qproperty(QString, report_json)]
         #[qproperty(QString, error_message)]
@@ -43,6 +44,7 @@ mod ffi {
 
 #[derive(Default)]
 pub struct PersonalReportModelRust {
+    recent_game_limit: i32,
     selected_ids_json: QString,
     report_json: QString,
     error_message: QString,
@@ -63,6 +65,7 @@ impl ffi::PersonalReportModel {
         self.as_mut().set_loading(true);
         self.as_mut().set_report_json(QString::from("{}"));
         self.as_mut().set_error_message(QString::default());
+        let limit = self.rust().recent_game_limit.max(0) as usize;
         let selected_text = self.rust().selected_ids_json.to_string();
         let path = project_path.to_string();
         let retry_path = path.clone();
@@ -74,10 +77,11 @@ impl ffi::PersonalReportModel {
                 let analysis = crate::app::katago_working_directory().map_err(anyhow::Error::msg)?
                     .join("game-analysis.sqlite3");
                 let selected: Vec<i64> = serde_json::from_str(if selected_text.is_empty() { "[]" } else { &selected_text })?;
-                Ok((bermuda::personal_report::build_selected(&project, &analysis, &selected)?, bermuda::personal_batch::summary(&project)?))
+                Ok((bermuda::personal_report::build_selected_with_limit(&project, &analysis, &selected, limit)?, bermuda::personal_batch::summary(&project)?))
             })();
             let _ = thread.queue(move |mut model| {
-                if model.rust().selected_ids_json.to_string() != requested_selection {
+                if model.rust().selected_ids_json.to_string() != requested_selection
+                    || model.rust().recent_game_limit.max(0) as usize != limit {
                     model.as_mut().set_loading(false);
                     model.refresh(&QString::from(retry_path));
                     return;
@@ -138,6 +142,7 @@ impl ffi::PersonalReportModel {
             Err(error) => { self.as_mut().set_batch_status(QString::from(format!("Cannot start: {error:#}"))); return; }
         };
         let path = project_path.to_string();
+        let limit = self.rust().recent_game_limit.max(0) as usize;
         let selected_text = self.rust().selected_ids_json.to_string();
         let rules = rules.to_string();
         let stop = Arc::new(AtomicBool::new(false));
@@ -157,8 +162,8 @@ impl ffi::PersonalReportModel {
                     bermuda::personal_batch::load(&project)?.ok_or_else(|| anyhow::anyhow!("No saved queue"))?
                 } else {
                     let selected: Vec<i64> = serde_json::from_str(if selected_text.is_empty() { "[]" } else { &selected_text })?;
-                    bermuda::personal_batch::create_selected(&project, &analysis, config.as_ref().unwrap(),
-                        visits as u64, &rules, fallback, &stop, &selected)?
+                    bermuda::personal_batch::create_selected_with_limit(&project, &analysis, config.as_ref().unwrap(),
+                        visits as u64, &rules, fallback, &stop, &selected, limit)?
                 };
                 let config = bermuda::personal_batch::configuration(&batch, &working)?;
                 let mut timing = None;

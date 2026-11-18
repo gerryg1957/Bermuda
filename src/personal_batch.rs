@@ -59,10 +59,15 @@ pub fn create(project: &Project, analysis: &Path, config: &KataGoConfiguration,
 
 pub fn create_selected(project: &Project, analysis: &Path, config: &KataGoConfiguration,
     visits: u64, rules: &str, fallback_komi: f64, stop: &AtomicBool, selected: &[i64]) -> Result<Batch> {
+    create_selected_with_limit(project, analysis, config, visits, rules, fallback_komi, stop, selected, 20)
+}
+
+pub fn create_selected_with_limit(project: &Project, analysis: &Path, config: &KataGoConfiguration,
+    visits: u64, rules: &str, fallback_komi: f64, stop: &AtomicBool, selected: &[i64], limit: usize) -> Result<Batch> {
     ensure!((10..=100_000).contains(&visits) && fallback_komi.is_finite(), "Invalid analysis settings");
     ensure!(["japanese", "chinese", "aga", "tromp-taylor"].contains(&rules), "Select analysis rules");
     ensure!(load(project)?.is_none_or(|b| b.completed == b.jobs.len()), "Resume or clear the saved queue first");
-    let report = crate::personal_report::build_selected(project, analysis, selected)?;
+    let report = crate::personal_report::build_selected_with_limit(project, analysis, selected, limit)?;
     ensure!(report["needs_names"] == false, "Set up your names first");
     let mut entries = report["pending"].as_array().cloned().unwrap_or_default();
     for group in report["groups"].as_array().into_iter().flatten() {

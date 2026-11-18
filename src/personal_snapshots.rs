@@ -55,6 +55,50 @@ pub struct Snapshot {
     /// Frozen presentation data, rather than a summary recomputed by future code.
     pub report: Value,
 }
+// Derive graph points from frozen bar-chart counts; never re-score old decisions.
+fn snapshot_trend_series(snapshot: &Snapshot) -> Result<Vec<Value>> {
+    let mut series = Vec::new();
+    for group in snapshot.report["groups"].as_array().into_iter().flatten() {
+        let analysed = group["analysed"].as_array().cloned().unwrap_or_default();
+        let mut keys = BTreeSet::new();
+        let mut dates = Vec::new();
+        let mut ids = Vec::new();
+        let mut undated = 0;
+        for game in &analysed {
+            let run = snapshot.runs.iter().flatten()
+                .find(|run| Some(run.run_id.as_str()) == game["run_id"].as_str());
+            if let Some(run) = run { keys.insert(crate::personal_report::settings_key(run)?); }
+            else { keys.insert("unknown".to_owned()); }
+            if let Some(id) = game["game_id"].as_i64() { ids.push(id); }
+            let date = game["date"].as_str().unwrap_or("");
+            if valid_trend_date(date) { dates.push(date.to_owned()); } else { undated += 1; }
+        }
+        dates.sort();
+        // Unknown provenance is never silently compared to another report.
+        let key = if keys.len() == 1 && !keys.contains("unknown") {
+            keys.into_iter().next().unwrap()
+        } else { continue; };
+        series.push(json!({"key":key,"visits":group["visits"],"rules":group["rules"],
+            "komi":group["komi"],"board_size":group["board_size"],
+            "decisions":group["decisions"],"buckets":group["buckets"],"games":analysed.len(),
+            "complete":analysed.iter().filter(|g| g["complete"] == true).count(),
+            "game_ids":ids,"from":dates.first(),"to":dates.last(),"undated":undated}));
+    }
+    Ok(series)
+}
+
+fn valid_trend_date(date: &str) -> bool {
+    let bytes = date.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-'
+        || !bytes.iter().enumerate().all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit()) { return false; }
+    let year: u32 = date[..4].parse().unwrap_or(0);
+    let month: usize = date[5..7].parse().unwrap_or(0);
+    let day: u32 = date[8..].parse().unwrap_or(0);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = [0,31,if leap {29} else {28},31,30,31,30,31,31,30,31,30,31];
+    year > 0 && month > 0 && month <= 12 && day > 0 && day <= days[month]
+}
+
 fn now() -> Result<u64> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
@@ -124,6 +168,8 @@ impl SnapshotStore {
         let db = Connection::open(project.database_root().join("personal-snapshots.sqlite3"))?;
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS removed_groups (id INTEGER PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS removed_reports (id INTEGER PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS game_groups (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS report_snapshots (id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL, body TEXT NOT NULL);
             CREATE TRIGGER IF NOT EXISTS immutable_groups BEFORE UPDATE ON game_groups
@@ -173,7 +219,7 @@ impl SnapshotStore {
     pub fn group(&self, id: i64) -> Result<GameGroup> {
         let body: String =
             self.db
-                .query_row("SELECT body FROM game_groups WHERE id=?1", [id], |r| {
+                .query_row("SELECT body FROM game_groups WHERE id=?1 AND id NOT IN (SELECT id FROM removed_groups)", [id], |r| {
                     r.get(0)
                 })?;
         Ok(serde_json::from_str(&body)?)
@@ -240,7 +286,7 @@ impl SnapshotStore {
     pub fn snapshot(&self, id: i64) -> Result<Snapshot> {
         let body: String =
             self.db
-                .query_row("SELECT body FROM report_snapshots WHERE id=?1", [id], |r| {
+                .query_row("SELECT body FROM report_snapshots WHERE id=?1 AND id NOT IN (SELECT id FROM removed_reports)", [id], |r| {
                     r.get(0)
                 })?;
         let snapshot: Snapshot = serde_json::from_str(&body)?;
@@ -252,11 +298,29 @@ impl SnapshotStore {
         );
         Ok(snapshot)
     }
+    /// Remove from the library without touching source games or analysis.
+    /// Tombstones preserve immutable evidence and prevent reuse of old IDs.
+    pub fn remove_report(&self, id: i64) -> Result<()> {
+        let changed = self.db.execute("INSERT OR IGNORE INTO removed_reports(id)
+            SELECT id FROM report_snapshots WHERE id=?1", [id])?;
+        ensure!(changed == 1, "Report is missing or already removed");
+        Ok(())
+    }
+
+    pub fn remove_empty_group(&self, id: i64) -> Result<()> {
+        let changed = self.db.execute("INSERT OR IGNORE INTO removed_groups(id)
+            SELECT id FROM game_groups WHERE id=?1 AND NOT EXISTS (
+                SELECT 1 FROM report_snapshots r WHERE r.group_id=?1
+                AND r.id NOT IN (SELECT id FROM removed_reports))", [id])?;
+        ensure!(changed == 1, "Group is missing, already removed, or still has saved reports. Remove its reports first.");
+        Ok(())
+    }
+
     pub fn listing(&self) -> Result<Value> {
         let mut groups = Vec::new();
         let mut query = self
             .db
-            .prepare("SELECT id,body FROM game_groups ORDER BY id DESC")?;
+            .prepare("SELECT id,body FROM game_groups WHERE id NOT IN (SELECT id FROM removed_groups) ORDER BY id DESC")?;
         for row in query.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
             let (id, body) = row?;
             let group: GameGroup = serde_json::from_str(&body)?;
@@ -277,7 +341,7 @@ impl SnapshotStore {
         let mut snapshots = Vec::new();
         let mut query = self
             .db
-            .prepare("SELECT id,group_id,body FROM report_snapshots ORDER BY id DESC")?;
+            .prepare("SELECT id,group_id,body FROM report_snapshots WHERE id NOT IN (SELECT id FROM removed_reports) ORDER BY id DESC")?;
         for row in query.query_map([], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
@@ -287,7 +351,9 @@ impl SnapshotStore {
         })? {
             let (id, group_id, body) = row?;
             let snapshot: Snapshot = serde_json::from_str(&body)?;
+            let trend_series = snapshot_trend_series(&snapshot)?;
             snapshots.push(json!({"id":id,"group_id":group_id,"label":snapshot.label,
+                "group_name":snapshot.group.name,"trend_series":trend_series,
                 "created_at":snapshot.created_at,"report":snapshot.report}));
         }
         Ok(json!({"groups":groups,"snapshots":snapshots}))
@@ -379,6 +445,71 @@ mod tests {
         run.results.push(result);
         Ok(())
     }
+    #[test]
+    fn removal_keeps_games_and_evidence_and_never_reuses_ids() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let project = crate::project_manager::ProjectManager::new().create("Personal", temp.path().join("p"))?;
+        let game = import(&project, "a", "(;SZ[19]PB[me]PW[other];B[aa];W[bb])")?;
+        identify(&project)?;
+        let store = SnapshotStore::open(&project)?;
+        let group = store.create_group(&project, "Q4", &[game])?;
+        let report = store.capture(group, "Baseline", &temp.path().join("absent.sqlite3"))?;
+        assert!(store.remove_empty_group(group).is_err());
+        store.remove_report(report)?;
+        assert!(store.snapshot(report).is_err());
+        assert!(store.remove_report(report).is_err());
+        store.remove_empty_group(group)?;
+        assert!(store.group(group).is_err());
+        assert!(store.capture(group, "Gone", &temp.path().join("absent.sqlite3")).is_err());
+        drop(store);
+        let store = SnapshotStore::open(&project)?;
+        assert_eq!(store.listing()?["snapshots"], json!([]));
+        assert_eq!(store.listing()?["groups"], json!([]));
+        assert_eq!(available_games(&project)?.len(), 1);
+        let retained: i64 = store.db.query_row("SELECT count(*) FROM report_snapshots", [], |r| r.get(0))?;
+        assert_eq!(retained, 1);
+        let next = store.create_group(&project, "Next", &[game])?;
+        assert!(next > group);
+        assert!(store.capture(next, "New", &temp.path().join("absent.sqlite3"))? > report);
+        Ok(())
+    }
+    #[test]
+    fn trend_uses_frozen_buckets_and_separates_engine_settings() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let project = crate::project_manager::ProjectManager::new().create("Personal", temp.path().join("project"))?;
+        let id = import(&project, "one", "(;SZ[19]PB[me]PW[other]DT[2026-10-01];B[aa];W[bb])")?;
+        identify(&project)?;
+        let archive = SnapshotStore::open(&project)?;
+        let group = archive.create_group(&project, "October", &[id])?;
+        let path = temp.path().join("analysis.sqlite3");
+        let analysis = AnalysisStore::open(&path)?;
+        let mut run = analysis.restore(run(&project, id)?)?;
+        append(&analysis, &mut run, 0.0, 0.5)?;
+        append(&analysis, &mut run, -6.0, 0.3)?;
+        let first = archive.capture(group, "Baseline", &path)?;
+        let mut snapshot = archive.snapshot(first)?;
+        let before = snapshot_trend_series(&snapshot)?;
+        assert_eq!(before[0]["games"], 1);
+        assert_eq!(before[0]["complete"], 0);
+        assert_eq!(before[0]["decisions"], 1);
+        assert_eq!(before[0]["buckets"], json!([0,0,0,1]));
+        assert_eq!(before[0]["from"], "2026-10-01");
+        // Counts come from the preserved report, not a fresh scoring calculation.
+        snapshot.report["groups"][0]["buckets"] = json!([1,0,0,0]);
+        assert_eq!(snapshot_trend_series(&snapshot)?[0]["buckets"], json!([1,0,0,0]));
+        snapshot.runs[0].as_mut().unwrap().provenance.engine_sha256 = "graphics-card".into();
+        assert_ne!(snapshot_trend_series(&snapshot)?[0]["key"], before[0]["key"]);
+        snapshot.report["groups"][0]["analysed"][0]["date"] = json!("2026-02-30");
+        let undated = snapshot_trend_series(&snapshot)?;
+        assert_eq!(undated[0]["undated"], 1);
+        assert!(undated[0]["to"].is_null());
+        let second = archive.capture(group, "Second report", &path)?;
+        assert_ne!(first, second);
+        assert_eq!(archive.listing()?["snapshots"].as_array().unwrap().len(), 2);
+        assert_eq!(archive.snapshot(first)?.report["groups"][0]["buckets"], json!([0,0,0,1]));
+        Ok(())
+    }
+
     #[test]
     fn preserves_partial_evidence_across_completion_import_identity_edit_deletion_and_restart()
     -> Result<()> {

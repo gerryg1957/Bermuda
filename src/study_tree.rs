@@ -428,15 +428,21 @@ fn append_point_markup(
     kind: StudyMarkupKind,
 ) -> Result<(), GameError> {
     for value in node.values(property) {
-        let point = coordinate(value, size)?.ok_or_else(|| GameError::InvalidCoordinate {
-            value: value.clone(),
-            size,
-        })?;
-
-        markup.push(StudyMarkup {
-            point,
-            kind: kind.clone(),
-        });
+        // SGF point lists allow a rectangle such as TR[aa:bc]. Labels and
+        // moves have different value types and must not be expanded here.
+        let invalid = || GameError::InvalidCoordinate { value: value.clone(), size };
+        let (first, last) = value.split_once(':').unwrap_or((value, value));
+        let first = coordinate(first, size)?.ok_or_else(&invalid)?;
+        let last = coordinate(last, size)?.ok_or_else(&invalid)?;
+        let width = u16::from(size);
+        let (x1, y1) = (first % width, first / width);
+        let (x2, y2) = (last % width, last / width);
+        if x1 > x2 || y1 > y2 { return Err(invalid()); }
+        for y in y1..=y2 {
+            for x in x1..=x2 {
+                markup.push(StudyMarkup { point: y * width + x, kind: kind.clone() });
+            }
+        }
     }
 
     Ok(())
@@ -525,6 +531,30 @@ fn first_child_path(tree: &StudyTree) -> Vec<usize> {
 mod tests {
     use super::*;
     use crate::parse_collection;
+
+    #[test]
+    fn expands_compressed_markup_in_main_line_and_variations() {
+        let collection = parse_collection(b"(;SZ[19]TR[oi:oj];B[dd](;W[pp]SQ[aa:bb]LB[cc:A:B])(;W[dp]CR[jp:jq]MA[qd:rd]SL[ss]))").unwrap();
+        let tree = build_study_tree(&collection).unwrap();
+        assert_eq!(tree.main_path.len(), 3);
+        assert_eq!(tree.nodes[0].markup.iter().map(|m| m.point).collect::<Vec<_>>(), vec![166,185]);
+        let square_points = tree.nodes[2].markup.iter().filter(|m| m.kind == StudyMarkupKind::Square).map(|m|m.point).collect::<Vec<_>>();
+        assert_eq!(square_points, vec![0,1,19,20]);
+        assert!(tree.nodes[2].markup.iter().any(|m| m.kind == StudyMarkupKind::Label("A:B".into())));
+        assert_eq!(tree.nodes[3].markup.len(), 5);
+        assert_eq!(tree.nodes[3].markup[0].point, 294);
+        assert_eq!(tree.nodes[3].markup[1].point, 313);
+        assert_eq!(tree.nodes[3].markup[4].point, 360);
+    }
+
+    #[test]
+    fn rejects_invalid_markup_rectangles() {
+        for value in ["bb:aa", "aa:tt", "aa:", ":aa", "aa:bb:cc"] {
+            let sgf = format!("(;SZ[19]TR[{value}])");
+            let collection = parse_collection(sgf.as_bytes()).unwrap();
+            assert!(build_study_tree(&collection).is_err(), "{value}");
+        }
+    }
 
     #[test]
     fn preserves_branch_order_and_builds_main_path() {
