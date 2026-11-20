@@ -40,3 +40,39 @@ assert.equal(t.settings(sample,'2026-11-02','').find(s=>s.keys.length===2).games
 assert.equal(t.prepare(sample,combined.keys,0,'2026-11-02','','each',20).points.length,0);
 assert.notEqual(t.comparableKey('unknown1'),t.comparableKey('unknown2'));
 console.log('PASS: komi pooling, engine/depth separation, each-game ordering and contributing counts');
+
+// Seven-day report boundaries start on the first game, not calendar Monday.
+const anchoredReport={groups:[{key:'a',analysed:[
+ game(1,'2026-10-01',[1,0,0,0]), game(2,'2026-10-08',[2,0,0,0]),
+ game(3,'2026-10-14',[0,3,0,0]), game(4,'2026-10-15',[4,0,0,0]),
+ game(5,'2026-10-29',[1,0,0,0])
+]}]};
+const anchored=t.prepare(anchoredReport,'a',0,'','','week',20,'2026-10-08');
+assert.equal(anchored.games,4);
+assert.equal(anchored.points[0].name,'2026-10-08 – 2026-10-14');
+assert.equal(anchored.points[0].percent,40);
+assert.equal(anchored.points[1].connect,true);
+assert.equal(anchored.points[2].percent,null);
+assert.equal(anchored.points[3].connect,false); // Empty week is not a zero score.
+assert.equal(t.date(anchored.points[1].time),'2026-10-15');
+console.log('PASS: report-anchored weeks, exact boundaries and empty-week gaps');
+
+const current=t.prepare(anchoredReport,'a',0,'','','week',20,'2026-10-08','2026-10-30');
+assert.equal(current.points[3].unfinished,true);
+assert.equal(current.points[0].unfinished,false);
+assert.equal(current.points[2].from,'2026-10-22');
+assert.equal(current.points[2].games.length,0);
+console.log('PASS: explicit empty weeks and unfinished live period');
+
+const allChoice=t.allOption(sample,'','')[0];
+assert.equal(allChoice.key,'*');
+assert.equal(allChoice.keys.length,5);
+const allDepths=t.prepare(sample,allChoice.keys,0,'','','each',20);
+assert.equal(allDepths.contributing,5);
+assert.equal(allDepths.other,0);
+assert.equal(allDepths.pending,1);
+const allWeek=t.prepare(sample,allChoice.keys,0,'2026-11-01','2026-11-01','week',20);
+assert.equal(allWeek.points[0].percent,10); // 1 of 10 moves, not 50% average of games.
+assert.deepEqual(Array.from(allWeek.points[0].visits),[1000]);
+assert.equal(t.allOption({},'','').length,0);
+console.log('PASS: opt-in all analysis uses all keys, keeps pending separate and weights moves');

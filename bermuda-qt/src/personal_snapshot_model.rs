@@ -17,11 +17,18 @@ mod ffi {
         #[qproperty(QString, games_json)]
         #[qproperty(QString, archive_json)]
         #[qproperty(QString, live_json)]
+        #[qproperty(QString, weekly_preview_json)]
         #[qproperty(QString, live_error)]
         #[qproperty(QString, error_message)]
         #[qproperty(QString, notice)]
         #[qproperty(QUrl, report_url)]
         type PersonalSnapshotModel = super::PersonalSnapshotModelRust;
+        #[qinvokable]
+        #[cxx_name = "previewWeekly"]
+        fn preview_weekly(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString, today: &QString, reset: bool);
+        #[qinvokable]
+        #[cxx_name = "buildWeekly"]
+        fn build_weekly(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString, preview: &QString);
         #[qinvokable]
         fn refresh(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString);
         #[qinvokable]
@@ -62,12 +69,15 @@ pub struct PersonalSnapshotModelRust {
     games_json: QString,
     archive_json: QString,
     live_json: QString,
+    weekly_preview_json: QString,
     live_error: QString,
     error_message: QString,
     notice: QString,
     report_url: QUrl,
 }
 enum Action {
+    PreviewWeekly(String, bool),
+    BuildWeekly(String),
     Refresh,
     RemoveReport(i64),
     RemoveGroup(i64),
@@ -76,6 +86,12 @@ enum Action {
     Export(i64),
 }
 impl ffi::PersonalSnapshotModel {
+    fn preview_weekly(self: Pin<&mut Self>, path: &QString, today: &QString, reset: bool) {
+        self.perform(path.to_string(), Action::PreviewWeekly(today.to_string(), reset));
+    }
+    fn build_weekly(self: Pin<&mut Self>, path: &QString, preview: &QString) {
+        self.perform(path.to_string(), Action::BuildWeekly(preview.to_string()));
+    }
     fn remove_report(self: Pin<&mut Self>, path: &QString, id: i32) {
         self.perform(path.to_string(), Action::RemoveReport(i64::from(id)));
     }
@@ -104,6 +120,7 @@ impl ffi::PersonalSnapshotModel {
         if self.rust().busy {
             return;
         }
+        self.as_mut().set_weekly_preview_json(QString::default());
         self.as_mut().set_busy(true);
         self.as_mut().set_error_message(QString::default());
         self.as_mut().set_notice(QString::default());
@@ -116,7 +133,8 @@ impl ffi::PersonalSnapshotModel {
                     bermuda::project_manager::ProjectManager::new().open(Path::new(&path))?;
                 let store = bermuda::personal_snapshots::SnapshotStore::open(&project)?;
                 let mut exported = None;
-                let live = if matches!(&action, Action::Refresh) {
+                let mut preview = String::new();
+                let live = if matches!(&action, Action::Refresh | Action::BuildWeekly(_)) {
                     Some((|| -> anyhow::Result<_> {
                         let analysis = crate::app::katago_working_directory()
                             .map_err(anyhow::Error::msg)?.join("game-analysis.sqlite3");
@@ -125,6 +143,16 @@ impl ffi::PersonalSnapshotModel {
                 } else { None };
                 let notice = match action {
                     Action::Refresh => String::new(),
+                    Action::PreviewWeekly(today, reset) => {
+                        preview = store.preview_weekly(&project, &today, reset)?.to_string();
+                        "Preview ready. No reports have been changed.".into()
+                    }
+                    Action::BuildWeekly(plan) => {
+                        let analysis = crate::app::katago_working_directory()
+                            .map_err(anyhow::Error::msg)?.join("game-analysis.sqlite3");
+                        let count = store.replace_with_weekly(&project, &analysis, &serde_json::from_str(&plan)?)?;
+                        format!("{count} weekly reports saved. Games and KataGo analysis are unchanged.")
+                    }
                     Action::RemoveReport(id) => {
                         store.remove_report(id)?;
                         "Report removed from the library. Games and analysis are unchanged.".into()
@@ -163,12 +191,13 @@ impl ffi::PersonalSnapshotModel {
                     notice,
                     exported,
                     live,
+                    preview,
                 ))
             })();
             let _ =
                 thread.queue(move |mut model| {
                     match result {
-                        Ok((games, archive, notice, exported, live)) => {
+                        Ok((games, archive, notice, exported, live, preview)) => {
                             if let Some(live) = live {
                                 match live {
                                     Ok(report) => {
@@ -181,6 +210,7 @@ impl ffi::PersonalSnapshotModel {
                                     }
                                 }
                             }
+                            model.as_mut().set_weekly_preview_json(QString::from(preview));
                             model.as_mut().set_games_json(QString::from(games));
                             model.as_mut().set_archive_json(QString::from(archive));
                             model.as_mut().set_notice(QString::from(notice));

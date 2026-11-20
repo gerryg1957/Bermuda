@@ -564,3 +564,32 @@ contributing counts, added Each game with date or equal game-order spacing,
 and trimmed empty timeline ends. Game blocks use contributing games only.
 Preserved report contents and comparisons stay unchanged. Calculation and
 offscreen UI checks pass; desktop acceptance pending.
+
+### Item 4A — weekly reports, 20 November 2026
+
+Implemented for desktop acceptance: a preview-and-confirm workflow replaces the
+reports library with consecutive seven-day reports anchored to the first dated
+My games entry. Empty weeks and the unfinished current period are explicit.
+There is no per-report game limit. Source games and KataGo analyses are retained;
+no new analysis runs. Replacement is atomic and stale previews are rejected.
+
+The anchor persists; importing older games requires an explicit reset to change
+boundaries. Live weekly trends share the anchor. Weekly report charts pool komi
+values while retaining other analysis compatibility checks. Individual report
+removal and custom reports remain available.
+
+Next acceptance: preview Gerry's collection, confirm expected dates/counts,
+replace the library, open/print a weekly report, and compare its boundaries with
+Live Trends. The graph uses current analysis; reports are preserved snapshots.
+
+Weekly trends follow-up: saved comparisons use report-period starts, live and
+saved graphs have intermediate date ticks, empty weeks break connecting lines,
+and unfinished periods have hollow markers and explicit labels. Game counts and
+coverage remain visible below each graph. Calculation and offscreen rendering
+checks pass; desktop acceptance pending.
+
+Trend overview follow-up: added an optional **All** analysis selection to live
+Trends and Saved comparisons, combining visit counts and engine settings while
+retaining individual selections. Counts are weighted by assessed moves. No
+reanalysis or report rewriting occurs. Label kept simply All at Gerry's request;
+calculation and offscreen UI checks pass.

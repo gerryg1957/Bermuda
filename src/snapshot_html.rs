@@ -57,6 +57,13 @@ body{font:16px/1.5 system-ui,sans-serif;color:#202e35;max-width:1050px;margin:32
     write!(out,"<h1>{}</h1><div class=subtitle>{}</div><p class=intro>A fixed copy of your saved analysis. Later analysis will not change this report.</p><p class=muted>Saved {} · snapshot #{id}</p>",escape(&s.group.name),escape(&s.label),timestamp(s.created_at)).unwrap();
     write!(out, "<style>@page{{@bottom-left{{content:\"Bermuda · snapshot #{id}\";font-size:8pt}}@bottom-right{{content:counter(page);font-size:8pt}}}}</style>").unwrap();
     let r = &s.report;
+    if let Some(period) = s.report.get("period") {
+        write!(out, "<p><strong>Seven-day period: {} – {}</strong></p>", escape(period["from"].as_str().unwrap_or("")), escape(period["to"].as_str().unwrap_or(""))).unwrap();
+        if period["unfinished"] == true {
+            out.push_str("<p><strong>Unfinished period when saved.</strong> More games may be played before this period ends.</p>");
+        }
+        if s.group.members.is_empty() { out.push_str("<p>No games in this period. This is a gap in play, not a zero move-quality score.</p>"); }
+    }
     out.push_str(&visual_summary(s)?);
     out.push_str("<p class=\"next no-print\"><strong>What next?</strong> Explore these positions in Bermuda. Different groups with comparable analysis can help you investigate changes in play. Deeper analysis of the same games improves the evidence. A recurring weakness still needs investigation.</p><section class=details><h2>Detailed tables</h2>");
     out.push_str("<p>This is a fixed copy of saved evidence, not a live report. New imports, name edits and later analysis do not change it. Names and your colour are those saved with this group. Partial games contribute only assessed moves.</p><h2>Games in this group</h2><table><thead><tr><th>Date</th><th>Black</th><th>White</th><th>You</th><th>Result</th><th>Coverage</th></tr></thead><tbody>");
@@ -96,7 +103,7 @@ body{font:16px/1.5 system-ui,sans-serif;color:#202e35;max-width:1050px;margin:32
             out.push_str("<p>No assessed personal decisions were available when this snapshot was saved.</p>");
         }
         for (i, g) in groups.iter().enumerate() {
-            write!(out,"<h3>Analysis set {} · {} games</h3><p>{} visits per position · {} rules · komi {}<br>{} of your moves assessed</p><table><thead><tr><th>Estimated points lost</th><th>Moves</th><th>Share of assessed moves</th></tr></thead><tbody>",i+1,g["games"],g["visits"],text(&g["rules"]),g["komi"],g["decisions"]).unwrap();
+            write!(out,"<h3>Analysis set {} · {} games</h3><p>{} visits per position · {} rules · komi {}<br>{} of your moves assessed</p><table><thead><tr><th>Estimated points lost</th><th>Moves</th><th>Share of assessed moves</th></tr></thead><tbody>",i+1,g["games"],g["visits"],text(&g["rules"]),display_value(&g["komi"]),g["decisions"]).unwrap();
             for (b, label) in ["Below 1 (including estimated gains)", "1–3", "3–5", "5+"]
                 .iter()
                 .enumerate()
@@ -353,7 +360,7 @@ fn visual_summary(s: &Snapshot) -> Result<String> {
             g["games"],
             g["visits"],
             text(&g["rules"]),
-            g["komi"]
+            display_value(&g["komi"])
         )
         .unwrap();
         out.push_str(&loss_chart(
@@ -535,4 +542,8 @@ mod tests {
         assert!(svg.contains(r#"cx="25" cy="385" r="7""#));
         Ok(())
     }
+}
+
+fn display_value(value: &serde_json::Value) -> String {
+    value.as_str().map(escape).unwrap_or_else(|| value.to_string())
 }

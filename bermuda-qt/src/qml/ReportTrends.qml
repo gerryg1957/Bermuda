@@ -18,7 +18,9 @@ ColumnLayout {
             return true
         }).map(function(s) { return s.id })
     }
-    readonly property var sets: Trends.settings(snapshots, selected)
+    readonly property var individualSets: Trends.settings(snapshots, selected)
+    readonly property var sets: individualSets.concat(individualSets.length ? [{key:"*",label:qsTr("All")}] : [])
+    readonly property bool allAnalysis: !!sets[setChoice.currentIndex] && sets[setChoice.currentIndex].key === "*"
     readonly property var points: Trends.points(snapshots, selected,
         sets[setChoice.currentIndex] ? sets[setChoice.currentIndex].key : "", Math.max(0, Math.min(metric.currentIndex, 3)))
     readonly property bool overlapping: Trends.overlaps(points)
@@ -47,14 +49,14 @@ ColumnLayout {
             id: metric; objectName: "savedMetric"; Layout.fillWidth: true
             model: [qsTr("Below 1 point — higher is generally better"), qsTr("1–3 points"), qsTr("3–5 points"), qsTr("5+ points — lower is generally better"), qsTr("All categories")]
         }
-        ComboBox { id: setChoice; Layout.fillWidth: true; model: view.sets; textRole: "label" }
+        ComboBox { id: setChoice; objectName: "savedAnalysis"; Layout.fillWidth: true; model: view.sets; textRole: "label" }
     }
     Label {
-        text: qsTr("Engine, network, configuration, visits, rules, komi and board size must match. Percentages are per assessed personal move, not an average of game percentages. Opponent strength, colour and handicap can also affect the result; this is not a rank estimate.")
+        text: view.allAnalysis ? qsTr("Percentages are weighted by assessed moves; saved reports stay unchanged.") : qsTr("Engine, network, configuration, visits, rules and board size must match. Weekly reports combine komi values; older custom reports retain their grouping. Percentages are per assessed personal move, not an average of game percentages. Opponent strength, colour and handicap can also affect the result; this is not a rank estimate.")
         Layout.fillWidth: true; wrapMode: Text.Wrap
     }
     Label {
-        visible: view.points.length < 2 || view.overlapping
+        visible: view.points.filter(function(p) { return p.percent !== null }).length < 2 || view.overlapping
         text: view.overlapping ? qsTr("These groups share games. Points are shown without a connecting line; they are not independent periods.")
             : qsTr("Choose at least two dated groups with assessed moves under matching settings to see a trend. One report provides a baseline, not a trend.")
         Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#805600"
@@ -101,6 +103,12 @@ ColumnLayout {
             const start = p[0].time, end = p[p.length-1].time
             function x(point) { return end === start ? (left+right)/2 : left + (point.time-start)/(end-start)*(right-left) }
             function y(point) { return bottom-point.percent/100*(bottom-top) }
+            Trends.ticks(start,end,right-left,p.every(function(point) { return point.weekly })).forEach(function(tick) {
+                const position = x({time:tick.time})
+                ctx.strokeStyle = "#dce1e5"; ctx.beginPath(); ctx.moveTo(position,top); ctx.lineTo(position,bottom); ctx.stroke()
+                ctx.fillStyle = "#333333"
+                ctx.fillText(tick.label,Math.max(left,Math.min(right-75,position-35)),height-10)
+            })
             view.series.forEach(function(series) {
                 const colour = view.categoryColours[series.bucket]
                 ctx.strokeStyle = colour; ctx.lineWidth = 2
@@ -108,25 +116,26 @@ ColumnLayout {
                 ctx.beginPath()
                 series.points.forEach(function(point,i) {
                     if (point.percent === null) return
-                    if (!view.overlapping && i > 0) ctx.lineTo(x(point),y(point))
+                    if (!view.overlapping && point.connect) ctx.lineTo(x(point),y(point))
                     else ctx.moveTo(x(point),y(point))
                 })
                 ctx.stroke(); ctx.setLineDash([])
                 series.points.forEach(function(point,i) {
                     if (point.percent === null) return
-                    ctx.fillStyle = colour; ctx.beginPath(); ctx.arc(x(point),y(point),3.5,0,Math.PI*2); ctx.fill()
+                    ctx.fillStyle = point.unfinished ? "white" : colour
+                    ctx.strokeStyle = colour
+                    ctx.beginPath(); ctx.arc(x(point),y(point),point.unfinished ? 5 : 3.5,0,Math.PI*2)
+                    ctx.fill(); if (point.unfinished) ctx.stroke()
                     if (!view.allCategories) {
                         ctx.fillStyle = "#222222"; ctx.fillText(String(i+1),x(point)+7,y(point)-6)
                     }
                 })
             })
-            ctx.fillStyle = "#333333"
-            ctx.fillText(p[0].to, left, height-10)
-            if (end !== start) ctx.fillText(p[p.length-1].to, Math.max(left+90,right-75), height-10)
+
         }
     }
     Label {
-        text: qsTr("Each point uses the group's last game date. Partial analysis contributes only assessed moves. Reports without full game dates or matching analysis are omitted from this graph.")
+        text: qsTr("Weekly points use the period start; custom reports use the last game date. Gaps mean no matching assessed moves. Hollow circles mark periods unfinished when saved. Partial analysis contributes only assessed moves.")
         Layout.fillWidth: true; wrapMode: Text.Wrap
     }
     ScrollView {
@@ -140,13 +149,15 @@ ColumnLayout {
                     required property int index
                     Layout.fillWidth: true
                     contentItem: ColumnLayout {
-                        Label { text: (index+1) + ". " + modelData.name + " · " + modelData.label + " · " + (view.allCategories ? qsTr("All categories") : modelData.percent.toFixed(1) + "%"); font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                        Label { text: (index+1) + ". " + modelData.name + " · " + modelData.label + " · " + (view.allCategories ? qsTr("All categories") : (modelData.percent === null ? qsTr("No assessed moves") : modelData.percent.toFixed(1) + "%")); font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true }
                         Label { visible: view.allCategories; text: view.percentages(index); wrapMode: Text.Wrap; Layout.fillWidth: true }
                         Label {
-                            text: modelData.from + " – " + modelData.to + " · " + qsTr("%1 games (%2 complete), %3 assessed moves · %4 awaiting analysis, %5 excluded in report")
+                            text: modelData.from + " – " + modelData.to + " · " + qsTr("%1 contributing games (%2 complete), %3 assessed moves · %4 awaiting analysis, %5 excluded in report")
                                 .arg(modelData.games).arg(modelData.complete).arg(modelData.moves).arg(modelData.pending).arg(modelData.excluded)
                             wrapMode: Text.Wrap; Layout.fillWidth: true
                         }
+                        Label { text: qsTr("%1 games in period · %2 contributing games partially analysed").arg(modelData.total).arg(modelData.partial)
+                            + (modelData.unfinished ? qsTr(" · unfinished when saved") : ""); Layout.fillWidth: true; wrapMode: Text.Wrap }
                         Button { text: qsTr("Open this report…"); onClicked: view.openReport(modelData.id) }
                     }
                 }

@@ -83,6 +83,18 @@ pub fn build_selected_with_limit(project: &Project, analysis_path: &Path, select
 
 /// Shared by the live report and immutable snapshots. Never reloads a run.
 pub(crate) fn summarise(evidence: &[(Value, Option<GameAnalysis>)], total: i64, identified: i64) -> Result<Value> {
+    summarise_with_komi_pooling(evidence, total, identified, false)
+}
+
+/// Weekly summaries use each game's recorded komi but pool their loss buckets,
+/// just like live trends. All other provenance fields must still match.
+pub(crate) fn comparable_settings_key(run: &crate::game_analysis::GameAnalysis) -> Result<String> {
+    let mut parts: Value = serde_json::from_str(&settings_key(run)?)?;
+    parts[7] = Value::Null;
+    Ok(parts.to_string())
+}
+
+pub(crate) fn summarise_with_komi_pooling(evidence: &[(Value, Option<GameAnalysis>)], total: i64, identified: i64, pool_komi: bool) -> Result<Value> {
     let mut complete = 0;
     let mut partial = 0;
     let mut groups: BTreeMap<String, Value> = BTreeMap::new();
@@ -94,13 +106,14 @@ pub(crate) fn summarise(evidence: &[(Value, Option<GameAnalysis>)], total: i64, 
         let Some(run) = run else { pending.push(game.clone()); continue; };
         let run_id = &run.run_id;
         if run.complete() { complete += 1; } else { partial += 1; }
-        let key = settings_key(&run)?;
+        let key = if pool_komi { comparable_settings_key(run)? } else { settings_key(run)? };
         let group = groups.entry(key.clone()).or_insert_with(|| json!({
             "key": key,
             "visits": run.request.max_visits, "rules": run.request.rules,
             "komi": run.request.komi, "board_size": run.request.board_size,
             "games": 0, "decisions": 0, "buckets": [0,0,0,0], "examples": [], "win_examples": [], "analysed": []
         }));
+        if pool_komi && group["komi"] != json!(run.request.komi) { group["komi"] = json!("varies by game"); }
         group["games"] = json!(group["games"].as_u64().unwrap() + 1);
         group["analysed"].as_array_mut().unwrap().push(json!({
             "game_id": game_id, "run_id": run_id, "title": title, "date": game["date"],

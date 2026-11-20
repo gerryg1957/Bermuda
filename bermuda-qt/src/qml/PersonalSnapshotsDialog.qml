@@ -12,6 +12,10 @@ Dialog {
     property int selectedGroupId: -1
     property string browserError: ""
     property bool creatingGroup: false
+    property bool buildingWeekly: false
+    readonly property var weeklyPlan: parse(archiveModel.weekly_preview_json, {})
+    function todayText() { return Qt.formatDate(new Date(), "yyyy-MM-dd") }
+    function previewWeekly() { archiveModel.previewWeekly(projectPath, todayText(), resetWeekly.checked) }
     readonly property var savedGroups: archive.groups || []
     readonly property var selectedGroup: savedGroups.find(function(g) { return g.id === selectedGroupId }) || null
     readonly property var snapshots: (archive.snapshots || []).filter(function(s) { return s.group_id === selectedGroupId })
@@ -62,6 +66,10 @@ Dialog {
             if (!dialog.savedGroups.length) dialog.selectedGroupId = -1
         }
         onBusyChanged: {
+            if (!busy && dialog.buildingWeekly) {
+                dialog.buildingWeekly = false
+                if (!error_message.length) tabs.currentIndex = 0
+            }
             if (!busy && dialog.creatingGroup) {
                 dialog.creatingGroup = false
                 if (!error_message.length) tabs.currentIndex = 1
@@ -88,13 +96,33 @@ Dialog {
             else archiveModel.removeReport(dialog.projectPath, targetId)
         }
     }
+    Dialog {
+        id: weeklyConfirmation
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(560, parent.width - 48)
+        modal: true
+        title: qsTr("Replace the report library?")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        contentItem: Label {
+            wrapMode: Text.Wrap
+            text: qsTr("Replace %1 reports and %2 game groups with %3 weekly reports starting %4?\n\nYour games and saved KataGo analyses will be kept. No new analysis will run.")
+                .arg(dialog.weeklyPlan.replace_reports || 0).arg(dialog.weeklyPlan.replace_groups || 0)
+                .arg((dialog.weeklyPlan.periods || []).length).arg(dialog.weeklyPlan.anchor || "")
+        }
+        onAccepted: {
+            if (dialog.weeklyPlan.today !== dialog.todayText()) { dialog.previewWeekly(); return }
+            dialog.buildingWeekly = true
+            archiveModel.buildWeekly(dialog.projectPath, JSON.stringify(dialog.weeklyPlan))
+        }
+    }
     function confirmRemoval(id, name, group) {
         removal.targetId = id; removal.targetName = name; removal.group = group; removal.open()
     }
     contentItem: ColumnLayout {
         spacing: 10
         Label {
-            text: qsTr("Saved reports stay unchanged. To make another report, choose games or reuse a group, then save its current analysis with a new report name.")
+            text: qsTr("Create weekly reports from saved analysis, or choose your own groups. Saved reports stay unchanged until you replace or remove them.")
             wrapMode: Text.Wrap; Layout.fillWidth: true
         }
         TabBar {
@@ -105,6 +133,7 @@ Dialog {
             TabButton { text: qsTr("Choose games") }
             TabButton { text: qsTr("Trends") }
             TabButton { text: qsTr("Saved comparisons") }
+            TabButton { text: qsTr("Weekly reports") }
         }
         Label {
             text: dialog.browserError || archiveModel.error_message || archiveModel.notice
@@ -119,6 +148,7 @@ Dialog {
             enabled: !archiveModel.busy
             ColumnLayout {
                 RowLayout {
+                    Button { text: qsTr("Create weekly reports…"); onClicked: tabs.currentIndex = 5 }
                     Button { text: qsTr("New report…"); onClicked: tabs.currentIndex = dialog.savedGroups.length ? 1 : 2 }
                     Button { text: qsTr("New group of games…"); onClicked: tabs.currentIndex = 2 }
                     Button { text: qsTr("Refresh list"); onClicked: archiveModel.refresh(dialog.projectPath) }
@@ -303,11 +333,58 @@ Dialog {
             LiveTrends {
                 report: dialog.parse(archiveModel.live_json, {})
                 errorMessage: archiveModel.live_error
+                weeklyAnchor: dialog.archive.weekly_anchor || ""
                 onRefreshRequested: archiveModel.refresh(dialog.projectPath)
             }
             ReportTrends {
                 snapshots: dialog.archive.snapshots || []
                 onOpenReport: function(snapshotId) { archiveModel.openReport(dialog.projectPath, snapshotId) }
+            }
+            ColumnLayout {
+                Label { text: qsTr("Seven days at a time"); font.bold: true }
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap
+                    text: qsTr("Start with your first dated game, then keep consecutive seven-day periods through today. Empty weeks are included; the current period may be unfinished.")
+                }
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap
+                    text: qsTr("This replaces all reports and groups in the library using saved analysis. Your games and KataGo analyses are kept. Exported HTML or PDF files are not deleted.")
+                }
+                CheckBox {
+                    id: resetWeekly
+                    visible: !!dialog.archive.weekly_anchor
+                    text: qsTr("Reset the starting date to my earliest game")
+                    checked: false
+                }
+                RowLayout {
+                    Button { text: qsTr("Preview weekly reports"); onClicked: dialog.previewWeekly() }
+                    Label { text: dialog.archive.weekly_anchor ? qsTr("Saved starting date: %1").arg(dialog.archive.weekly_anchor) : ""; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                }
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.Wrap
+                    visible: !!dialog.weeklyPlan.periods
+                    text: qsTr("%1 weekly reports · replaces %2 reports and %3 groups\nOmitted: %4 without a complete date · %5 before the starting date · %6 future-dated")
+                        .arg((dialog.weeklyPlan.periods || []).length).arg(dialog.weeklyPlan.replace_reports || 0)
+                        .arg(dialog.weeklyPlan.replace_groups || 0).arg(dialog.weeklyPlan.undated || 0)
+                        .arg(dialog.weeklyPlan.before_anchor || 0).arg(dialog.weeklyPlan.future || 0)
+                }
+                ListView {
+                    Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    model: dialog.weeklyPlan.periods || []
+                    ScrollBar.vertical: ScrollBar {}
+                    delegate: ItemDelegate {
+                        required property var modelData
+                        width: ListView.view.width
+                        text: modelData.from + " — " + modelData.to + " · " + qsTr("%1 games").arg(modelData.games)
+                            + (modelData.unfinished ? qsTr(" · unfinished period") : "")
+                            + (modelData.excluded ? qsTr(" · %1 unidentified").arg(modelData.excluded) : "")
+                    }
+                }
+                Button {
+                    text: qsTr("Replace library with weekly reports…")
+                    enabled: !!dialog.weeklyPlan.periods && dialog.weeklyPlan.reset_anchor === resetWeekly.checked
+                    onClicked: weeklyConfirmation.open()
+                }
             }
         }
     }

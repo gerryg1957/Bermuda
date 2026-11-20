@@ -2,11 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "LiveTrends.js" as Live
+import "SnapshotTrends.js" as Axis
 
 ColumnLayout {
     id: view
     property var report: ({})
     property string errorMessage: ""
+    property string weeklyAnchor: ""
+    onWeeklyAnchorChanged: { if (weeklyAnchor.length) grouping.currentIndex = 1 }
     property string today: Qt.formatDate(new Date(), "yyyy-MM-dd")
     signal refreshRequested()
     readonly property var sets: Live.settings(report, from, to).map(function(g,i,all) {
@@ -14,7 +17,9 @@ ColumnLayout {
         return Object.assign({},g,{label:qsTr("%1 visits · %2 · %3×%3 · %4 contributing games")
             .arg(g.visits).arg(g.rules).arg(g.board_size || 19).arg(g.games)
             + (sameLabel ? qsTr(" · engine/configuration %1").arg(i+1) : "")})
-    })
+    }).concat(Live.allOption(report,from,to).map(function(g) {
+        return Object.assign({},g,{label:qsTr("All")})
+    }))
     property string selectedAnalysisKey: ""
     readonly property var selectedAnalysis: sets.find(function(s) { return s.key === selectedAnalysisKey }) || sets[0] || null
     readonly property var selectedKeys: selectedAnalysis ? selectedAnalysis.keys : []
@@ -24,13 +29,13 @@ ColumnLayout {
     readonly property string from: period.currentIndex === 5 ? fromDate.text : period.currentIndex === 4 ? "" : Live.startForMonths(today,[1,3,6,12][period.currentIndex])
     readonly property string to: period.currentIndex === 5 ? toDate.text : period.currentIndex === 4 ? "" : today
     readonly property var prepared: Live.prepare(report, selectedKeys,
-        Math.max(0, Math.min(metric.currentIndex, 3)), from, to, groupingMode, blockSize.value)
+        Math.max(0, Math.min(metric.currentIndex, 3)), from, to, groupingMode, blockSize.value, weeklyAnchor, today)
     readonly property var points: prepared.points
     readonly property bool allCategories: metric.currentIndex === 4
     readonly property var categoryColours: ["#32877d", "#6b93ae", "#b58a45", "#ab6262"]
     readonly property var categoryNames: [qsTr("Below 1 point"), qsTr("1–3 points"), qsTr("3–5 points"), qsTr("5+ points")]
     readonly property var series: (allCategories ? [0,1,2,3] : [Math.max(0, Math.min(metric.currentIndex, 3))]).map(function(bucket) {
-        return {bucket: bucket, points: Live.prepare(report, selectedKeys, bucket, from, to, groupingMode, blockSize.value).points}
+        return {bucket: bucket, points: Live.prepare(report, selectedKeys, bucket, from, to, groupingMode, blockSize.value, weeklyAnchor, today).points}
     })
     onSeriesChanged: graph.requestPaint()
     function percentages(index) {
@@ -40,11 +45,16 @@ ColumnLayout {
         }).join(" · ")
     }
     onPointsChanged: graph.requestPaint()
+    Label {
+        visible: view.weeklyAnchor.length > 0 && view.groupingMode === "week"
+        Layout.fillWidth: true; wrapMode: Text.Wrap
+        text: qsTr("Seven-day periods starting %1, matching weekly reports. This graph uses current saved analysis; reports preserve the analysis available when created.").arg(view.weeklyAnchor)
+    }
     Label { text: qsTr("My progress · saved game analysis"); font.bold: true }
     RowLayout {
         Layout.fillWidth: true
         ComboBox { id: period; model: [qsTr("1 month"),qsTr("3 months"),qsTr("6 months"),qsTr("1 year"),qsTr("All"),qsTr("Custom")]; currentIndex: 4 }
-        ComboBox { id: grouping; objectName: "liveGrouping"; model: [qsTr("Each game"),qsTr("Weekly"),qsTr("Monthly"),qsTr("Blocks of games")] }
+        ComboBox { id: grouping; objectName: "liveGrouping"; currentIndex: view.weeklyAnchor.length ? 1 : 0; model: [qsTr("Each game"),qsTr("Weekly"),qsTr("Monthly"),qsTr("Blocks of games")] }
         ComboBox { id: axisChoice; objectName: "liveAxis"; visible: grouping.currentIndex === 0; model: [qsTr("Game dates"),qsTr("Game order")] }
         SpinBox { id: blockSize; visible: grouping.currentIndex === 3; from:1; to:10000; value:20; editable:true }
         Item { Layout.fillWidth: true }
@@ -67,7 +77,7 @@ ColumnLayout {
         }
     }
     Label {
-        text: qsTr("Komi values are combined. Analysis depth, engine, network, configuration, rules and board size stay separate. Uses the latest saved analysis for each game; no new KataGo run is needed.")
+        text: view.selectedAnalysisKey === "*" ? qsTr("Uses the latest saved analysis for each game; no new KataGo run is needed.") : qsTr("Komi values are combined. Analysis depth, engine, network, configuration, rules and board size stay separate. Uses the latest saved analysis for each game; no new KataGo run is needed.")
         Layout.fillWidth:true; wrapMode:Text.Wrap
     }
     Label {
@@ -119,6 +129,18 @@ ColumnLayout {
                 return end === start ? (left+right)/2 : left + (point.time-start)/(end-start)*(right-left)
             }
             function y(point) { return bottom-point.percent/100*(bottom-top) }
+            if (view.gameOrder) {
+                ctx.fillStyle = "#333333"
+                ctx.fillText(qsTr("Game 1"),left,height-10)
+                if (p.length>1) ctx.fillText(qsTr("Game %1").arg(p.length),right-75,height-10)
+            } else {
+            Axis.ticks(start,end,right-left,view.groupingMode === "week").forEach(function(tick) {
+                const position = x({time:tick.time})
+                ctx.strokeStyle = "#dce1e5"; ctx.beginPath(); ctx.moveTo(position,top); ctx.lineTo(position,bottom); ctx.stroke()
+                ctx.fillStyle = "#333333"
+                ctx.fillText(tick.label,Math.max(left,Math.min(right-75,position-35)),height-10)
+            })
+            }
             view.series.forEach(function(series) {
                 const colour = view.categoryColours[series.bucket]
                 ctx.strokeStyle = colour; ctx.lineWidth = 2
@@ -132,18 +154,16 @@ ColumnLayout {
                 ctx.stroke(); ctx.setLineDash([])
                 series.points.forEach(function(point,i) {
                     if (point.percent === null) return
-                    ctx.fillStyle = colour; ctx.beginPath(); ctx.arc(x(point),y(point),3.5,0,Math.PI*2); ctx.fill()
+                    ctx.fillStyle = point.unfinished ? "white" : colour
+                    ctx.strokeStyle = colour
+                    ctx.beginPath(); ctx.arc(x(point),y(point),point.unfinished ? 5 : 3.5,0,Math.PI*2)
+                    ctx.fill(); if (point.unfinished) ctx.stroke()
                     if (!view.allCategories) {
                         ctx.fillStyle = "#222222"; ctx.fillText(String(i+1),x(point)+7,y(point)-6)
                     }
                 })
             })
-            ctx.fillStyle = "#333333"
-            ctx.fillText(view.gameOrder ? qsTr("Game 1") : Live.date(p[0].time), left, height-10)
-            if (view.gameOrder && p.length > 1)
-                ctx.fillText(qsTr("Game %1").arg(p.length), Math.max(left+90,right-75), height-10)
-            else if (end !== start)
-                ctx.fillText(Live.date(p[p.length-1].time), Math.max(left+90,right-75), height-10)
+
         }
     }
     Label {
@@ -155,7 +175,7 @@ ColumnLayout {
     Label {
         text: (view.gameOrder ? qsTr("Games are equally spaced in date order; games on the same date use a stable order, not their unknown playing times.")
             : view.groupingMode === "each" ? qsTr("Points use game dates. Games on the same date can overlap; choose Game order to spread them out.")
-            : qsTr("Weekly/monthly points mark the period start; blocks contain contributing games and end on their last game date."))
+            : qsTr("Weekly/monthly points mark the period start. Hollow circles mark the unfinished week; gaps have no assessed moves. Blocks end on their last game date."))
             + " " + qsTr("Percentages use assessed personal moves, including partial games. Opponents, colour and handicap can affect the trend.")
         Layout.fillWidth:true; wrapMode:Text.Wrap
     }
@@ -170,7 +190,7 @@ ColumnLayout {
                     required property int index
                     Layout.fillWidth:true
                     contentItem: ColumnLayout {
-                        Label { text: (index+1)+". "+modelData.name+" · "+(view.allCategories ? qsTr("All categories") : modelData.percent===null ? qsTr("No assessed moves") : modelData.percent.toFixed(1)+"%"); font.bold:true; wrapMode:Text.Wrap; Layout.fillWidth:true }
+                        Label { text: (index+1)+". "+modelData.name+(modelData.unfinished ? qsTr(" · unfinished week") : "")+" · "+(view.allCategories ? qsTr("All categories") : modelData.percent===null ? qsTr("No assessed moves") : modelData.percent.toFixed(1)+"%"); font.bold:true; wrapMode:Text.Wrap; Layout.fillWidth:true }
                         Label { visible: view.allCategories; text: view.percentages(index); wrapMode: Text.Wrap; Layout.fillWidth: true }
                         Label {
                             text: modelData.from+" – "+modelData.to+" · "+qsTr("%1 games · %2 complete, %3 partial · %4 assessed moves · %5 awaiting analysis, %6 with other settings")

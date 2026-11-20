@@ -232,3 +232,82 @@ settings, unassessed personal moves and undated games.
 Verified by JavaScript tests for komi pooling, provenance separation, weighted
 percentages, date filtering, same-date game ordering and exclusion counts, plus
 offscreen UI switching through grouping and axis choices.
+
+### Weekly report library (20 November 2026)
+
+In **Reports library**, choose **Create weekly reports…**, then **Preview weekly
+reports**. The preview lists consecutive seven-day periods from the earliest
+fully dated game in My games through today, using your local calendar date.
+The first period includes the starting date and the following six days. There
+is no twenty-game limit: every game in each interval is included.
+
+**Replace library with weekly reports…** asks for confirmation showing the
+number of reports and groups being replaced. It removes all existing reports
+and groups from the visible library, then creates one preserved report per
+period, including empty weeks. Games and saved KataGo analysis are read only;
+no engine run is started. Replacement is transactional: any error restores the
+original library. Removed entries remain internal immutable evidence, as with
+individual report removal; previously exported HTML/PDF files are not deleted.
+
+The current period is labelled unfinished, including its last day. Empty weeks
+are labelled as gaps, never as zero move-quality scores. Partial and missing
+analysis remain visible in coverage counts. Incomplete or invalid dates and
+future-dated games are omitted and counted in the preview. Games whose personal
+colour is unknown remain in their period but are excluded from personal statistics.
+
+Once created, the starting date is remembered across restarts. Importing an
+older game does not shift existing boundaries: the preview counts games before
+the anchor. Select **Reset the starting date to my earliest game** to explicitly
+rebuild from that older date. Preview again after imports or library changes.
+To refresh the weekly reports after new games or analysis, repeat this workflow;
+it replaces the library again rather than silently changing saved reports.
+
+Weekly report charts combine different komi values, using each game's own
+analysis. Engine, network, configuration, rules, board size and visits still
+separate incompatible evidence. The existing custom-report workflow retains
+its original grouping.
+
+Live Trends defaults to Weekly once a weekly starting date exists and uses the
+same seven-day boundaries. It reads current analysis, so a newly analysed game
+can change the live graph without changing a previously saved report. A selected
+date range may show only part of a boundary week. Other trend groupings remain
+available.
+
+Validation: Rust tests cover boundaries and leap days, empty/unfinished periods,
+source-analysis preservation, stale previews, rollback, anchor persistence and
+explicit reset preview, plus komi pooling. JavaScript tests cover anchored trend
+boundaries and gaps. All six tabs load in an offscreen QML harness with a mock
+model. Full Qt application compilation and desktop acceptance remain to be done
+on the user's system.
+
+### Weekly trend axes
+
+Saved comparisons now place weekly reports at their fixed period start, matching
+Live Trends. Custom reports continue to use their last game date. Date ticks and
+vertical guides are shown throughout the axis; labels thin out on long ranges.
+Missing or unassessed weekly evidence creates a gap, never a zero value or a
+line bridging missing weeks. Live weekly views include empty intervening weeks.
+
+Hollow circles identify the current unfinished live week, or a saved report
+whose period was unfinished when preserved. Saved status remains unchanged
+until reports are rebuilt. Entries below both charts show date ranges, game
+counts and analysis coverage; saved entries also distinguish total period games
+from games contributing to the chosen analysis settings.
+
+Validated with calculation tests and offscreen QML rendering of both graphs
+with analysed, empty and unfinished weeks, including All categories.
+
+### All analysis
+
+Both trend views now offer **All** in the analysis selector alongside the
+individual settings. This opt-in view combines the older CPU/200-visit evidence
+and newer GPU/1,000-visit evidence without reanalysis or changing reports. Live
+Trends uses the latest saved run per game; Saved comparisons uses the selected
+preserved reports. Percentages use summed loss-bucket counts divided by assessed
+moves, rather than averaging percentages from differently sized groups.
+The same weekly boundaries, gaps and unfinished markers apply. The option is
+labelled simply All, without an additional mixed-analysis warning.
+
+Calculation tests cover mixed depths/engines, move weighting, pending games and
+invalid/duplicate snapshot evidence. Both graphs render offscreen with All
+selected; desktop acceptance remains pending.

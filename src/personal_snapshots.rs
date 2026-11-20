@@ -6,7 +6,7 @@ use crate::{
     project::Project,
 };
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -67,7 +67,7 @@ fn snapshot_trend_series(snapshot: &Snapshot) -> Result<Vec<Value>> {
         for game in &analysed {
             let run = snapshot.runs.iter().flatten()
                 .find(|run| Some(run.run_id.as_str()) == game["run_id"].as_str());
-            if let Some(run) = run { keys.insert(crate::personal_report::settings_key(run)?); }
+            if let Some(run) = run { keys.insert(if snapshot.report.get("period").is_some() { crate::personal_report::comparable_settings_key(run)? } else { crate::personal_report::settings_key(run)? }); }
             else { keys.insert("unknown".to_owned()); }
             if let Some(id) = game["game_id"].as_i64() { ids.push(id); }
             let date = game["date"].as_str().unwrap_or("");
@@ -168,6 +168,7 @@ impl SnapshotStore {
         let db = Connection::open(project.database_root().join("personal-snapshots.sqlite3"))?;
         db.busy_timeout(std::time::Duration::from_secs(5))?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS report_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS removed_groups (id INTEGER PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS removed_reports (id INTEGER PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS game_groups (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
@@ -225,6 +226,9 @@ impl SnapshotStore {
         Ok(serde_json::from_str(&body)?)
     }
     pub fn capture(&self, group_id: i64, label: &str, analysis_path: &Path) -> Result<i64> {
+        self.capture_period(group_id, label, analysis_path, None)
+    }
+    fn capture_period(&self, group_id: i64, label: &str, analysis_path: &Path, period: Option<Value>) -> Result<i64> {
         let label = name(label)?;
         let group = self.group(group_id)?;
         let mut positions = Vec::new();
@@ -246,12 +250,14 @@ impl SnapshotStore {
             .filter(|(m, _)| m.colour.is_some())
             .map(|(m, r)| (m.metadata(), r.clone()))
             .collect();
-        let mut report = crate::personal_report::summarise(
+        let mut report = crate::personal_report::summarise_with_komi_pooling(
             &evidence,
             group.members.len() as i64,
             evidence.len() as i64,
+            period.is_some(),
         )?;
         report["excluded"] = json!(group.members.len() - evidence.len());
+        if let Some(period) = period { report["period"] = period; }
         let decisions = group
             .members
             .iter()
@@ -356,8 +362,81 @@ impl SnapshotStore {
                 "group_name":snapshot.group.name,"trend_series":trend_series,
                 "created_at":snapshot.created_at,"report":snapshot.report}));
         }
-        Ok(json!({"groups":groups,"snapshots":snapshots}))
+        Ok(json!({"groups":groups,"snapshots":snapshots,"weekly_anchor":self.weekly_anchor()?}))
     }
+    pub fn weekly_anchor(&self) -> Result<Option<String>> {
+        Ok(self.db.query_row("SELECT value FROM report_preferences WHERE key='weekly_anchor'", [], |r| r.get(0)).optional()?)
+    }
+    fn date_number(&self, value: &str) -> Result<i64> {
+        ensure!(valid_trend_date(value), "Use a complete valid calendar date: {value}");
+        Ok(self.db.query_row("SELECT CAST(julianday(?1)-2440587.5 AS INTEGER)", [value], |r| r.get(0))?)
+    }
+    fn date_text(&self, day: i64) -> Result<String> {
+        Ok(self.db.query_row("SELECT date(2440587.5+?1)", [day], |r| r.get(0))?)
+    }
+    /// Read-only preview. Dates are supplied by the UI in the user's local zone.
+    pub fn preview_weekly(&self, project: &Project, today: &str, reset_anchor: bool) -> Result<Value> {
+        let end_day = self.date_number(today)?;
+        let members = available_games(project)?;
+        let earliest = members.iter().filter(|m| valid_trend_date(&m.date) && m.date.as_str() <= today)
+            .map(|m| m.date.clone()).min();
+        let anchor = if reset_anchor { earliest } else { self.weekly_anchor()?.or(earliest) }
+            .context("No games with a complete date on or before today")?;
+        let start = self.date_number(&anchor)?;
+        ensure!(start <= end_day, "The reporting start is later than today");
+        let count = (end_day-start)/7+1;
+        ensure!(count <= 10000, "The date range exceeds 10,000 weeks; check your game dates");
+        let mut periods = Vec::new();
+        for n in 0..count {
+            let first = self.date_text(start+n*7)?;
+            let last = self.date_text(start+n*7+6)?;
+            let selected: Vec<_> = members.iter().filter(|m| valid_trend_date(&m.date) && m.date >= first && m.date <= last && m.date.as_str() <= today).collect();
+            periods.push(json!({"from":first,"to":last,"unfinished":last.as_str()>=today,
+                "ids":selected.iter().map(|m| m.game_id).collect::<Vec<_>>(),
+                "games":selected.len(),"excluded":selected.iter().filter(|m|m.colour.is_none()).count()}));
+        }
+        let library = self.listing()?;
+        Ok(json!({"anchor":anchor,"today":today,"reset_anchor":reset_anchor,"periods":periods,
+            "undated":members.iter().filter(|m|!valid_trend_date(&m.date)).count(),
+            "before_anchor":members.iter().filter(|m|valid_trend_date(&m.date) && m.date<anchor).count(),
+            "future":members.iter().filter(|m|valid_trend_date(&m.date) && m.date.as_str()>today).count(),
+            "replace_reports":library["snapshots"].as_array().unwrap().len(),
+            "replace_groups":library["groups"].as_array().unwrap().len(),
+            "report_ids":library["snapshots"].as_array().unwrap().iter().map(|s|s["id"].clone()).collect::<Vec<_>>(),
+            "group_ids":library["groups"].as_array().unwrap().iter().map(|s|s["id"].clone()).collect::<Vec<_>>(),
+            // Revalidate the preview if imports, identity edits or removals changed.
+            "membership":members.iter().map(Member::metadata).collect::<Vec<_>>() }))
+    }
+    /// Replace the report library atomically. Source games and analysis are read-only.
+    /// A failure rolls back new reports and removals together; old IDs are retained.
+    pub fn replace_with_weekly(&self, project: &Project, analysis: &Path, preview: &Value) -> Result<usize> {
+        let today = preview["today"].as_str().context("Missing preview date")?;
+        let reset = preview["reset_anchor"].as_bool().unwrap_or(false);
+        let tx = self.db.unchecked_transaction()?;
+        let plan = self.preview_weekly(project, today, reset)?;
+        ensure!(&plan == preview, "Games or reports changed since the preview. Preview the weekly reports again.");
+        let periods = plan["periods"].as_array().context("Missing periods")?;
+        // Tombstones remove entries from the UI, retaining immutable archived evidence.
+        self.db.execute_batch("INSERT OR IGNORE INTO removed_reports SELECT id FROM report_snapshots;
+            INSERT OR IGNORE INTO removed_groups SELECT id FROM game_groups;")?;
+        for period in periods {
+            let title = format!("{} – {}", period["from"].as_str().unwrap(), period["to"].as_str().unwrap());
+            let ids: Vec<i64> = serde_json::from_value(period["ids"].clone())?;
+            let group_id = if ids.is_empty() {
+                let group = GameGroup { name: title, created_at: now()?, members: vec![] };
+                self.db.execute("INSERT INTO game_groups(body) VALUES(?1)", [serde_json::to_string(&group)?])?;
+                self.db.last_insert_rowid()
+            } else { self.create_group(project, &title, &ids)? };
+            let label = if period["unfinished"] == true { "Weekly report · unfinished period" }
+                else if ids.is_empty() { "Weekly report · no games" } else { "Weekly report" };
+            self.capture_period(group_id, label, analysis, Some(period.clone()))?;
+        }
+        self.db.execute("INSERT INTO report_preferences(key,value) VALUES('weekly_anchor',?1)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value", [plan["anchor"].as_str().unwrap()])?;
+        tx.commit()?;
+        Ok(periods.len())
+    }
+
     /// Derived export: its source of truth remains the immutable database entry.
     pub fn export_html(&self, id: i64, path: &Path) -> Result<()> {
         let snapshot = self.snapshot(id)?;
@@ -443,6 +522,93 @@ mod tests {
         };
         store.save_position(run, &result)?;
         run.results.push(result);
+        Ok(())
+    }
+
+    #[test]
+    fn weekly_reports_preserve_analysis_and_anchor_and_reject_stale_previews() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let project = crate::project_manager::ProjectManager::new().create("Personal", temp.path().join("project"))?;
+        let id = import(&project, "first", "(;SZ[19]PB[me]PW[other]DT[2026-10-08];B[aa];W[bb])")?;
+        identify(&project)?;
+        let boundary = import(&project, "boundary", "(;SZ[19]PB[me]PW[next]DT[2026-10-14];B[cc])")?;
+        import(&project, "later", "(;SZ[19]PB[me]PW[later]DT[2026-10-29];B[dd])")?;
+        let store = SnapshotStore::open(&project)?;
+        let path = temp.path().join("analysis.sqlite3");
+        let analysis = AnalysisStore::open(&path)?;
+        let mut run = analysis.restore(run(&project, id)?)?;
+        append(&analysis, &mut run, 0.0, 0.5)?;
+        append(&analysis, &mut run, -6.0, 0.3)?;
+        let mut second = self::run(&project, boundary)?;
+        second.request.komi = 0.5;
+        let mut second = analysis.restore(second)?;
+        append(&analysis, &mut second, 0.0, 0.5)?;
+        append(&analysis, &mut second, -2.0, 0.4)?;
+        drop(analysis);
+        let bytes = std::fs::read(&path)?;
+        let old_group = store.create_group(&project, "Old", &[id])?;
+        let old = store.capture(old_group, "Old report", &path)?;
+        let plan = store.preview_weekly(&project, "2026-10-29", false)?;
+        assert_eq!(plan["periods"].as_array().unwrap().len(), 4);
+        assert_eq!(plan["periods"][0]["games"], 2);
+        assert_eq!(plan["periods"][0]["to"], "2026-10-14");
+        assert_eq!(plan["periods"][1]["games"], 0);
+        assert_eq!(plan["periods"][3]["unfinished"], true);
+        assert_eq!(store.replace_with_weekly(&project, &path, &plan)?, 4);
+        assert!(store.snapshot(old).is_err());
+        assert!(store.group(old_group).is_err());
+        assert_eq!(std::fs::read(&path)?, bytes);
+        assert_eq!(available_games(&project)?.len(), 3);
+        let listing = store.listing()?;
+        let first_week = &listing["snapshots"][3];
+        assert_eq!(first_week["report"]["groups"].as_array().unwrap().len(), 1);
+        assert_eq!(first_week["report"]["groups"][0]["komi"], "varies by game");
+        assert_eq!(first_week["report"]["groups"][0]["decisions"], 2);
+        assert_eq!(first_week["trend_series"].as_array().unwrap().len(), 1);
+        let newest = listing["snapshots"][0]["id"].as_i64().unwrap();
+        let html = crate::snapshot_html::render(newest, &store.snapshot(newest)?)?;
+        assert!(html.contains("Unfinished period"));
+        let empty = listing["snapshots"][1]["id"].as_i64().unwrap();
+        assert!(crate::snapshot_html::render(empty, &store.snapshot(empty)?)?.contains("No games in this period"));
+        drop(store);
+        let store = SnapshotStore::open(&project)?;
+        let stale = store.preview_weekly(&project, "2026-10-29", false)?;
+        import(&project, "older", "(;SZ[19]PB[me]PW[older]DT[2026-10-01];B[ee])")?;
+        assert!(store.replace_with_weekly(&project, &path, &stale).is_err());
+        let kept = store.preview_weekly(&project, "2026-10-29", false)?;
+        assert_eq!(kept["anchor"], "2026-10-08");
+        assert_eq!(kept["before_anchor"], 1);
+        let reset = store.preview_weekly(&project, "2026-10-29", true)?;
+        assert_eq!(reset["anchor"], "2026-10-01");
+        assert_eq!(store.weekly_anchor()?.as_deref(), Some("2026-10-08"));
+        assert_eq!(store.listing()?["snapshots"].as_array().unwrap().len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn weekly_failure_rolls_back_replacement_and_dates_cross_leap_day() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let project = crate::project_manager::ProjectManager::new().create("Personal", temp.path().join("project"))?;
+        let id = import(&project, "leap", "(;SZ[19]PB[me]PW[other]DT[2024-02-27];B[aa])")?;
+        identify(&project)?;
+        import(&project, "unknown", "(;SZ[19]PB[me]PW[unknown];B[bb])")?;
+        import(&project, "future", "(;SZ[19]PB[me]PW[future]DT[2024-04-01];B[cc])")?;
+        let store = SnapshotStore::open(&project)?;
+        let missing = temp.path().join("missing.sqlite3");
+        let group = store.create_group(&project, "Keep", &[id])?;
+        let old = store.capture(group, "Keep", &missing)?;
+        let plan = store.preview_weekly(&project, "2024-03-04", false)?;
+        assert_eq!(plan["periods"][0]["to"], "2024-03-04");
+        assert_eq!(plan["periods"][0]["unfinished"], true);
+        assert_eq!(plan["undated"], 1);
+        assert_eq!(plan["future"], 1);
+        let broken = temp.path().join("broken.sqlite3");
+        std::fs::write(&broken, "not a database")?;
+        assert!(store.replace_with_weekly(&project, &broken, &plan).is_err());
+        assert!(store.snapshot(old).is_ok());
+        assert!(store.group(group).is_ok());
+        assert_eq!(store.weekly_anchor()?, None);
+        assert_eq!(store.listing()?["snapshots"].as_array().unwrap().len(), 1);
         Ok(())
     }
     #[test]
