@@ -9,6 +9,9 @@ mod ffi {
         type QString = cxx_qt_lib::QString;
         include!("cxx-qt-lib/qurl.h");
         type QUrl = cxx_qt_lib::QUrl;
+        include!("report_pdf.h");
+        #[namespace = "bermuda_pdf"]
+        fn save_report_pdf(json: &QString, filename: &QString) -> QString;
     }
     unsafe extern "RustQt" {
         #[qobject]
@@ -54,6 +57,9 @@ mod ffi {
             label: &QString,
         );
         #[qinvokable]
+        #[cxx_name = "savePdf"]
+        fn save_pdf(self: Pin<&mut PersonalSnapshotModel>, project_path: &QString, snapshot_id: i32, filename: &QString);
+        #[qinvokable]
         #[cxx_name = "openReport"]
         fn open_report(
             self: Pin<&mut PersonalSnapshotModel>,
@@ -84,6 +90,7 @@ enum Action {
     Create(String, String),
     Capture(i64, String),
     Export(i64),
+    Pdf(i64, String),
 }
 impl ffi::PersonalSnapshotModel {
     fn preview_weekly(self: Pin<&mut Self>, path: &QString, today: &QString, reset: bool) {
@@ -112,6 +119,9 @@ impl ffi::PersonalSnapshotModel {
             path.to_string(),
             Action::Capture(i64::from(group_id), label.to_string()),
         );
+    }
+    fn save_pdf(self: Pin<&mut Self>, path: &QString, snapshot_id: i32, filename: &QString) {
+        self.perform(path.to_string(), Action::Pdf(i64::from(snapshot_id), filename.to_string()));
     }
     fn open_report(self: Pin<&mut Self>, path: &QString, snapshot_id: i32) {
         self.perform(path.to_string(), Action::Export(i64::from(snapshot_id)));
@@ -173,6 +183,13 @@ impl ffi::PersonalSnapshotModel {
                             .join("game-analysis.sqlite3");
                         store.capture(id, &label, &analysis)?;
                         "Report saved separately. Find it in Reports library or open it below. No new analysis was run.".into()
+                    }
+                    Action::Pdf(id, filename) => {
+                        anyhow::ensure!(!filename.trim().is_empty(), "Choose a local PDF filename");
+                        let data = store.pdf_data(id)?.to_string();
+                        let error = ffi::save_report_pdf(&QString::from(data), &QString::from(filename.as_str())).to_string();
+                        anyhow::ensure!(error.is_empty(), "{error}");
+                        format!("PDF saved: {filename}")
                     }
                     Action::Export(id) => {
                         let dir = project.cache_path().join("snapshot-reports");

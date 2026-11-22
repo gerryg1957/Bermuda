@@ -593,3 +593,15 @@ Trends and Saved comparisons, combining visit counts and engine settings while
 retaining individual selections. Counts are weighted by assessed moves. No
 reanalysis or report rewriting occurs. Label kept simply All at Gerry's request;
 calculation and offscreen UI checks pass.
+
+22 November 2026: descriptive exported report titles identify weekly date ranges
+(and unfinished periods), or custom group/report names, providing useful
+suggested PDF filenames. Reopening a report updates its HTML presentation without
+changing preserved evidence. Browser print-dialog acceptance remains pending.
+
+22 November 2026: added **Save PDF…** to each saved report. Native Qt PDF export
+retains summary charts and selected board diagrams, suggests a descriptive
+filename and writes transactionally. Browser export remains available for
+optional detailed tables and individual game pages. Snapshot tests, standalone
+Qt PDF rendering (including multiple pages), and QML loading checked; full
+Bermuda desktop build remains to be checked on the user's installation.

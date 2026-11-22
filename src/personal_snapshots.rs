@@ -437,6 +437,10 @@ impl SnapshotStore {
         Ok(periods.len())
     }
 
+    pub fn pdf_data(&self, id: i64) -> Result<Value> {
+        crate::snapshot_html::pdf_data(&self.snapshot(id)?)
+    }
+
     /// Derived export: its source of truth remains the immutable database entry.
     pub fn export_html(&self, id: i64, path: &Path) -> Result<()> {
         let snapshot = self.snapshot(id)?;
@@ -823,6 +827,12 @@ mod tests {
         assert_eq!(a.runs[0].as_ref().unwrap().request.max_visits, 200);
         assert_eq!(b.runs[0].as_ref().unwrap().request.max_visits, 1000);
         assert_ne!(a.report, b.report);
+        let pdf = store.pdf_data(first)?;
+        assert_eq!(pdf["groups"][0]["buckets"], a.report["groups"][0]["buckets"]);
+        assert_eq!(pdf["groups"][0]["cards"][0]["played"], json!([0, 0]));
+        assert_eq!(pdf["groups"][0]["cards"][0]["stones"], json!([]));
+        assert_eq!(pdf["groups"][0]["cards"][0]["move"], 1);
+        assert_eq!(pdf["subtitle"], "CPU");
         let html = crate::snapshot_html::render(first, &a)?;
         assert!(!html.contains("<script>"));
         assert!(!html.contains("<img src=x"));

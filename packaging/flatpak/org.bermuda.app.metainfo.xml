@@ -17,6 +17,13 @@
   <url type="bugtracker">https://github.com/gerryg1957/Bermuda/issues</url>
   <provides><binary>bermuda-qt</binary></provides>
   <releases>
+    <release version="0.8.4" date="2026-11-22" type="development">
+      <description>
+        <p>Add personal game reports, resumable batch analysis, preserved weekly
+        reports and progress trends. Export PDF summaries with charts and board
+        diagrams. Improve study navigation, player ranks and played-move markers.</p>
+      </description>
+    </release>
     <release version="0.8.3" date="2026-10-26" type="development">
       <description>
         <p>Complete KataGo game review, saved reports, graphical continuations

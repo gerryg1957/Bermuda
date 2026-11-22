@@ -1,4 +1,7 @@
+import QtCore
 import QtQuick
+import QtQuick.Dialogs as NativeDialogs
+import "FilePaths.js" as FilePaths
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.bermuda.app
@@ -116,6 +119,35 @@ Dialog {
             archiveModel.buildWeekly(dialog.projectPath, JSON.stringify(dialog.weeklyPlan))
         }
     }
+    function savePdf(report) {
+        pdfDialog.snapshotId = report.id
+        const period = report.report.period
+        let name = period
+            ? "Bermuda - Weekly report - " + period.from + " to " + period.to
+                + (period.unfinished ? " - unfinished" : "")
+            : "Bermuda - " + report.group_name + " - " + report.label
+        // Cross-platform filename characters; saved report names are unchanged.
+        name = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0,180).replace(/[. ]+$/, "")
+        let folder = StandardPaths.writableLocation(StandardPaths.DocumentsLocation).toString()
+        if (!folder.length) folder = StandardPaths.writableLocation(StandardPaths.HomeLocation).toString()
+        pdfDialog.currentFolder = folder
+        pdfDialog.selectedFile = folder.replace(/\/+$/, "") + "/" + encodeURIComponent(name + ".pdf")
+        pdfDialog.open()
+    }
+    NativeDialogs.FileDialog {
+        id: pdfDialog
+        property int snapshotId: -1
+        title: qsTr("Save report as PDF")
+        fileMode: NativeDialogs.FileDialog.SaveFile
+        defaultSuffix: "pdf"
+        nameFilters: [qsTr("PDF files (*.pdf)")]
+        onAccepted: {
+            const path = FilePaths.localPathFromUrl(selectedFile, Qt.platform.os)
+            if (!path.length) { dialog.browserError = qsTr("Choose a local PDF destination."); return }
+            dialog.browserError = ""
+            archiveModel.savePdf(dialog.projectPath, snapshotId, path)
+        }
+    }
     function confirmRemoval(id, name, group) {
         removal.targetId = id; removal.targetName = name; removal.group = group; removal.open()
     }
@@ -170,12 +202,13 @@ Dialog {
                         }
                         RowLayout {
                             Button { text: qsTr("Open report…"); onClicked: archiveModel.openReport(dialog.projectPath, modelData.id) }
+                            Button { text: qsTr("Save PDF…"); onClicked: dialog.savePdf(modelData) }
                             Button { text: qsTr("Remove report…"); onClicked: dialog.confirmRemoval(modelData.id, modelData.label, false) }
                         }
                         }
                     }
                 }
-                Label { text: qsTr("Open a report to see its charts and board diagrams in your browser, where you can print or save as PDF."); Layout.fillWidth: true; wrapMode: Text.Wrap }
+                Label { text: qsTr("Save PDF exports the summary with charts and board diagrams. Open report offers the browser version, including optional detailed tables and game pages."); Layout.fillWidth: true; wrapMode: Text.Wrap }
             }
             ColumnLayout {
                 RowLayout {
@@ -254,6 +287,7 @@ Dialog {
                                         wrapMode: Text.Wrap; Layout.fillWidth: true
                                     }
                                     RowLayout {
+                                        Button { text: qsTr("Save PDF…"); onClicked: dialog.savePdf(Object.assign({},modelData,{group_name:dialog.selectedGroup.name})) }
                                         Button { text: qsTr("View report / Print…"); onClicked: { dialog.browserError = ""; archiveModel.openReport(dialog.projectPath, modelData.id) } }
                                         Button { text: qsTr("Remove report…"); onClicked: dialog.confirmRemoval(modelData.id, modelData.label, false) }
                                     }

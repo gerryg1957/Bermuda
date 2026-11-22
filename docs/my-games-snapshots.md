@@ -311,3 +311,26 @@ labelled simply All, without an additional mixed-analysis warning.
 Calculation tests cover mixed depths/engines, move weighting, pending games and
 invalid/duplicate snapshot evidence. Both graphs render offscreen with All
 selected; desktop acceptance remains pending.
+
+### PDF filenames
+
+Exported report pages now have descriptive browser titles. Weekly reports use
+Bermuda - Weekly report - YYYY-MM-DD to YYYY-MM-DD, with an unfinished suffix when
+appropriate. Custom reports use the group and report names. This supplies a
+meaningful suggested filename when the browser prints to PDF.
+
+Reopen an existing report using Bermuda's **Open report…** button to regenerate
+its HTML with the new title. Saved analysis and report evidence are unchanged;
+already exported PDFs are not renamed.
+
+### Direct PDF export
+
+Each report in the library has **Save PDF…**, with its date range or custom
+report name suggested as the filename. Choose a destination to save an A4 PDF
+summary directly from Bermuda, including coverage, loss-category charts and the
+same selected board positions as the browser summary. This uses the preserved
+snapshot; it does not run KataGo or alter saved analysis. The destination is
+replaced only after a successful export.
+
+**Open report…** still opens the browser presentation, where detailed tables and
+individual game pages can be included before printing or saving a PDF.

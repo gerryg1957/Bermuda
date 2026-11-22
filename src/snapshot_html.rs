@@ -48,9 +48,26 @@ fn colour(c: Option<Colour>) -> &'static str {
     }
 }
 
+// Browsers also use the document title as the suggested Print-to-PDF name.
+fn report_title(s: &Snapshot) -> String {
+    if let Some(period) = s.report.get("period") {
+        let from = period["from"].as_str().unwrap_or("");
+        let to = period["to"].as_str().unwrap_or("");
+        if !from.is_empty() && !to.is_empty() {
+            let suffix = if period["unfinished"] == true { " - unfinished" } else { "" };
+            return format!("Bermuda - Weekly report - {from} to {to}{suffix}");
+        }
+    }
+    format!("Bermuda - {} - {}", s.group.name, s.label)
+}
+
 pub(crate) fn render(id: i64, s: &Snapshot) -> Result<String> {
-    let mut out = String::from(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bermuda · preserved report</title><style>
+    let mut out = format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{}</title>"#,
+        escape(&report_title(s))
+    );
+    out.push_str(
+        r#"<style>
 body{font:16px/1.5 system-ui,sans-serif;color:#202e35;max-width:1050px;margin:32px auto;padding:0 24px}h1{font-size:30px;margin-bottom:4px}h2{margin-top:30px}h3{margin-bottom:6px}a{color:#155f77}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{text-align:left;vertical-align:top;border-bottom:1px solid #cbd3d6;padding:7px}th{background:#f0f4f4}.muted{color:#52616a}.coverage{padding:12px;border:1px solid #91b6af;background:#f1f8f6}.toolbar{position:sticky;top:0;padding:12px;background:white;border-bottom:1px solid #aaa;display:flex;gap:18px;align-items:center}button{padding:8px 14px;font:inherit;cursor:pointer}.game{break-before:page}.diagram{display:inline-block;vertical-align:top;width:31%;margin-right:2%;break-inside:avoid}.diagram svg{width:100%;height:auto}.graph{width:100%;height:auto}svg text{font:12px sans-serif;fill:#263238}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}small{font-size:13px}.decision-table{font-size:14px}.decision-table td{padding:4px 7px}.game-pages{display:none}body.show-games .game-pages{display:block}.details{display:none}body.show-details .details{display:block}.cost-chart,.cards{break-inside:avoid}.chart{width:100%;height:auto;display:block}.cards{display:flex;gap:18px;align-items:flex-start}.card{flex:1;max-width:32%;min-width:0;break-inside:avoid}.card svg{width:100%;height:auto}.card p{font-size:14px;margin:6px 0}.card h3{font-size:16px;margin:0 0 6px}.intro{margin:8px 0}.subtitle{font-size:19px;font-weight:600}.next{border-top:1px solid #cbd3d6;margin-top:22px;padding-top:12px}.legend{display:flex;flex-wrap:wrap;gap:8px 22px;margin:8px 0}.legend span{white-space:nowrap}.key{display:inline-block;width:12px;height:12px;border:1px solid #6d777b;margin-right:6px}.visual-set h2{margin:20px 0 6px}.visual-set p{margin:6px 0}.details{break-before:page}@media(max-width:600px){.toolbar{position:static;flex-wrap:wrap}.cards{flex-wrap:wrap}.card{max-width:none;flex-basis:100%}}@page{size:A4;margin:16mm}@media print{body{font-size:10pt;line-height:1.3;margin:0;padding:0;max-width:none}h1{margin-top:0}p{margin:6px 0}.toolbar,.no-print{display:none!important}h1{font-size:21pt}h2{font-size:16pt}th,td{padding:4px}thead{display:table-header-group}tr{break-inside:avoid}a{color:inherit;text-decoration:none}.diagram{width:31%}pre{font-size:8pt}.decision-table{font-size:9pt}.coverage{background:white}.cost-chart,.cards{break-inside:avoid}.card p{font-size:9pt}.card h3{font-size:10pt}.visual-set h2{font-size:14pt}.card{max-width:32%}.intro{font-size:10pt}}
 </style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button><label><input type="checkbox" onchange="document.body.classList.toggle('show-games',this.checked)"> Game pages and engine details</label><label><input type="checkbox" onchange="document.body.classList.toggle('show-details',this.checked)"> Detailed tables</label></div>"#,
     );
@@ -546,4 +563,53 @@ mod tests {
 
 fn display_value(value: &serde_json::Value) -> String {
     value.as_str().map(escape).unwrap_or_else(|| value.to_string())
+}
+
+// Presentation data for Qt's vector PDF painter. Uses the same frozen counts
+// and position selection as the browser summary; never starts engine analysis.
+pub(crate) fn pdf_data(s: &Snapshot) -> Result<serde_json::Value> {
+    use serde_json::json;
+    let report = &s.report;
+    let mut groups = Vec::new();
+    for (index, group) in report["groups"].as_array().into_iter().flatten().enumerate() {
+        let mut cards = Vec::new();
+        for decision in highlighted(group) {
+            let Some(member) = s.group.members.iter()
+                .find(|m| Some(m.game_id) == decision["game_id"].as_i64()) else { continue; };
+            let record = crate::extract_main_variation(&crate::parse_collection(member.sgf.as_bytes())?)?;
+            let states = crate::replay_positions(&record)?;
+            let turn = decision["move"].as_u64().unwrap_or(1) as usize;
+            let Some(state) = states.get(turn.saturating_sub(1)) else { continue; };
+            let played = record.moves.get(turn.saturating_sub(1)).and_then(|m| m.point);
+            let played_name = played.map(|p| state.board.point_name(p)).transpose()?.unwrap_or_else(|| "pass".into());
+            let size = u16::from(state.board.size());
+            let stones: Vec<_> = (0..size*size).filter_map(|p| state.board.colour_at(p)
+                .map(|c| json!([p % size, p / size, c == Colour::Black]))).collect();
+            cards.push(json!({
+                "title": format!("{} — {}", member.black, member.white),
+                "context": format!("{} · You: {} · Result: {}", member.date, colour(member.colour), member.result),
+                "move": turn, "played_name": played_name,
+                "win_before": number(&decision["win_before"])*100.0,
+                "win_after": number(&decision["win_after"])*100.0,
+                "loss": number(&decision["loss"]), "already_unlikely":decision["already_unlikely"] == true,
+                "size":size, "stones":stones, "played":played.map(|p| [p%size,p/size])
+            }));
+        }
+        groups.push(json!({
+            "heading":format!("Estimated cost of my moves · analysis {}", index+1),
+            "description":format!("{} assessed moves · {} games · {} visits · {} rules · komi {}",
+                group["decisions"], group["games"], group["visits"],
+                group["rules"].as_str().unwrap_or(""), group["komi"].as_str().map(str::to_owned).unwrap_or_else(||group["komi"].to_string())),
+            "moves":group["decisions"], "buckets":group["buckets"], "cards":cards,
+            "by_win":group["win_examples"].as_array().is_some_and(|a|!a.is_empty())
+        }));
+    }
+    Ok(json!({
+        "title":report_title(s), "heading":s.group.name, "subtitle":s.label,
+        "saved":timestamp(s.created_at), "total":s.group.members.len(),
+        "coverage":[report["complete"].as_u64().unwrap_or(0),report["partial"].as_u64().unwrap_or(0),
+            report["pending"].as_array().map_or(0,Vec::len) as u64,report["excluded"].as_u64().unwrap_or(0)],
+        "unfinished":report["period"]["unfinished"] == true,
+        "groups":groups
+    }))
 }

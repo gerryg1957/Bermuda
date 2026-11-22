@@ -19,6 +19,7 @@ fn main() {
         println!("cargo:rerun-if-changed=../packaging/windows/bermuda.ico");
     }
 
+    println!("cargo:rerun-if-changed=src/report_pdf.h");
     CxxQtBuilder::new_qml_module(
         QmlModule::new("org.bermuda.app")
             .qml_file("src/qml/Main.qml")
@@ -38,6 +39,7 @@ fn main() {
             .qml_file("src/qml/ReplyInfluenceAnalysis.qml"),
     )
     .qrc_resources(["src/qml/assets/lgc-logo.png", "src/qml/FilePaths.js", "src/qml/SnapshotTrends.js", "src/qml/LiveTrends.js"])
+    .include_dir("src")
     .file("src/app.rs")
     .file("src/database_operation_model.rs")
     .file("src/joseki_model.rs")
