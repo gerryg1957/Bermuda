@@ -1,4 +1,5 @@
 pub mod personal_snapshots;
+pub mod study_identity;
 mod snapshot_html;
 pub mod game_analysis;
 pub mod board;

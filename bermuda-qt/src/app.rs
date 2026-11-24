@@ -136,6 +136,12 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "addOpenedGameToMyGames"]
         fn add_opened_game_to_my_games(self: Pin<&mut BermudaApp>) -> bool;
+        #[qinvokable]
+        #[cxx_name = "openedGameIdentity"]
+        fn opened_game_identity(self: &BermudaApp) -> QString;
+        #[qinvokable]
+        #[cxx_name = "identifyOpenedGame"]
+        fn identify_opened_game(self: Pin<&mut BermudaApp>, side: &QString, remember: bool) -> bool;
 
         #[qinvokable]
         #[cxx_name = "addPlayedGameToMyGames"]
@@ -308,6 +314,15 @@ mod ffi {
         #[qinvokable]
         #[cxx_name = "cancelKataGoInstall"]
         fn cancel_katago_install(self: Pin<&mut BermudaApp>);
+
+        #[qinvokable]
+        #[cxx_name = "isKataGoAppImage"]
+        fn is_katago_appimage(self: &BermudaApp, path: &QString) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "prepareKataGoAppImage"]
+        fn prepare_katago_appimage(self: Pin<&mut BermudaApp>, path: &QString) -> bool;
+
 
         #[qinvokable]
         #[cxx_name = "kataGoEnvironmentJson"]
@@ -1142,8 +1157,8 @@ impl ffi::BermudaApp {
         let path = PathBuf::from(path.to_string());
 
         let result = {
-            let self_ref = self.as_ref();
-            delete_study_library_document_path(self_ref.rust(), &path)
+            let mut rust = self.as_mut().rust_mut();
+            delete_study_library_document_path(&mut rust, &path)
         };
 
         match result {
@@ -1376,15 +1391,37 @@ impl ffi::BermudaApp {
     }
 
     fn add_opened_game_to_my_games(mut self: Pin<&mut Self>) -> bool {
+        self.as_mut().identify_opened_game(&QString::default(), false)
+    }
+
+    fn opened_game_identity(&self) -> QString {
+        let result = (|| -> Result<String, String> {
+            let document = self.rust().loaded_document.as_ref().ok_or("Open an SGF game first")?;
+            let record = opened_game_record(document)?;
+            let project = open_or_create_personal_project()?;
+            let state = bermuda::study_identity::inspect(&project, &record).map_err(|e| e.to_string())?;
+            serde_json::to_string(&state).map_err(|e| e.to_string())
+        })();
+        QString::from(match result {
+            Ok(json) => json,
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        })
+    }
+
+    fn identify_opened_game(mut self: Pin<&mut Self>, side: &QString, remember: bool) -> bool {
         self.as_mut().set_error_message(QString::default());
         let result = (|| {
             let document = self.rust().loaded_document.as_ref()
                 .ok_or_else(|| "Open an SGF game first".to_owned())?;
             let record = opened_game_record(document)?;
             let project = open_or_create_personal_project()?;
-            // Content identity avoids duplicate imports, even after reopening a file.
-            let locator = bermuda::canonical_hash_hex(&record).map_err(|e| e.to_string())?;
-            import_personal_record(&project, "Imported personal games", "1", &locator, &record)
+            let side = match side.to_string().as_str() {
+                "" => None,
+                "black" => Some(bermuda::player_directory::PlayerSide::Black),
+                "white" => Some(bermuda::player_directory::PlayerSide::White),
+                _ => return Err("Choose Black or White".to_owned()),
+            };
+            bermuda::study_identity::add(&project, &record, side, remember).map_err(|e| format!("{e:#}"))
         })();
         match result {
             Ok(_) => true,
@@ -2573,6 +2610,45 @@ impl ffi::BermudaApp {
                 match result {
                     Ok(paths) => {
                         app.as_mut().set_katago_install_status(QString::from("Download verified. Testing analysis…"));
+                        app.as_mut().set_katago_install_paths_json(QString::from(paths));
+                    }
+                    Err(error) => app.as_mut().set_katago_install_status(QString::from(error)),
+                }
+            });
+        });
+        true
+    }
+
+    fn is_katago_appimage(&self, path: &QString) -> bool {
+        cfg!(target_os = "linux") && crate::katago_install::is_appimage(Path::new(&path.to_string()))
+    }
+
+    fn prepare_katago_appimage(mut self: Pin<&mut Self>, path: &QString) -> bool {
+        if self.as_ref().rust().katago_installing { return false; }
+        if env::var_os("BERMUDA_KATAGO_EXECUTABLE").is_some() { return false; }
+        let root = match katago_working_directory() {
+            Ok(path) => path.join("managed"),
+            Err(error) => { self.as_mut().set_katago_install_status(QString::from(error)); return false; }
+        };
+        let source = PathBuf::from(path.to_string());
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.as_mut().rust_mut().katago_install_cancel = Some(Arc::clone(&cancel));
+        self.as_mut().set_katago_install_paths_json(QString::default());
+        self.as_mut().set_katago_install_status(QString::from("Extracting selected AppImage…"));
+        self.as_mut().set_katago_installing(true);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let result = crate::katago_install::prepare_appimage(&source, &root, &cancel);
+            let _ = qt_thread.queue(move |mut app| {
+                app.as_mut().set_katago_installing(false);
+                app.as_mut().rust_mut().katago_install_cancel = None;
+                if cancel.load(Ordering::Relaxed) {
+                    app.as_mut().set_katago_install_status(QString::from("Preparation cancelled. Saved settings are unchanged."));
+                    return;
+                }
+                match result {
+                    Ok(paths) => {
+                        app.as_mut().set_katago_install_status(QString::from("AppImage extracted. Test setup, then Save to use it."));
                         app.as_mut().set_katago_install_paths_json(QString::from(paths));
                     }
                     Err(error) => app.as_mut().set_katago_install_status(QString::from(error)),
@@ -3824,10 +3900,17 @@ fn document_uses_study_library_path(document: Option<&LoadedDocument>, target: &
 }
 
 fn delete_study_library_document_path(
-    app: &BermudaAppRust,
+    app: &mut BermudaAppRust,
     requested: &Path,
 ) -> Result<(), String> {
-    let root = study_library_root()?;
+    delete_study_library_document_in_root(app, requested, &study_library_root()?)
+}
+
+fn delete_study_library_document_in_root(
+    app: &mut BermudaAppRust,
+    requested: &Path,
+    root: &Path,
+) -> Result<(), String> {
     let canonical_root = fs::canonicalize(&root)
         .map_err(|error| format!("opening Study Library {}: {error}", root.display()))?;
     let target = fs::canonicalize(requested)
@@ -3855,29 +3938,32 @@ fn delete_study_library_document_path(
         return Err("refusing to delete a file without Bermuda Study metadata".to_owned());
     }
 
-    let active = document_uses_study_library_path(app.loaded_document.as_ref(), &target);
-    let parked = app.workspace_snapshot.as_ref().is_some_and(|snapshot| {
-        document_uses_study_library_path(snapshot.document.as_ref(), &target)
-            || snapshot
-                .search_source_snapshot
-                .as_ref()
-                .is_some_and(|source| {
-                    document_uses_study_library_path(Some(&source.document), &target)
-                })
-    });
-    let search_source = app
-        .search_source_snapshot
-        .as_ref()
-        .is_some_and(|source| document_uses_study_library_path(Some(&source.document), &target));
-
-    if active || parked || search_source {
-        return Err(
-            "close or replace this Study document before deleting it from the library".to_owned(),
-        );
+    // Resolve references before unlinking: canonicalize cannot resolve the file
+    // afterwards. Include parked/search/played copies so restoring one cannot
+    // silently recreate the deleted library entry.
+    let mut documents = Vec::new();
+    documents.extend(app.loaded_document.iter_mut());
+    documents.extend(app.played_game_document.iter_mut());
+    if let Some(source) = app.search_source_snapshot.as_mut() {
+        documents.push(&mut source.document);
     }
+    if let Some(snapshot) = app.workspace_snapshot.as_mut() {
+        documents.extend(snapshot.document.iter_mut());
+        if let Some(source) = snapshot.search_source_snapshot.as_mut() {
+            documents.push(&mut source.document);
+        }
+    }
+    let matching: Vec<_> = documents.into_iter()
+        .filter(|document| document_uses_study_library_path(Some(document), &target))
+        .collect();
 
+    // Do not change any in-memory state if deletion fails.
     fs::remove_file(&target)
-        .map_err(|error| format!("deleting Study document {}: {error}", target.display()))
+        .map_err(|error| format!("deleting Study document {}: {error}", target.display()))?;
+    for document in matching {
+        document.study.library_path = None;
+    }
+    Ok(())
 }
 
 fn study_library_catalogue_json() -> Result<String, String> {
@@ -6172,6 +6258,70 @@ mod played_game_record_tests {
         assert_eq!(fs::read_to_string(&source).unwrap(), original);
     }
 
+
+    #[test]
+    fn deleting_saved_study_keeps_open_and_parked_work_unsaved() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let source = temp.path().join("source.sgf");
+        let original = "(;SZ[19]PB[Me]PW[Opponent];B[dd]C[note](;W[pp])(;W[qq]C[variation]))";
+        fs::write(&source, original).unwrap();
+        let mut document = load_sgf_document(source.to_str().unwrap()).unwrap();
+        let saved_path = library.join("saved.sgf");
+        document.study.library_path = Some(saved_path.clone());
+        let saved = saved_study_copy(&document).unwrap();
+        let mut unrelated = saved.clone();
+        let other_path = library.join("other.sgf");
+        unrelated.study.library_path = Some(other_path.clone());
+        persist_study_document(&mut unrelated).unwrap();
+        let before = write_collection_sgf(saved.study.collection.as_ref().unwrap());
+        let mut app = BermudaAppRust::default();
+        app.loaded_document = Some(saved.clone());
+        app.played_game_document = Some(unrelated);
+        app.search_source_snapshot = Some(SearchSourceSnapshot { document: saved.clone(), move_number: 1 });
+        app.workspace_snapshot = Some(WorkspaceSnapshot {
+            document: Some(saved.clone()), move_number: 2,
+            search_source_snapshot: Some(SearchSourceSnapshot { document: saved, move_number: 1 }),
+        });
+        delete_study_library_document_in_root(&mut app, &saved_path, &library).unwrap();
+        assert!(!saved_path.exists());
+        assert!(other_path.exists());
+        assert_eq!(fs::read_to_string(&source).unwrap(), original);
+        let parked = app.workspace_snapshot.as_ref().unwrap();
+        for document in [app.loaded_document.as_ref().unwrap(),
+            &app.search_source_snapshot.as_ref().unwrap().document,
+            parked.document.as_ref().unwrap(),
+            &parked.search_source_snapshot.as_ref().unwrap().document] {
+            assert!(document.study.library_path.is_none());
+            assert_eq!(write_collection_sgf(document.study.collection.as_ref().unwrap()), before);
+        }
+        assert_eq!(parked.move_number, 2);
+        assert_eq!(app.played_game_document.as_ref().unwrap().study.library_path, Some(other_path));
+        // A later save writes the retained content to a new destination.
+        let mut retained = app.loaded_document.take().unwrap();
+        retained.study.library_path = Some(library.join("new-copy.sgf"));
+        persist_study_document(&mut retained).unwrap();
+        assert!(!saved_path.exists());
+        assert_eq!(fs::read_to_string(library.join("new-copy.sgf")).unwrap(), before);
+    }
+
+    #[test]
+    fn rejected_study_deletion_preserves_open_destination_and_source_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("library");
+        fs::create_dir(&library).unwrap();
+        let source = library.join("ordinary.sgf");
+        let original = "(;SZ[19];B[dd])";
+        fs::write(&source, original).unwrap();
+        let mut document = load_sgf_document(source.to_str().unwrap()).unwrap();
+        document.study.library_path = Some(source.clone());
+        let mut app = BermudaAppRust::default();
+        app.loaded_document = Some(document);
+        assert!(delete_study_library_document_in_root(&mut app, &source, &library).is_err());
+        assert_eq!(app.loaded_document.as_ref().unwrap().study.library_path, Some(source.clone()));
+        assert_eq!(fs::read_to_string(&source).unwrap(), original);
+    }
 
     #[test]
     fn candidate_coordinates_convert_both_edges_and_reject_out_of_bounds() {

@@ -132,6 +132,8 @@ ApplicationWindow {
         property bool guidedTest: false
         property bool guidedSaved: false
         property bool guidedDownloaded: false
+        readonly property bool selectedAppImage: !guided
+            && katagoSetupController.isKataGoAppImage(katagoExecutableField.text)
         property var installPlan: ({"available": false, "description": ""})
         property string testedSelection: ""
         property string statusText: ""
@@ -316,10 +318,15 @@ ApplicationWindow {
         Connections {
             target: katagoSetupController
             function onKatago_install_paths_jsonChanged() {
-                if (!katagoSetupDialog.opened || !katagoSetupDialog.guidedTest
+                if (!katagoSetupDialog.opened
                         || katagoSetupController.katago_install_paths_json.length === 0)
                     return
                 const paths = JSON.parse(katagoSetupController.katago_install_paths_json)
+                if (paths.custom_appimage) {
+                    katagoExecutableField.text = paths.executable
+                    return // Keep model/config; require an explicit test and Save.
+                }
+                if (!katagoSetupDialog.guidedTest) return
                 katagoExecutableField.text = paths.executable
                 katagoModelField.text = paths.model
                 katagoConfigField.text = paths.config
@@ -566,6 +573,32 @@ ApplicationWindow {
                     }
                 }
                 Label {
+                    visible: katagoSetupDialog.selectedAppImage
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("This executable is an AppImage. Prepare it before testing: Bermuda will copy and extract it into its own data folder, avoiding the FUSE mounting required by AppImages inside Flatpak. Preparation runs the selected program; use an AppImage you trust. Your original file, network and configuration are kept unchanged.")
+                }
+                Button {
+                    visible: katagoSetupDialog.selectedAppImage
+                    text: qsTr("Prepare AppImage…")
+                    enabled: !katagoSetupDialog.busy && !katagoSetupDialog.fromEnvironment("executable")
+                    onClicked: {
+                        katagoSetupDialog.invalidate()
+                        katagoSetupController.prepareKataGoAppImage(katagoExecutableField.text)
+                    }
+                }
+                Label {
+                    visible: !katagoSetupDialog.guided && katagoSetupController.katago_install_status.length > 0
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: katagoSetupController.katago_install_status
+                }
+                Button {
+                    visible: !katagoSetupDialog.guided && katagoSetupController.katago_installing
+                    text: qsTr("Cancel preparation")
+                    onClicked: katagoSetupController.cancelKataGoInstall()
+                }
+                Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     text: qsTr("Neural-network file (including a custom network)")
@@ -645,13 +678,13 @@ ApplicationWindow {
             Button {
                 text: qsTr("Test setup")
                 visible: !katagoSetupDialog.guided
-                enabled: !katagoSetupDialog.busy && katagoModelField.text.trim().length > 0
+                enabled: !katagoSetupDialog.busy && !katagoSetupDialog.selectedAppImage && katagoModelField.text.trim().length > 0
                 onClicked: katagoSetupDialog.startTest()
             }
             Button {
                 text: qsTr("Test performance")
                 visible: !katagoSetupDialog.guided
-                enabled: !katagoSetupDialog.busy && katagoModelField.text.trim().length > 0
+                enabled: !katagoSetupDialog.busy && !katagoSetupDialog.selectedAppImage && katagoModelField.text.trim().length > 0
                 onClicked: katagoSetupDialog.startBenchmark()
             }
             Button {
@@ -1313,6 +1346,7 @@ ApplicationWindow {
         id: playerIdentityDialog
 
         onIdentitiesChanged: {
+            root.studyIdentityRevision++
             /*
              * Existing catalogue/search rows contain presentation metadata
              * captured before the identity edit. Refresh the catalogue and
@@ -1918,7 +1952,8 @@ ApplicationWindow {
   Dialog {
       id: studyLibraryDeleteDialog
 
-      title: qsTr("Delete Study document?")
+      title: qsTr("Delete saved study?")
+      parent: Overlay.overlay
       modal: true
       focus: true
       standardButtons: Dialog.Yes | Dialog.No
@@ -1937,8 +1972,13 @@ ApplicationWindow {
               if (gameController.deleteStudyLibraryDocument(
                           entry.path)) {
                   studyLibraryDialog.refreshEntries()
+                  studyDeleteFeedback.title = qsTr("Saved study deleted")
+                  studyDeleteFeedback.message = qsTr("The saved copy has been deleted. Any open work is still available as an unsaved study. Use Save study to keep it as a new saved copy.")
+                  studyDeleteFeedback.open()
               } else {
-                  console.warn(gameController.error_message)
+                  studyDeleteFeedback.title = qsTr("Could not delete saved study")
+                  studyDeleteFeedback.message = gameController.error_message
+                  studyDeleteFeedback.open()
               }
           }
 
@@ -1951,6 +1991,7 @@ ApplicationWindow {
       contentItem: Label {
           width: parent !== null ? parent.width : implicitWidth
           wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
 
           text: {
               const entry =
@@ -1962,11 +2003,28 @@ ApplicationWindow {
               return qsTr(
                   "Delete “%1” from the Study Library?\n\n"
                   + "This deletes Bermuda's saved Study document. "
-                  + "The original game or SGF source is not changed.")
+                  + "Any open board, notes and variations will remain as an unsaved study. "
+                  + "Save study will create a new saved copy.\n\n"
+                  + "The original SGF, My games entry and KataGo analysis are not changed.")
                   .arg(entry.title)
           }
       }
   }
+
+    Dialog {
+        id: studyDeleteFeedback
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Ok
+        width: Math.min(root.width - 32, 520)
+        property string message: ""
+        contentItem: Label {
+            text: studyDeleteFeedback.message
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+        }
+    }
 
     function safeSgfFilenamePart(value, fallback) {
         let cleaned = value === undefined || value === null
@@ -2833,7 +2891,8 @@ menuBar: MenuBar {
         Action {
             text: qsTr("Add Current Game to &My Games")
 
-            enabled: root.canAddOpenedGame || (root.playingGame
+            enabled: (root.canAddOpenedGame && !root.openedIdentity.existing
+                     && !!root.openedIdentity.side) || (root.playingGame
                      && root.localGameFinished
                      && !root.localGameAddedToMyGames)
 
@@ -3521,14 +3580,85 @@ menuBar: MenuBar {
         && boardPane.selectedGame !== null && boardPane.selectedGame.gameId < 0
         && gameController.move_count > 0 && !gameController.whole_game_busy
 
+    property int studyIdentityRevision: 0
+    readonly property var openedIdentity: {
+        // Read after document replacement and after edits to Manage my names.
+        const selected = boardPane.selectedGame
+        const revision = root.studyIdentityRevision
+        if (!root.canAddOpenedGame || selected === null) return ({})
+        try { return JSON.parse(gameController.openedGameIdentity()) }
+        catch (error) { return ({error: qsTr("Could not check your player names.")}) }
+    }
+
     function addCurrentOpenedGameToMyGames() {
-        if (!root.canAddOpenedGame) return
+        if (!root.canAddOpenedGame || root.openedIdentity.existing || !root.openedIdentity.side) return
         const added = gameController.addOpenedGameToMyGames()
+        root.studyIdentityRevision++
         if (added) gameList.reloadMyGamesProject()
         myGamesAddResult.message = added
             ? qsTr("The game is now in My games. You can continue studying here, or find it under Home → My games.")
             : gameController.error_message
         myGamesAddResult.open()
+    }
+
+    Dialog {
+        id: identifyStudyPlayer
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        title: qsTr("This is my game")
+        modal: true
+        width: Math.min(root.width - 32, 540)
+        property string chosenSide: ""
+        property string failure: ""
+        onOpened: { chosenSide = ""; rememberStudyName.checked = false; failure = "" }
+        contentItem: ColumnLayout {
+            Label { text: qsTr("Which player are you?"); Layout.fillWidth: true; wrapMode: Text.Wrap }
+            RadioButton {
+                text: qsTr("Black: %1").arg(root.openedIdentity.black || qsTr("Unnamed player"))
+                checked: identifyStudyPlayer.chosenSide === "black"
+                onClicked: identifyStudyPlayer.chosenSide = "black"
+            }
+            RadioButton {
+                text: qsTr("White: %1").arg(root.openedIdentity.white || qsTr("Unnamed player"))
+                checked: identifyStudyPlayer.chosenSide === "white"
+                onClicked: identifyStudyPlayer.chosenSide = "white"
+            }
+            CheckBox {
+                id: rememberStudyName
+                text: qsTr("Remember this name for future games")
+                enabled: identifyStudyPlayer.chosenSide.length > 0
+                    && String(root.openedIdentity[identifyStudyPlayer.chosenSide] || "").trim().length > 0
+                onEnabledChanged: if (!enabled) checked = false
+            }
+            Label {
+                text: rememberStudyName.checked
+                    ? qsTr("This name will be added to Manage my names. Original SGF names stay unchanged.")
+                    : qsTr("Just this game: other games with the same name will not be identified as yours.")
+                Layout.fillWidth: true; wrapMode: Text.Wrap
+            }
+            Label {
+                text: identifyStudyPlayer.failure; visible: text.length > 0
+                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+            }
+        }
+        footer: DialogButtonBox {
+            Button {
+                text: qsTr("Add to My games")
+                enabled: identifyStudyPlayer.chosenSide.length > 0 && root.canAddOpenedGame
+                onClicked: {
+                    if (!gameController.identifyOpenedGame(identifyStudyPlayer.chosenSide, rememberStudyName.checked)) {
+                        identifyStudyPlayer.failure = gameController.error_message
+                        return
+                    }
+                    identifyStudyPlayer.close()
+                    root.studyIdentityRevision++
+                    gameList.reloadMyGamesProject()
+                    myGamesAddResult.message = qsTr("The game is now in My games. You can continue studying here.")
+                    myGamesAddResult.open()
+                }
+            }
+            Button { text: qsTr("Cancel"); onClicked: identifyStudyPlayer.close() }
+        }
     }
 
     Dialog {
@@ -3811,9 +3941,14 @@ menuBar: MenuBar {
             onClicked: root.trialReturnToSource()
         }
         Button {
-            visible: root.navigationTrial && root.canAddOpenedGame
+            visible: root.navigationTrial && root.canAddOpenedGame && !!root.openedIdentity.side && !root.openedIdentity.existing
             text: qsTr("Add to My games")
             onClicked: root.addCurrentOpenedGameToMyGames()
+        }
+        Label {
+            visible: root.navigationTrial && (root.studyingMyGame || root.openedIdentity.existing === true)
+            text: qsTr("In My games")
+            Layout.leftMargin: 8
         }
 
 
@@ -4874,6 +5009,18 @@ menuBar: MenuBar {
                                             }
                                         }
 
+                                        Button {
+                                            visible: root.canAddOpenedGame && !root.openedIdentity.existing && !root.openedIdentity.side
+                                            text: qsTr("This is my game…")
+                                            onClicked: identifyStudyPlayer.open()
+                                        }
+                                        Label {
+                                            visible: root.canAddOpenedGame && !!root.openedIdentity.error
+                                            text: root.openedIdentity.error || ""
+                                            textFormat: Text.PlainText
+                                            wrapMode: Text.Wrap
+                                            Layout.fillWidth: true
+                                        }
                                         Frame {
                                             id: sourceCommentSection
 

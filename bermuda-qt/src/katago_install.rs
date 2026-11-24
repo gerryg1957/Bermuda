@@ -194,6 +194,36 @@ fn unpack(zip: &Path, directory: &Path, cancel: &AtomicBool) -> Result<(), Strin
     Ok(())
 }
 
+/// Detect the AppImage ELF marker, including files distributed simply as `katago`.
+pub fn is_appimage(path: &Path) -> bool {
+    let mut header = [0u8; 11];
+    fs::File::open(path).and_then(|mut f| f.read_exact(&mut header)).is_ok()
+        && &header[..4] == b"\x7fELF" && &header[8..10] == b"AI"
+        && matches!(header[10], 1 | 2)
+}
+
+/// Explicitly requested extraction of a user-selected executable. Unlike guided
+/// downloads this is not hash-verified: the user must trust the selected program.
+pub fn prepare_appimage(source: &Path, root: &Path, cancel: &AtomicBool) -> Result<String, String> {
+    if !cfg!(target_os = "linux") { return Err("AppImage preparation is available on Linux only.".into()); }
+    check_cancel(cancel)?;
+    fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let staging = tempfile::Builder::new().prefix("custom-appimage-").tempdir_in(root).map_err(|e| e.to_string())?;
+    let copy = staging.path().join("engine.AppImage");
+    fs::copy(source, &copy).map_err(|e| format!("Copying selected AppImage: {e}"))?;
+    let mut header = [0u8; 11];
+    fs::File::open(&copy).and_then(|mut f| f.read_exact(&mut header)).map_err(|e| e.to_string())?;
+    if !is_appimage(&copy) || header[10] != 2 {
+        return Err("Select a type-2 Linux AppImage. For other packages, extract them yourself and select their executable or AppRun.".into());
+    }
+    check_cancel(cancel)?;
+    let executable = extract_appimage(&copy, staging.path(), cancel)?;
+    check_cancel(cancel)?;
+    let paths = serde_json::json!({"executable": executable, "custom_appimage": true}).to_string();
+    let _ = staging.keep();
+    Ok(paths)
+}
+
 fn extract_appimage(engine: &Path, directory: &Path, cancel: &AtomicBool) -> Result<PathBuf, String> {
     #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
@@ -201,7 +231,7 @@ fn extract_appimage(engine: &Path, directory: &Path, cancel: &AtomicBool) -> Res
     }
     let mut child = Command::new(engine).arg("--appimage-extract").current_dir(directory)
         .stdout(Stdio::null()).stderr(Stdio::null()).spawn()
-        .map_err(|e| format!("Preparing the downloaded engine: {e}"))?;
+        .map_err(|e| format!("Preparing the AppImage: {e}"))?;
     let started = Instant::now();
     loop {
         if cancel.load(Ordering::Relaxed) || started.elapsed() > Duration::from_secs(120) {
@@ -211,7 +241,7 @@ fn extract_appimage(engine: &Path, directory: &Path, cancel: &AtomicBool) -> Res
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                if !status.success() { return Err(format!("The downloaded engine could not be prepared ({status}). Your Linux system may be incompatible with this package.")); }
+                if !status.success() { return Err(format!("The AppImage could not be prepared ({status}). Your Linux system may be incompatible with this package.")); }
                 break;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(100)),
@@ -219,7 +249,7 @@ fn extract_appimage(engine: &Path, directory: &Path, cancel: &AtomicBool) -> Res
         }
     }
     let executable = directory.join("squashfs-root/AppRun");
-    if !executable.is_file() { return Err("Downloaded engine has no application entry point".into()); }
+    if !executable.is_file() { return Err("Extracted AppImage has no AppRun entry point".into()); }
     Ok(executable)
 }
 
@@ -259,6 +289,29 @@ pub fn install(root: &Path, faster: bool, cancel: &AtomicBool, progress: impl Fn
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn appimage_detection_uses_header_not_filename() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("katago");
+        fs::write(&path, b"\x7fELF\x02\x01\x01\x00AI\x02").unwrap();
+        assert!(is_appimage(&path));
+        fs::write(&path, b"ordinary executable").unwrap();
+        assert!(!is_appimage(&path));
+        assert!(!is_appimage(&root.path().join("missing.AppImage")));
+    }
+    #[test]
+    fn custom_preparation_rejects_invalid_files_and_preserves_original() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("test.AppImage");
+        fs::write(&source, b"not an AppImage").unwrap();
+        let destination = root.path().join("managed");
+        assert!(prepare_appimage(&source, &destination, &AtomicBool::new(false)).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"not an AppImage");
+        if destination.exists() { assert_eq!(fs::read_dir(destination).unwrap().count(), 0); }
+        let destination = root.path().join("cancelled");
+        assert!(prepare_appimage(&source, &destination, &AtomicBool::new(true)).is_err());
+        assert!(!destination.exists());
+    }
     #[test]
     fn graphics_names_stay_with_their_pci_vendor() {
         let db = "1002  AMD\n\t1234  Card A\n10de  NVIDIA\n\t1234  Card B\n";

@@ -2,7 +2,26 @@
 
 **Status:** Canonical project-wide work plan.
 
-**Last updated:** 8 November 2026.
+**Last updated:** 23 November 2026.
+
+## Latest workflow update
+
+23 November 2026: Study → My games now checks the existing player-name aliases.
+Recognised personal games offer Add to My games; existing entries show In My
+games. This is my game… lets the user choose Black/White for one game, with an
+optional remembered alias for future imports. Game-local links and remembered
+names are saved atomically with the imported metadata; source SGF data and the
+open study are preserved. Core identity/import regression tests pass; full
+Rust/Qt desktop build and interactive acceptance remain to be checked.
+
+QML parsing and an isolated dialog interaction check also pass.
+
+Saved-study deletion follow-up: deleting an open saved copy now keeps the board,
+notes and variations in memory as an unsaved study. Active, parked, search-source
+and retained played-game references are detached only after the file is removed
+successfully. Save study then creates a new file. Confirmation explains this;
+success and errors are visible in a dialog. Original SGFs, My games and KataGo
+analysis are untouched. Desktop acceptance remains pending.
 
 ## Purpose
 
@@ -19,6 +38,22 @@ local play and working KataGo analysis.
 
 The question is therefore no longer simply which isolated feature comes next.
 The task is to make these parts form one coherent study workflow.
+
+## Played-move visibility — 24 November 2026
+
+Implemented: single-position review now shows the recorded next move with the
+same square outline as whole-game review, including when it coincides with a
+KataGo candidate. The played move's colour, coordinate and move number stay in
+the fixed heading. Removed the redundant “differs from recommendation” warning;
+a matching best move still has a short confirmation. Passes remain textual, and
+trial variations do not display a misleading recorded-move marker.
+
+Validation: the actual QML review panel passes an isolated controller test for
+single-position and whole-game review, candidate overlap, investigate/return,
+preview suppression, stale reports, passes and game end. Full application build
+and visual confirmation on Gerry's desktop remain the final local checks.
+
+Next: Chamber of Horrors report design.
 
 ## Guiding principle
 
@@ -605,3 +640,10 @@ filename and writes transactionally. Browser export remains available for
 optional detailed tables and individual game pages. Snapshot tests, standalone
 Qt PDF rendering (including multiple pages), and QML loading checked; full
 Bermuda desktop build remains to be checked on the user's installation.
+
+22 November 2026 follow-up: manual KataGo setup detects Linux AppImages,
+including extensionless packages, and offers explicit background preparation.
+A private extracted copy avoids FUSE mounting in Flatpak; custom model/config
+choices remain unchanged. Test setup and Save are still required. Guided setup
+continues to verify and extract its pinned downloads. Custom preparation needs
+an interactive Flatpak check on the tester's installation before packaging.

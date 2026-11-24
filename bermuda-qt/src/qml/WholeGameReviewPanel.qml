@@ -197,7 +197,7 @@ Frame {
     }
     // Separate from candidates: the recorded move is evidence, not an engine ranking.
     readonly property var playedMovePoint: {
-        if (positionOnly || previewActive || choosingOwnMove || pendingWhyVertex.length
+        if (previewActive || choosingOwnMove || pendingWhyVertex.length
                 || !matchesLoaded || !recordedMove || !controller
                 || controller.move_number !== selectedTurn || !recordedMove.vertex.Point) return null
         return {x: recordedMove.vertex.Point.x, y: report.board_size - 1 - recordedMove.vertex.Point.y}
@@ -347,6 +347,14 @@ Frame {
                 + (panel.gameIdentity && panel.gameIdentity.recordedResult ? qsTr(" · Recorded result: %1").arg(panel.gameIdentity.recordedResult) : "")
         }
         Label {
+            objectName: "recordedMoveHeading"
+            Layout.fillWidth: true; wrapMode: Text.Wrap
+            visible: panel.recordedMove !== null || (panel.controller !== null && panel.selectedTurn === panel.controller.move_count)
+            text: panel.recordedMove ? qsTr("□ Played: %1 %2 · move %3")
+                .arg(panel.recordedMove.colour).arg(panel.vertexName(panel.recordedMove.vertex)).arg(panel.selectedTurn + 1) : qsTr("End of recorded game")
+            font.bold: true
+        }
+        Label {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
             font.bold: true
@@ -385,22 +393,14 @@ Frame {
             ColumnLayout {
                 width: scroller.availableWidth
                 spacing: 8
-                Label {
-                    Layout.fillWidth: true; wrapMode: Text.Wrap
-                    visible: panel.recordedMove !== null || (panel.controller !== null && panel.selectedTurn === panel.controller.move_count)
-                    text: panel.recordedMove ? qsTr("□ Played in the game: %1 %2 (move %3)")
-                        .arg(panel.recordedMove.colour).arg(panel.vertexName(panel.recordedMove.vertex)).arg(panel.selectedTurn + 1) : qsTr("End of recorded game")
-                    font.bold: true
-                }
                 Label { Layout.fillWidth: true; wrapMode: Text.Wrap; text: panel.decisionContext(panel.currentDecision) }
                 RowLayout {
                     Layout.fillWidth: true
                     Label {
                         Layout.fillWidth: true; wrapMode: Text.Wrap
-                        visible: panel.recordedMove !== null && panel.candidates.length > 0
-                        text: panel.recordedMove && panel.candidates.length && JSON.stringify(panel.recordedMove.vertex) === JSON.stringify(panel.candidates[0].vertex)
-                            ? qsTr("The recorded move matches this search’s recommendation.")
-                            : qsTr("The recorded move differs from this search’s recommendation. Explore both before drawing a conclusion.")
+                        visible: panel.recordedMove !== null && panel.recommendedCandidate !== null
+                            && JSON.stringify(panel.recordedMove.vertex) === JSON.stringify(panel.recommendedCandidate.vertex)
+                        text: qsTr("Played the recommended move.")
                     }
                     Button {
                         text: qsTr("Investigate played move")

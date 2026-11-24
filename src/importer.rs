@@ -91,6 +91,15 @@ impl Importer {
         source_locator: &str,
         record: &GameRecord,
     ) -> Result<ImportOutcome> {
+        self.import_record_with_identity(source_name, source_version, source_locator, record, None)
+    }
+
+    /// Study imports attach the player's identity in the same transaction as
+    /// the metadata. Ordinary bulk imports retain their existing behaviour.
+    pub(crate) fn import_record_with_identity(
+        &mut self, source_name: &str, source_version: &str, source_locator: &str,
+        record: &GameRecord, identity: Option<(crate::player_directory::PlayerSide, bool)>,
+    ) -> Result<ImportOutcome> {
         if source_locator.trim().is_empty() {
             bail!("source locator must not be empty");
         }
@@ -177,6 +186,10 @@ impl Importer {
             &self.player_catalogue,
             record,
         )?;
+
+        if let Some((side, remember)) = identity {
+            crate::study_identity::attach(&transaction, game_source_id, record, side, remember)?;
+        }
 
         transaction
             .commit()

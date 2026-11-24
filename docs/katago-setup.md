@@ -121,3 +121,22 @@ Automatic GPU packages and Conservative / Suggested / Give it a try network
 recommendations remain pending. They require a verified engine/runtime route and
 a curated compatible model set; the CPU installation choices currently change
 worker counts with the same network. No GPU or network optimum is claimed.
+
+### Selecting an AppImage manually on Linux
+
+Manual setup recognises AppImages by their file header, even when named simply
+`katago`. Choose **Prepare AppImage…** to copy and extract the selected engine
+into Bermuda's own data directory. This runs the selected executable: use a
+trusted KataGo download. Unlike guided installation, custom files are not
+verified against Bermuda's pinned download hashes.
+
+The original file, model and configuration are unchanged. After preparation,
+the executable field points to the extracted `AppRun`. Choose **Test setup**,
+then **Save** after a successful test. Extraction runs in the background and
+can be cancelled; failed preparations remove their temporary copies. Completed
+copies remain available even if the subsequent analysis test fails.
+
+This avoids AppImage FUSE mounting inside Flatpak. It does not install missing
+GPU drivers or make every host executable compatible with the Flatpak runtime.
+Already extracted installations can still be selected directly; their entire
+supporting folder must remain accessible, not only the `AppRun` file.

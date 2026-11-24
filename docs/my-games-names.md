@@ -117,3 +117,24 @@ analysis. Previously preserved analysis snapshots remain unchanged.
 
 The optional database columns are added transactionally without changing schema
 version 8 or the compact move-file format. Old 0.8.3 builds can still open it.
+
+## Adding a study to My games (23 November 2026)
+
+Study → Open… still accepts any SGF without importing it. If exactly one player
+is recognised through Manage my names, **Add to My games** is offered. A game
+already in the personal collection shows **In My games**, including when its
+SGF is reopened under another filename.
+
+For an unfamiliar or ambiguous name, use **This is my game…** beside the study
+comments. Select Black or White, then add the game. The default is **Just this
+game**: only that game's player is linked to your identity. Optionally tick
+**Remember this name for future games** to add the exact spelling to Manage my
+names. This is useful for tournament records using your real name. Remembered
+names apply across import sources; use Just this game for generic names such
+as Player 1. Names already belonging to another identity cannot be remembered
+here: use the game-only choice or resolve the conflict in Manage my names.
+
+Original SGF names, ranks and moves remain unchanged. Your current study and
+variations stay open; the recorded main line is imported. Save study remains
+available for any game, whether or not you played it. Direct My games imports
+and games played inside Bermuda keep their existing workflows.
